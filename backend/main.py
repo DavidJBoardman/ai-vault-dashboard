@@ -98,15 +98,23 @@ async def get_pointcloud_chunk(
 
 @app.get("/api/pointcloud/preview")
 async def get_pointcloud_preview(
-    max_points: int = Query(50000, ge=1000, le=200000)
+    max_points: int = Query(100000, ge=1000, le=5000000)
 ) -> Dict[str, Any]:
-    """Get a downsampled preview of the point cloud."""
+    """Get a downsampled preview of the point cloud.
+    
+    Args:
+        max_points: Maximum number of points to return (1K to 5M).
+                   Higher values will take longer to transfer and render.
+    """
     processor = get_processor()
     
     if not processor.is_loaded():
         return {"points": [], "total": 0, "bounding_box": None}
     
+    print(f"Fetching up to {max_points:,} points for preview...")
     points = processor.get_downsampled_points(max_points)
+    print(f"Returning {len(points):,} points")
+    
     return {
         "points": points,
         "total": processor.point_count,
@@ -163,11 +171,11 @@ def main():
     
     args = parser.parse_args()
     
+    # Use app object directly for PyInstaller compatibility (not string reference)
     uvicorn.run(
-        "main:app",
+        app,
         host=args.host,
         port=args.port,
-        reload=args.reload,
     )
 
 

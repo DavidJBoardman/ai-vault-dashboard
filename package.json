@@ -11,14 +11,15 @@
     "dev:electron": "wait-on http://localhost:3000 && electron .",
     "build": "npm run build:electron && next build",
     "build:electron": "tsc -p electron/tsconfig.json",
+    "build:all": "npm run build:electron && next build && npm run backend:build",
     "start": "npm run build:electron && electron .",
-    "package": "npm run build && electron-builder",
-    "package:win": "npm run build && electron-builder --win",
-    "package:mac": "npm run build && electron-builder --mac",
-    "package:linux": "npm run build && electron-builder --linux",
+    "package": "npm run build:all && electron-builder",
+    "package:win": "npm run build:all && electron-builder --win",
+    "package:mac": "npm run build:all && electron-builder --mac",
+    "package:linux": "npm run build:all && electron-builder --linux",
     "lint": "next lint",
-    "backend:dev": "cd backend && python -m uvicorn main:app --reload --port 8765",
-    "backend:build": "cd backend && pyinstaller --onefile --name vault-backend main.py"
+    "backend:dev": "cd backend && ./venv/bin/python -m uvicorn main:app --reload --port 8765",
+    "backend:build": "cd backend && ./venv/bin/python -m PyInstaller --onefile --name vault-backend --hidden-import=pye57 --hidden-import=open3d --hidden-import=uvicorn --hidden-import=fastapi --hidden-import=uvicorn.logging --hidden-import=uvicorn.loops --hidden-import=uvicorn.loops.auto --hidden-import=uvicorn.protocols --hidden-import=uvicorn.protocols.http --hidden-import=uvicorn.protocols.http.auto --hidden-import=uvicorn.protocols.websockets --hidden-import=uvicorn.protocols.websockets.auto --hidden-import=uvicorn.lifespan --hidden-import=uvicorn.lifespan.on main.py"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.0",
@@ -77,17 +78,17 @@
     },
     "files": [
       "electron/**/*",
-      ".next/**/*",
+      "out/**/*",
       "public/**/*",
       "package.json"
     ],
     "extraResources": [
       {
-        "from": "backend/dist/",
-        "to": "backend",
-        "filter": ["**/*"]
+        "from": "backend/dist/vault-backend",
+        "to": "backend/vault-backend"
       }
     ],
+    "asar": false,
     "mac": {
       "target": "dmg",
       "icon": "build/icon.icns"

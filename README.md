@@ -183,7 +183,3 @@ ai-vault-interface/
 
 MIT
 
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
-

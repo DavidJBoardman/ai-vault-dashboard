@@ -7,6 +7,8 @@ import { PointCloudViewer, generateDemoPointCloud } from "@/components/point-clo
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
 import { useProjectStore } from "@/lib/store";
 import { 
   uploadE57, 
@@ -23,12 +25,23 @@ import {
   ChevronRight,
   Box,
   Layers,
-  Ruler,
   Loader2,
   Server,
-  ServerOff
+  ServerOff,
+  RefreshCw,
+  Eye
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// Point count presets
+const POINT_COUNT_PRESETS = [
+  { value: 50000, label: "50K" },
+  { value: 100000, label: "100K" },
+  { value: 250000, label: "250K" },
+  { value: 500000, label: "500K" },
+  { value: 1000000, label: "1M" },
+  { value: 2000000, label: "2M" },
+];
 
 export default function Step1UploadPage() {
   const router = useRouter();
@@ -48,7 +61,11 @@ export default function Step1UploadPage() {
   const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
   const [boundingBox, setBoundingBox] = useState<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null>(null);
   
-  // For demo purposes, generate sample data
+  // Point count controls
+  const [displayPointCount, setDisplayPointCount] = useState(100000);
+  const [totalPointCount, setTotalPointCount] = useState(0);
+  
+  // For demo purposes
   const [demoMode, setDemoMode] = useState(false);
 
   // Check backend health on mount
@@ -127,11 +144,12 @@ export default function Step1UploadPage() {
           boundingBox: response.data.boundingBox,
         });
         setBoundingBox(response.data.boundingBox);
+        setTotalPointCount(response.data.pointCount);
         
         setUploadProgress(80);
         
         // Now fetch the actual point cloud data
-        await fetchPointCloudData();
+        await fetchPointCloudData(displayPointCount);
         
         setUploadProgress(100);
       } else {
@@ -146,13 +164,14 @@ export default function Step1UploadPage() {
     }
   };
   
-  const fetchPointCloudData = async () => {
+  const fetchPointCloudData = async (maxPoints: number) => {
     setIsLoadingPoints(true);
     try {
-      const response = await getPointCloudPreview(75000);
+      const response = await getPointCloudPreview(maxPoints);
       
       if (response.success && response.data) {
         setPointCloudData(response.data.points);
+        setTotalPointCount(response.data.total);
         if (response.data.bounding_box) {
           setBoundingBox(response.data.bounding_box);
         }
@@ -165,6 +184,12 @@ export default function Step1UploadPage() {
       console.error("Failed to fetch point cloud:", error);
     } finally {
       setIsLoadingPoints(false);
+    }
+  };
+  
+  const handleRefreshPoints = async () => {
+    if (backendStatus === "online") {
+      await fetchPointCloudData(displayPointCount);
     }
   };
   
@@ -194,9 +219,10 @@ export default function Step1UploadPage() {
             boundingBox: response.data.boundingBox,
           });
           setBoundingBox(response.data.boundingBox);
+          setTotalPointCount(response.data.pointCount);
           
           // Fetch the demo points
-          await fetchPointCloudData();
+          await fetchPointCloudData(displayPointCount);
           setUploadProgress(100);
           return;
         }
@@ -205,6 +231,7 @@ export default function Step1UploadPage() {
       // Fallback to client-side demo generation
       const demoPoints = generateDemoPointCloud(50000);
       setPointCloudData(demoPoints);
+      setTotalPointCount(demoPoints.length);
       setPointCloudStats({
         pointCount: demoPoints.length,
         boundingBox: {
@@ -234,6 +261,12 @@ export default function Step1UploadPage() {
     const dy = (boundingBox.max.y - boundingBox.min.y).toFixed(1);
     const dz = (boundingBox.max.z - boundingBox.min.z).toFixed(1);
     return `${dx} × ${dy} × ${dz}`;
+  };
+  
+  const formatNumber = (n: number) => {
+    if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+    if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
+    return n.toString();
   };
 
   return (
@@ -361,34 +394,124 @@ export default function Step1UploadPage() {
           {/* 3D Viewer */}
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="font-display">Point Cloud Preview</CardTitle>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <Layers className="w-4 h-4" />
-                    {(currentProject?.pointCloudStats?.pointCount || pointCloudData.length).toLocaleString()} points
-                  </span>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => {
-                      setPointCloudData(null);
-                      setBoundingBox(null);
-                    }}
-                  >
-                    Upload New
-                  </Button>
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <CardTitle className="font-display">Point Cloud Preview</CardTitle>
+                  <CardDescription className="mt-1">
+                    Displaying {formatNumber(pointCloudData.length)} of {formatNumber(totalPointCount)} points
+                    {totalPointCount > pointCloudData.length && (
+                      <span className="text-amber-500 ml-2">
+                        ({((pointCloudData.length / totalPointCount) * 100).toFixed(1)}% shown)
+                      </span>
+                    )}
+                  </CardDescription>
                 </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => {
+                    setPointCloudData(null);
+                    setBoundingBox(null);
+                    setTotalPointCount(0);
+                  }}
+                >
+                  Upload New
+                </Button>
               </div>
             </CardHeader>
-            <CardContent>
-              <PointCloudViewer
-                points={pointCloudData}
-                className="h-[500px] rounded-lg overflow-hidden"
-                colorMode="height"
-                showGrid={true}
-                showBoundingBox={true}
-              />
+            <CardContent className="space-y-4">
+              {/* Point Count Controls */}
+              <div className="bg-muted/50 rounded-lg p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-muted-foreground" />
+                    <Label className="text-sm font-medium">Display Points</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-mono bg-background px-2 py-1 rounded">
+                      {formatNumber(displayPointCount)}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRefreshPoints}
+                      disabled={isLoadingPoints || backendStatus !== "online"}
+                      className="gap-1.5"
+                    >
+                      {isLoadingPoints ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3 h-3" />
+                      )}
+                      Reload
+                    </Button>
+                  </div>
+                </div>
+                
+                {/* Slider */}
+                <div className="space-y-2">
+                  <Slider
+                    value={[displayPointCount]}
+                    onValueChange={([v]) => setDisplayPointCount(v)}
+                    min={10000}
+                    max={Math.min(totalPointCount || 2000000, 2000000)}
+                    step={10000}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>10K</span>
+                    <span>{formatNumber(Math.min(totalPointCount || 2000000, 2000000))}</span>
+                  </div>
+                </div>
+                
+                {/* Quick presets */}
+                <div className="flex flex-wrap gap-2">
+                  {POINT_COUNT_PRESETS.filter(p => p.value <= (totalPointCount || 2000000)).map((preset) => (
+                    <Button
+                      key={preset.value}
+                      variant={displayPointCount === preset.value ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setDisplayPointCount(preset.value)}
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                  {totalPointCount > 0 && (
+                    <Button
+                      variant={displayPointCount === totalPointCount ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setDisplayPointCount(totalPointCount)}
+                    >
+                      All ({formatNumber(totalPointCount)})
+                    </Button>
+                  )}
+                </div>
+                
+                <p className="text-xs text-muted-foreground">
+                  <strong>Note:</strong> The viewer shows a subset for performance. Projections will use all {formatNumber(totalPointCount)} points at full resolution.
+                </p>
+              </div>
+              
+              {/* Viewer */}
+              <div className="relative">
+                {isLoadingPoints && (
+                  <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center rounded-lg">
+                    <div className="text-center space-y-2">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                      <p className="text-sm text-muted-foreground">Loading {formatNumber(displayPointCount)} points...</p>
+                    </div>
+                  </div>
+                )}
+                <PointCloudViewer
+                  points={pointCloudData}
+                  className="h-[500px] rounded-lg overflow-hidden"
+                  colorMode="height"
+                  showGrid={true}
+                  showBoundingBox={true}
+                />
+              </div>
             </CardContent>
           </Card>
           
@@ -402,7 +525,7 @@ export default function Step1UploadPage() {
                   </div>
                   <div>
                     <p className="text-2xl font-bold">
-                      {(currentProject?.pointCloudStats?.pointCount || pointCloudData.length).toLocaleString()}
+                      {formatNumber(totalPointCount)}
                     </p>
                     <p className="text-sm text-muted-foreground">Total Points</p>
                   </div>

@@ -1,21 +1,28 @@
-"""Projection service for 3D to 2D conversion."""
+"""Projection service for 3D to 2D conversion using Gaussian splatting."""
 
 import asyncio
+import json
+import base64
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, List
 import numpy as np
 
 try:
-    from PIL import Image, ImageDraw
+    from PIL import Image
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
 
 from services.e57_processor import get_processor
+from services.projection_gaussian_utils import (
+    project_to_2d_gaussian_fast,
+    prepare_export_images_gaussian,
+    save_projection_gaussian,
+)
 
 
 class ProjectionService:
-    """Service for creating 2D projections from 3D point clouds."""
+    """Service for creating 2D projections from 3D point clouds using Gaussian splatting."""
     
     _instance = None
     
@@ -33,16 +40,53 @@ class ProjectionService:
         self.data_dir = Path("./data/projections")
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.projections: Dict[str, Dict[str, Any]] = {}
+        
+        # Load existing projections from disk
+        self._load_projections_from_disk()
+    
+    def _load_projections_from_disk(self):
+        """Load existing projection metadata from disk."""
+        for metadata_file in self.data_dir.glob("*_metadata.json"):
+            try:
+                with open(metadata_file, "r") as f:
+                    metadata = json.load(f)
+                
+                projection_id = metadata_file.stem.replace("_metadata", "")
+                
+                # Check if associated files exist
+                colour_path = self.data_dir / f"{projection_id}_colour.png"
+                if colour_path.exists():
+                    self.projections[projection_id] = {
+                        "id": projection_id,
+                        "perspective": metadata.get("perspective", "top"),
+                        "resolution": metadata.get("resolution", 2048),
+                        "sigma": metadata.get("sigma", 1.0),
+                        "kernel_size": metadata.get("kernel_size", 5),
+                        "bottom_up": metadata.get("bottom_up", True),
+                        "paths": {
+                            "colour": str(colour_path),
+                            "depth_grayscale": str(self.data_dir / f"{projection_id}_depth_gray.png"),
+                            "depth_plasma": str(self.data_dir / f"{projection_id}_depth_plasma.png"),
+                            "depth_raw": str(self.data_dir / f"{projection_id}_depth.npy"),
+                            "metadata": str(metadata_file),
+                        },
+                        "metadata": metadata,
+                    }
+                    print(f"Loaded existing projection: {projection_id}")
+            except Exception as e:
+                print(f"Error loading projection {metadata_file}: {e}")
     
     async def create_projection(
         self,
         projection_id: str,
         perspective: str,
-        custom_angle: Optional[Dict[str, float]] = None,
         resolution: int = 2048,
+        sigma: float = 1.0,
+        kernel_size: int = 5,
+        bottom_up: bool = True,
         scale: float = 1.0,
     ) -> Dict[str, Any]:
-        """Create a 2D projection from the point cloud."""
+        """Create a 2D projection from the point cloud using Gaussian splatting."""
         
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
@@ -50,8 +94,10 @@ class ProjectionService:
             self._create_projection,
             projection_id,
             perspective,
-            custom_angle,
             resolution,
+            sigma,
+            kernel_size,
+            bottom_up,
             scale,
         )
         
@@ -61,11 +107,13 @@ class ProjectionService:
         self,
         projection_id: str,
         perspective: str,
-        custom_angle: Optional[Dict[str, float]],
         resolution: int,
+        sigma: float,
+        kernel_size: int,
+        bottom_up: bool,
         scale: float,
     ) -> Dict[str, Any]:
-        """Internal projection creation (runs in thread pool)."""
+        """Internal projection creation using Gaussian splatting (runs in thread pool)."""
         
         if not HAS_PIL:
             raise ImportError("PIL/Pillow is required for projection")
@@ -74,253 +122,173 @@ class ProjectionService:
         processor = get_processor()
         
         if processor.is_loaded() and processor.points is not None:
-            image = self._project_point_cloud(
-                processor.points,
-                processor.colors,
-                perspective,
-                custom_angle,
-                resolution,
-                scale,
+            points = processor.points
+            colours = processor.colors
+            
+            print(f"Creating Gaussian projection from {len(points):,} points...")
+            print(f"  Perspective: {perspective}, Resolution: {resolution}")
+            print(f"  Sigma: {sigma}, Kernel: {kernel_size}, Bottom-up: {bottom_up}")
+            
+            # Center the point cloud
+            centroid = np.mean(points, axis=0)
+            centred_points = points - centroid
+            
+            # Normalize colours to 0-1 range if needed
+            if colours is not None:
+                if colours.max() > 1.0:
+                    colours = colours / 255.0
+            
+            # Create Gaussian splatting projection
+            depth_img, colour_img, metadata = project_to_2d_gaussian_fast(
+                points=centred_points,
+                colours=colours,
+                resolution=resolution,
+                bottom_up=bottom_up,
+                sigma=sigma,
+                kernel_size=kernel_size,
+                perspective=perspective,
             )
-            print(f"✓ Created real projection from {len(processor.points):,} points")
+            
+            # Add centroid to metadata for reprojection
+            metadata["centroid"] = centroid.tolist()
+            metadata["scale"] = scale
+            
+            # Save projection files
+            paths = save_projection_gaussian(
+                depth_img=depth_img,
+                colour_img=colour_img,
+                metadata=metadata,
+                folder_dir=str(self.data_dir),
+                projection_id=projection_id,
+            )
+            
+            print(f"✓ Gaussian projection saved: {projection_id}")
+            
         else:
             # Fallback to demo projection
             print("No point cloud loaded, generating demo projection")
-            image = self._generate_demo_projection(resolution, resolution, perspective)
-        
-        # Save image
-        image_path = self.data_dir / f"{projection_id}.png"
-        image.save(image_path, quality=95)
+            depth_img, colour_img, metadata = self._generate_demo_gaussian(resolution)
+            
+            paths = save_projection_gaussian(
+                depth_img=depth_img,
+                colour_img=colour_img,
+                metadata=metadata,
+                folder_dir=str(self.data_dir),
+                projection_id=projection_id,
+            )
         
         # Store projection info
         self.projections[projection_id] = {
             "id": projection_id,
             "perspective": perspective,
             "resolution": resolution,
-            "scale": scale,
-            "image_path": str(image_path),
-            "width": image.width,
-            "height": image.height,
+            "sigma": sigma,
+            "kernel_size": kernel_size,
+            "bottom_up": bottom_up,
+            "paths": paths,
+            "metadata": metadata,
         }
         
         return {
-            "image_path": str(image_path),
-            "width": image.width,
-            "height": image.height,
+            "id": projection_id,
+            "paths": paths,
+            "metadata": metadata,
         }
     
-    def _project_point_cloud(
-        self,
-        points: np.ndarray,
-        colors: Optional[np.ndarray],
-        perspective: str,
-        custom_angle: Optional[Dict[str, float]],
-        resolution: int,
-        scale: float,
-    ) -> "Image.Image":
-        """Project actual point cloud data to 2D image."""
+    def _generate_demo_gaussian(self, resolution: int) -> tuple:
+        """Generate a demo Gaussian projection for testing."""
         
-        # Get projection coordinates
-        projected_2d = self._apply_projection_matrix(points, perspective, custom_angle)
-        
-        # Get depth for sorting (back to front rendering)
-        depth = self._get_depth(points, perspective, custom_angle)
-        
-        # Normalize to image coordinates
-        min_x, max_x = projected_2d[:, 0].min(), projected_2d[:, 0].max()
-        min_y, max_y = projected_2d[:, 1].min(), projected_2d[:, 1].max()
-        
-        range_x = max_x - min_x
-        range_y = max_y - min_y
-        max_range = max(range_x, range_y) / scale
-        
-        # Center the projection
-        center_x = (min_x + max_x) / 2
-        center_y = (min_y + max_y) / 2
-        
-        # Calculate normalized coordinates
-        margin = 0.05  # 5% margin
-        usable = 1.0 - 2 * margin
-        
-        norm_x = (projected_2d[:, 0] - center_x) / max_range * usable + 0.5
-        norm_y = (projected_2d[:, 1] - center_y) / max_range * usable + 0.5
-        
-        # Convert to pixel coordinates
-        px = (norm_x * resolution).astype(np.int32)
-        py = ((1 - norm_y) * resolution).astype(np.int32)  # Flip Y for image coordinates
-        
-        # Clip to image bounds
-        valid = (px >= 0) & (px < resolution) & (py >= 0) & (py < resolution)
-        px = px[valid]
-        py = py[valid]
-        depth_valid = depth[valid]
-        
-        # Sort by depth (back to front)
-        sort_idx = np.argsort(depth_valid)
-        px = px[sort_idx]
-        py = py[sort_idx]
-        
-        # Get colors
-        if colors is not None:
-            colors_valid = colors[valid][sort_idx]
-        else:
-            # Use height-based coloring
-            depth_norm = (depth_valid[sort_idx] - depth_valid.min()) / (depth_valid.max() - depth_valid.min() + 1e-6)
-            colors_valid = np.zeros((len(depth_norm), 3))
-            colors_valid[:, 0] = 180 + depth_norm * 40
-            colors_valid[:, 1] = 150 + depth_norm * 30
-            colors_valid[:, 2] = 120 + depth_norm * 20
-        
-        # Create image
-        img_array = np.zeros((resolution, resolution, 3), dtype=np.uint8)
-        img_array[:, :] = [15, 20, 30]  # Dark background
-        
-        # Render points
-        for i in range(len(px)):
-            x, y = px[i], py[i]
-            r, g, b = colors_valid[i]
-            
-            # Draw point (2x2 for visibility)
-            for dx in range(-1, 2):
-                for dy in range(-1, 2):
-                    nx, ny = x + dx, y + dy
-                    if 0 <= nx < resolution and 0 <= ny < resolution:
-                        img_array[ny, nx] = [int(r), int(g), int(b)]
-        
-        return Image.fromarray(img_array, mode='RGB')
-    
-    def _apply_projection_matrix(
-        self,
-        points: np.ndarray,
-        perspective: str,
-        custom_angle: Optional[Dict[str, float]] = None,
-    ) -> np.ndarray:
-        """Apply projection to get 2D coordinates."""
-        
-        if perspective == "custom" and custom_angle:
-            theta = custom_angle["theta"]
-            phi = custom_angle["phi"]
-            
-            cos_t, sin_t = np.cos(theta), np.sin(theta)
-            cos_p, sin_p = np.cos(phi), np.sin(phi)
-            
-            # Rotation matrix for custom angle
-            x_rot = points[:, 0] * cos_t - points[:, 1] * sin_t
-            y_rot = points[:, 0] * sin_t * cos_p + points[:, 1] * cos_t * cos_p - points[:, 2] * sin_p
-            
-            return np.column_stack([x_rot, y_rot])
-        
-        # Standard orthographic projections
-        if perspective == "top":
-            return points[:, [0, 1]]  # X, Y plane
-        elif perspective == "bottom":
-            return np.column_stack([points[:, 0], -points[:, 1]])
-        elif perspective == "north":
-            return points[:, [0, 2]]  # X, Z plane
-        elif perspective == "south":
-            return np.column_stack([-points[:, 0], points[:, 2]])
-        elif perspective == "east":
-            return np.column_stack([-points[:, 1], points[:, 2]])  # Y, Z plane
-        elif perspective == "west":
-            return points[:, [1, 2]]
-        else:
-            return points[:, [0, 1]]
-    
-    def _get_depth(
-        self,
-        points: np.ndarray,
-        perspective: str,
-        custom_angle: Optional[Dict[str, float]] = None,
-    ) -> np.ndarray:
-        """Get depth values for each point based on perspective."""
-        
-        if perspective == "custom" and custom_angle:
-            theta = custom_angle["theta"]
-            phi = custom_angle["phi"]
-            
-            # Depth is along the viewing direction
-            cos_t, sin_t = np.cos(theta), np.sin(theta)
-            cos_p, sin_p = np.cos(phi), np.sin(phi)
-            
-            depth = points[:, 0] * sin_t * sin_p + points[:, 1] * cos_t * sin_p + points[:, 2] * cos_p
-            return depth
-        
-        if perspective == "top":
-            return points[:, 2]  # Z depth
-        elif perspective == "bottom":
-            return -points[:, 2]
-        elif perspective == "north":
-            return points[:, 1]  # Y depth
-        elif perspective == "south":
-            return -points[:, 1]
-        elif perspective == "east":
-            return points[:, 0]  # X depth
-        elif perspective == "west":
-            return -points[:, 0]
-        else:
-            return points[:, 2]
-    
-    def _generate_demo_projection(
-        self,
-        width: int,
-        height: int,
-        perspective: str,
-    ) -> "Image.Image":
-        """Generate a demo projection image."""
-        
+        # Generate demo vault points
+        n_points = 100000
         np.random.seed(42)
         
-        # Create gradient background
-        y_coords = np.linspace(0, 1, height)
-        x_coords = np.linspace(0, 1, width)
-        xx, yy = np.meshgrid(x_coords, y_coords)
+        # Create dome shape
+        theta = np.random.uniform(0, 2 * np.pi, n_points)
+        phi = np.random.uniform(0, np.pi / 2.2, n_points)
+        r = 5 + np.random.normal(0, 0.05, n_points)
         
-        # Base color (dark stone)
-        r = np.clip((50 + np.random.randn(height, width) * 5), 0, 255).astype(np.uint8)
-        g = np.clip((45 + np.random.randn(height, width) * 5), 0, 255).astype(np.uint8)
-        b = np.clip((55 + np.random.randn(height, width) * 5), 0, 255).astype(np.uint8)
+        x = r * np.sin(phi) * np.cos(theta)
+        y = r * np.sin(phi) * np.sin(theta)
+        z = r * np.cos(phi)
         
-        center_x, center_y = width // 2, height // 2
+        points = np.column_stack([x, y, z])
         
-        # Create circular vault shape
-        dist = np.sqrt((xx - 0.5) ** 2 + (yy - 0.5) ** 2)
-        vault_mask = dist < 0.42
+        # Demo colours (stone-like)
+        colours = np.random.uniform(0.4, 0.6, (n_points, 3))
+        colours[:, 0] += 0.1  # Slightly warmer
         
-        # Add vault surface
-        r = np.where(vault_mask, np.clip(r + 90, 0, 255), r)
-        g = np.where(vault_mask, np.clip(g + 75, 0, 255), g)
-        b = np.where(vault_mask, np.clip(b + 55, 0, 255), b)
+        depth_img, colour_img, metadata = project_to_2d_gaussian_fast(
+            points=points,
+            colours=colours,
+            resolution=resolution,
+            bottom_up=True,
+            sigma=1.0,
+            kernel_size=5,
+            perspective="top",
+        )
         
-        # Create rib pattern
-        for angle in [0, 45, 90, 135]:
-            rad = np.radians(angle)
-            for t in np.linspace(-0.5, 0.5, width * 2):
-                rx = int(center_x + t * width * np.cos(rad))
-                ry = int(center_y + t * height * np.sin(rad))
-                
-                for offset in range(-3, 4):
-                    px = rx + int(offset * np.sin(rad))
-                    py = ry - int(offset * np.cos(rad))
-                    
-                    if 0 <= px < width and 0 <= py < height and dist[py, px] < 0.4:
-                        r[py, px] = min(255, r[py, px] + 25)
-                        g[py, px] = min(255, g[py, px] + 18)
-                        b[py, px] = min(255, b[py, px] + 12)
+        metadata["demo"] = True
         
-        rgb = np.stack([r, g, b], axis=-1)
+        return depth_img, colour_img, metadata
+    
+    def get_projection_images_base64(self, projection_id: str) -> Optional[Dict[str, str]]:
+        """Get all projection images as base64 strings."""
         
-        return Image.fromarray(rgb, mode='RGB')
+        if projection_id not in self.projections:
+            return None
+        
+        proj = self.projections[projection_id]
+        paths = proj.get("paths", {})
+        
+        result = {}
+        
+        for key in ["colour", "depth_grayscale", "depth_plasma"]:
+            path = paths.get(key)
+            if path and Path(path).exists():
+                with open(path, "rb") as f:
+                    result[key] = base64.b64encode(f.read()).decode("utf-8")
+        
+        return result
+    
+    def get_projection_image_base64(self, projection_id: str, image_type: str = "colour") -> Optional[str]:
+        """Get a specific projection image as base64 string."""
+        
+        if projection_id not in self.projections:
+            return None
+        
+        paths = self.projections[projection_id].get("paths", {})
+        path = paths.get(image_type)
+        
+        if path and Path(path).exists():
+            with open(path, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8")
+        
+        return None
     
     async def list_projections(self) -> List[Dict[str, Any]]:
         """List all created projections."""
-        return list(self.projections.values())
+        return [
+            {
+                "id": proj["id"],
+                "perspective": proj["perspective"],
+                "resolution": proj["resolution"],
+                "sigma": proj.get("sigma", 1.0),
+                "kernel_size": proj.get("kernel_size", 5),
+                "has_images": bool(proj.get("paths")),
+            }
+            for proj in self.projections.values()
+        ]
     
     async def delete_projection(self, projection_id: str) -> None:
-        """Delete a projection."""
+        """Delete a projection and its files."""
         if projection_id in self.projections:
-            image_path = Path(self.projections[projection_id]["image_path"])
-            if image_path.exists():
-                image_path.unlink()
+            paths = self.projections[projection_id].get("paths", {})
+            
+            # Delete all associated files
+            for path in paths.values():
+                p = Path(path)
+                if p.exists():
+                    p.unlink()
             
             del self.projections[projection_id]
     
@@ -328,16 +296,35 @@ class ProjectionService:
         """Get projection info by ID."""
         return self.projections.get(projection_id)
     
-    def get_projection_image_base64(self, projection_id: str) -> Optional[str]:
-        """Get projection image as base64 string."""
-        import base64
-        
+    def get_projection_for_export(self, projection_id: str) -> Optional[Dict[str, Any]]:
+        """Get projection data for project export/save."""
         if projection_id not in self.projections:
             return None
         
-        image_path = Path(self.projections[projection_id]["image_path"])
-        if not image_path.exists():
-            return None
+        proj = self.projections[projection_id]
         
-        with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
+        # Include base64 images for portability
+        images = self.get_projection_images_base64(projection_id)
+        
+        return {
+            "id": proj["id"],
+            "perspective": proj["perspective"],
+            "resolution": proj["resolution"],
+            "sigma": proj.get("sigma", 1.0),
+            "kernel_size": proj.get("kernel_size", 5),
+            "bottom_up": proj.get("bottom_up", True),
+            "metadata": proj.get("metadata", {}),
+            "images": images,
+        }
+
+
+# Singleton accessor
+_projection_service: Optional[ProjectionService] = None
+
+
+def get_projection_service() -> ProjectionService:
+    """Get the projection service singleton."""
+    global _projection_service
+    if _projection_service is None:
+        _projection_service = ProjectionService()
+    return _projection_service
