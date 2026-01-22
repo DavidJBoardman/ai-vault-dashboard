@@ -117,8 +117,12 @@ async def get_points(
 
 
 @router.get("/points/preview")
-async def get_preview_points(max_points: int = Query(50000, ge=1000, le=200000)):
-    """Get a downsampled preview of the point cloud."""
+async def get_preview_points(max_points: int = Query(100000, ge=1000, le=5000000)):
+    """Get a downsampled preview of the point cloud.
+    
+    Args:
+        max_points: Maximum number of points to return (up to 5M).
+    """
     processor = get_processor()
     
     if not processor.is_loaded():

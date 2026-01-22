@@ -34,6 +34,16 @@ async function apiRequest<T>(
     }
 
     const data = await response.json();
+    
+    // Handle backend responses that already have success/data structure
+    if (data && typeof data === 'object' && 'success' in data && 'data' in data) {
+      return {
+        success: data.success,
+        data: data.data as T,
+        error: data.error,
+      };
+    }
+    
     return { success: true, data };
   } catch (error) {
     return {
@@ -109,29 +119,61 @@ export async function loadDemoData(): Promise<ApiResponse<E57Info>> {
   return apiRequest<E57Info>("/api/upload/demo", { method: "POST" });
 }
 
-// Projection
+// Projection (Gaussian Splatting)
 export interface ProjectionParams {
-  perspective: string;
-  customAngle?: { theta: number; phi: number };
+  perspective: "top" | "bottom" | "north" | "south" | "east" | "west";
   resolution: number;
+  sigma: number;       // Gaussian spread (1.0 default)
+  kernelSize: number;  // Kernel size (5 default)
+  bottomUp: boolean;   // Looking up at vault
   scale: number;
+}
+
+export interface ProjectionImages {
+  colour?: string;         // Base64 colour image
+  depthGrayscale?: string; // Base64 depth grayscale
+  depthPlasma?: string;    // Base64 depth with plasma colormap
 }
 
 export interface ProjectionResult {
   id: string;
-  imagePath: string;
-  imageBase64?: string;
-  width: number;
-  height: number;
+  perspective: string;
+  resolution: number;
+  sigma: number;
+  kernelSize: number;
+  images: ProjectionImages;
+  metadata: Record<string, any>;
 }
 
-export async function getProjectionImage(projectionId: string): Promise<string | null> {
+export async function getProjectionImages(projectionId: string): Promise<ProjectionImages | null> {
   const baseUrl = await getBaseUrl();
   try {
-    const response = await fetch(`${baseUrl}/api/projection/image/${projectionId}/base64`);
+    const response = await fetch(`${baseUrl}/api/projection/${projectionId}/images`);
     if (!response.ok) return null;
     const data = await response.json();
-    return data.image || null;
+    if (data.success && data.images) {
+      return {
+        colour: data.images.colour,
+        depthGrayscale: data.images.depthGrayscale,
+        depthPlasma: data.images.depthPlasma,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getProjectionImage(
+  projectionId: string, 
+  imageType: "colour" | "depth_grayscale" | "depth_plasma" = "colour"
+): Promise<string | null> {
+  const baseUrl = await getBaseUrl();
+  try {
+    const response = await fetch(`${baseUrl}/api/projection/${projectionId}/image/${imageType}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.success ? data.image : null;
   } catch {
     return null;
   }
@@ -146,21 +188,71 @@ export async function createProjection(
   });
 }
 
-// Segmentation
+export async function listProjections(): Promise<ApiResponse<{ projections: Array<{
+  id: string;
+  perspective: string;
+  resolution: number;
+  sigma: number;
+  kernel_size: number;
+  has_images: boolean;
+}> }>> {
+  return apiRequest("/api/projection/list");
+}
+
+export async function deleteProjection(projectionId: string): Promise<ApiResponse<{ success: boolean }>> {
+  return apiRequest(`/api/projection/${projectionId}`, { method: "DELETE" });
+}
+
+export async function exportProjection(projectionId: string): Promise<ApiResponse<{
+  id: string;
+  perspective: string;
+  resolution: number;
+  sigma: number;
+  kernelSize: number;
+  bottomUp: boolean;
+  metadata: Record<string, any>;
+  images: ProjectionImages;
+}>> {
+  return apiRequest(`/api/projection/${projectionId}/export`);
+}
+
+// Segmentation (SAM 3)
 export interface SegmentationParams {
   projectionId: string;
-  mode: "auto" | "point_prompt" | "box_prompt";
-  points?: Array<{ x: number; y: number; label: number }>;
-  box?: { x: number; y: number; width: number; height: number };
+  mode: "auto" | "text";
+  textPrompts?: string[];
+}
+
+export interface SegmentationMask {
+  id: string;
+  label: string;
+  color: string;
+  maskBase64: string;
+  bbox: [number, number, number, number]; // [x, y, w, h]
+  area: number;
+  predictedIou: number;
+  stabilityScore: number;
+  visible: boolean;
+  source: "auto" | "manual";
 }
 
 export interface SegmentationResult {
-  masks: Array<{
-    id: string;
-    label: string;
-    maskBase64: string;
-    confidence: number;
-  }>;
+  masks: SegmentationMask[];
+  samAvailable: boolean;
+}
+
+export async function checkSamStatus(): Promise<ApiResponse<{
+  available: boolean;
+  loaded: boolean;
+}>> {
+  return apiRequest("/api/segmentation/status");
+}
+
+export async function loadSamModel(): Promise<ApiResponse<{
+  success: boolean;
+  loaded: boolean;
+}>> {
+  return apiRequest("/api/segmentation/load-model", { method: "POST" });
 }
 
 export async function runSegmentation(

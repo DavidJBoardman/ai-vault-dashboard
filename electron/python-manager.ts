@@ -19,8 +19,96 @@ export class PythonManager {
       let args: string[];
 
       if (isDev) {
-        // In development, run the Python script directly
-        pythonPath = 'python';
+        // In development, run the Python script
+        const backendDir = path.join(__dirname, '..', 'backend');
+        
+        // Debug: print environment info
+        console.log('[Python] ========================================');
+        console.log('[Python] PYTHON ENVIRONMENT DETECTION');
+        console.log('[Python] ========================================');
+        console.log('[Python] PYTHON_PATH env:', process.env.PYTHON_PATH || '(not set)');
+        console.log('[Python] CONDA_PREFIX env:', process.env.CONDA_PREFIX || '(not set)');
+        console.log('[Python] CONDA_DEFAULT_ENV:', process.env.CONDA_DEFAULT_ENV || '(not set)');
+        console.log('[Python] PATH (first 200 chars):', (process.env.PATH || '').substring(0, 200));
+        console.log('[Python] ========================================');
+        
+        if (!fs.existsSync(path.join(backendDir, 'main.py'))) {
+          console.warn('Backend not found, skipping Python startup');
+          resolve();
+          return;
+        }
+
+        // Priority order for finding Python:
+        // 1. PYTHON_PATH environment variable (for custom setups)
+        // 2. Conda environment (if CONDA_PREFIX is set)
+        // 3. Well-known conda location for vault-interface env
+        // 4. Local venv in backend folder
+        // 5. System Python
+        
+        let foundPython: string | null = null;
+        
+        // Check for explicit PYTHON_PATH env var
+        if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
+          foundPython = process.env.PYTHON_PATH;
+          console.log('[Python] ✓ Using PYTHON_PATH:', foundPython);
+        }
+        
+        // Check for active conda environment
+        if (!foundPython && process.env.CONDA_PREFIX) {
+          const condaPython = process.platform === 'win32'
+            ? path.join(process.env.CONDA_PREFIX, 'python.exe')
+            : path.join(process.env.CONDA_PREFIX, 'bin', 'python');
+          
+          if (fs.existsSync(condaPython)) {
+            foundPython = condaPython;
+            console.log('[Python] ✓ Using conda env:', process.env.CONDA_PREFIX);
+          } else {
+            console.log('[Python] ✗ CONDA_PREFIX set but python not found at:', condaPython);
+          }
+        }
+        
+        // Check well-known conda paths for vault-interface env
+        if (!foundPython) {
+          const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+          const condaPaths = [
+            path.join(homeDir, 'miniconda3', 'envs', 'vault-interface', 'bin', 'python'),
+            path.join(homeDir, 'anaconda3', 'envs', 'vault-interface', 'bin', 'python'),
+            path.join(homeDir, 'miniforge3', 'envs', 'vault-interface', 'bin', 'python'),
+            path.join(homeDir, '.conda', 'envs', 'vault-interface', 'bin', 'python'),
+          ];
+          
+          for (const condaPath of condaPaths) {
+            if (fs.existsSync(condaPath)) {
+              foundPython = condaPath;
+              console.log('[Python] ✓ Found vault-interface conda env at:', condaPath);
+              break;
+            }
+          }
+          
+          if (!foundPython) {
+            console.log('[Python] ✗ No vault-interface conda env found in standard locations');
+          }
+        }
+        
+        // Check for local venv
+        if (!foundPython) {
+          const venvPython = process.platform === 'win32'
+            ? path.join(backendDir, 'venv', 'Scripts', 'python.exe')
+            : path.join(backendDir, 'venv', 'bin', 'python');
+          
+          if (fs.existsSync(venvPython)) {
+            foundPython = venvPython;
+            console.log('[Python] ✓ Using local venv');
+          }
+        }
+        
+        // Fall back to system Python
+        pythonPath = foundPython || 'python';
+        if (!foundPython) {
+          console.log('[Python] ⚠ Falling back to system python');
+        }
+        console.log('[Python] Final path:', pythonPath);
+        console.log('[Python] ========================================');
         args = [
           '-m',
           'uvicorn',
@@ -30,13 +118,6 @@ export class PythonManager {
           '--port',
           this.port.toString(),
         ];
-        const backendDir = path.join(__dirname, '..', 'backend');
-        
-        if (!fs.existsSync(path.join(backendDir, 'main.py'))) {
-          console.warn('Backend not found, skipping Python startup');
-          resolve();
-          return;
-        }
 
         this.process = spawn(pythonPath, args, {
           cwd: backendDir,

@@ -1,335 +1,404 @@
-"""SAM (Segment Anything Model) service for image segmentation."""
+"""
+SAM 3 (Segment Anything Model 3) service for vault segmentation.
+Uses HuggingFace Transformers implementation which works on macOS (MPS).
 
-import asyncio
+Reference: https://huggingface.co/facebook/sam3/discussions/11
+"""
+
 import base64
-from io import BytesIO
+import io
+import sys
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Optional
 import numpy as np
+
+# Debug: Print Python info on startup
+print("=" * 60)
+print("SAM SERVICE - PYTHON ENVIRONMENT DEBUG")
+print("=" * 60)
+print(f"Python executable: {sys.executable}")
+print(f"Python version: {sys.version.split()[0]}")
+print("=" * 60)
 
 try:
     from PIL import Image
     HAS_PIL = True
-except ImportError:
+    print("✓ PIL/Pillow imported")
+except ImportError as e:
     HAS_PIL = False
+    print(f"✗ PIL import failed: {e}")
 
-# SAM2 will be available when installed
+# PyTorch import and device detection
+HAS_TORCH = False
+DEVICE = "cpu"
 try:
     import torch
-    from segment_anything import sam_model_registry, SamAutomaticMaskGenerator, SamPredictor
-    HAS_SAM = True
-except ImportError:
-    HAS_SAM = False
+    HAS_TORCH = True
+    # Prefer MPS on macOS, then CUDA, then CPU
+    if torch.backends.mps.is_available():
+        DEVICE = "mps"
+        print(f"✓ PyTorch {torch.__version__} (MPS - Apple Silicon)")
+    elif torch.cuda.is_available():
+        DEVICE = "cuda"
+        print(f"✓ PyTorch {torch.__version__} (CUDA)")
+    else:
+        print(f"✓ PyTorch {torch.__version__} (CPU)")
+except ImportError as e:
+    print(f"✗ PyTorch import failed: {e}")
+
+# SAM 3 via HuggingFace Transformers
+HAS_SAM3 = False
+try:
+    print("Attempting to import SAM 3 via HuggingFace Transformers...")
+    from transformers import Sam3Processor, Sam3Model
+    HAS_SAM3 = True
+    print("✓ SAM 3 (HuggingFace) imported successfully!")
+except ImportError as e:
+    print(f"✗ SAM 3 HuggingFace import failed: {e}")
+    print("  Install with: pip install git+https://github.com/huggingface/transformers torchvision")
+except Exception as e:
+    print(f"✗ SAM 3 error: {type(e).__name__}: {e}")
+
+print("=" * 60)
 
 
-class SAMService:
-    """Service for SAM-based image segmentation."""
+class SAM3Service:
+    """Service for running SAM 3 segmentation with text prompts via HuggingFace."""
     
-    # Class labels for vault architecture
-    LABELS = {
-        "rib": "Vault Rib",
-        "boss": "Boss Stone",
-        "cell": "Vault Cell",
-        "intrados": "Intrados",
-        "background": "Background",
-    }
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
     
     def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+        
         self.model = None
-        self.predictor = None
-        self.mask_generator = None
-        self.projections_dir = Path("./data/projections")
-        self.masks_dir = Path("./data/segmentations")
-        self.masks_dir.mkdir(parents=True, exist_ok=True)
-        self.masks: Dict[str, Dict[str, Any]] = {}
-    
-    def _ensure_model_loaded(self):
-        """Ensure SAM model is loaded."""
-        if not HAS_SAM:
+        self.processor = None
+        self.model_loaded = False
+        self.current_image = None
+        self.current_image_id = None
+        
+    def load_model(self) -> bool:
+        """Load the SAM 3 model from HuggingFace."""
+        if not HAS_SAM3:
+            print("SAM 3 not available - transformers package not installed correctly")
             return False
         
-        if self.model is None:
-            # Load SAM model
-            model_type = "vit_h"
-            checkpoint = "sam_vit_h_4b8939.pth"
-            
-            if not Path(checkpoint).exists():
-                print(f"SAM checkpoint not found: {checkpoint}")
-                return False
-            
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model = sam_model_registry[model_type](checkpoint=checkpoint)
-            self.model.to(device=device)
-            
-            self.predictor = SamPredictor(self.model)
-            self.mask_generator = SamAutomaticMaskGenerator(self.model)
+        if self.model_loaded:
+            return True
         
-        return True
-    
-    async def auto_segment(self, projection_id: str) -> List[Dict[str, Any]]:
-        """Automatically segment an image using SAM."""
-        
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, self._auto_segment, projection_id)
-        return result
-    
-    def _auto_segment(self, projection_id: str) -> List[Dict[str, Any]]:
-        """Internal auto-segmentation (runs in thread pool)."""
-        
-        image_path = self.projections_dir / f"{projection_id}.png"
-        
-        if not image_path.exists():
-            # Generate demo masks if no image
-            return self._generate_demo_masks(projection_id)
-        
-        if not self._ensure_model_loaded() or not HAS_SAM:
-            # Return demo masks if SAM not available
-            return self._generate_demo_masks(projection_id)
-        
-        # Load image
-        image = np.array(Image.open(image_path).convert("RGB"))
-        
-        # Generate masks
-        masks = self.mask_generator.generate(image)
-        
-        # Convert to response format
-        results = []
-        for i, mask_data in enumerate(masks[:10]):  # Limit to top 10 masks
-            mask = mask_data["segmentation"]
-            
-            # Classify based on position/shape (simplified)
-            label = self._classify_mask(mask, i)
-            
-            # Encode mask to base64
-            mask_base64 = self._mask_to_base64(mask)
-            
-            results.append({
-                "label": label,
-                "mask_base64": mask_base64,
-                "confidence": float(mask_data.get("stability_score", 0.9)),
-            })
-        
-        return results
-    
-    def _generate_demo_masks(self, projection_id: str) -> List[Dict[str, Any]]:
-        """Generate demo masks for testing."""
-        
-        # Create demo segmentation masks
-        size = 512
-        masks = []
-        
-        # Rib masks (diagonal lines)
-        for i, angle in enumerate([45, 135, 0, 90]):
-            mask = np.zeros((size, size), dtype=np.uint8)
-            
-            # Draw rib-like region
-            center = size // 2
-            for offset in range(-5, 6):
-                rad = np.radians(angle)
-                for t in range(-size, size):
-                    x = int(center + t * np.cos(rad) + offset * np.sin(rad))
-                    y = int(center + t * np.sin(rad) - offset * np.cos(rad))
-                    if 0 <= x < size and 0 <= y < size:
-                        mask[y, x] = 255
-            
-            masks.append({
-                "label": f"rib_{i+1}",
-                "mask_base64": self._mask_to_base64(mask),
-                "confidence": 0.85 + np.random.random() * 0.1,
-            })
-        
-        # Boss stone mask (center circle)
-        mask = np.zeros((size, size), dtype=np.uint8)
-        y, x = np.ogrid[:size, :size]
-        center = size // 2
-        r = 20
-        circle = (x - center) ** 2 + (y - center) ** 2 <= r ** 2
-        mask[circle] = 255
-        
-        masks.append({
-            "label": "boss_stone",
-            "mask_base64": self._mask_to_base64(mask),
-            "confidence": 0.95,
-        })
-        
-        return masks
-    
-    def _mask_to_base64(self, mask: np.ndarray) -> str:
-        """Convert a binary mask to base64 encoded PNG."""
-        
-        if not HAS_PIL:
-            return ""
-        
-        # Convert to PIL Image
-        if mask.dtype == bool:
-            mask = mask.astype(np.uint8) * 255
-        
-        image = Image.fromarray(mask, mode='L')
-        
-        # Encode to base64
-        buffer = BytesIO()
-        image.save(buffer, format='PNG')
-        return base64.b64encode(buffer.getvalue()).decode('utf-8')
-    
-    def _classify_mask(self, mask: np.ndarray, index: int) -> str:
-        """Classify a mask based on its properties."""
-        
-        # Simplified classification based on shape
-        contours = self._get_contours(mask)
-        
-        if len(contours) == 0:
-            return "background"
-        
-        # Calculate aspect ratio
-        y_coords, x_coords = np.where(mask)
-        if len(x_coords) == 0:
-            return "background"
-        
-        width = np.max(x_coords) - np.min(x_coords)
-        height = np.max(y_coords) - np.min(y_coords)
-        
-        if width == 0 or height == 0:
-            return "background"
-        
-        aspect_ratio = width / height
-        area = np.sum(mask)
-        
-        # Classification rules
-        if aspect_ratio > 3 or aspect_ratio < 0.33:
-            return f"rib_{index}"
-        elif area < 1000:
-            return "boss_stone"
-        else:
-            return f"cell_{index}"
-    
-    def _get_contours(self, mask: np.ndarray) -> List:
-        """Get contours from a binary mask."""
         try:
-            import cv2
-            contours, _ = cv2.findContours(
-                mask.astype(np.uint8),
-                cv2.RETR_EXTERNAL,
-                cv2.CHAIN_APPROX_SIMPLE
-            )
-            return contours
-        except ImportError:
+            print("Loading SAM 3 model from HuggingFace (facebook/sam3)...")
+            print("This may take a few minutes on first run to download the model...")
+            
+            # Load processor and model from HuggingFace
+            self.processor = Sam3Processor.from_pretrained("facebook/sam3")
+            self.model = Sam3Model.from_pretrained("facebook/sam3")
+            
+            # Move model to appropriate device
+            if DEVICE != "cpu":
+                print(f"Moving model to {DEVICE}...")
+                self.model = self.model.to(DEVICE)
+            
+            self.model.eval()  # Set to evaluation mode
+            self.model_loaded = True
+            print(f"✓ SAM 3 model loaded successfully on {DEVICE}")
+            return True
+            
+        except Exception as e:
+            print(f"Error loading SAM 3 model: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def set_image_from_base64(self, image_base64: str, image_id: str) -> bool:
+        """Set the image for prediction from base64 string."""
+        if not self.model_loaded:
+            if not self.load_model():
+                return False
+        
+        if self.current_image_id == image_id and self.current_image is not None:
+            # Image already loaded
+            return True
+        
+        try:
+            # Decode base64 image
+            image_data = base64.b64decode(image_base64)
+            image = Image.open(io.BytesIO(image_data)).convert("RGB")
+            
+            self.current_image = image
+            self.current_image_id = image_id
+            
+            print(f"✓ Image set for SAM 3: {image.size}")
+            return True
+            
+        except Exception as e:
+            print(f"Error setting image: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def segment_with_text_prompts(
+        self,
+        text_prompts: List[str]
+    ) -> List[Dict[str, Any]]:
+        """
+        Segment image using text prompts with SAM 3.
+        
+        Uses the HuggingFace Transformers API:
+        https://huggingface.co/facebook/sam3
+        
+        Args:
+            text_prompts: List of text prompts (e.g., ["rib", "boss stone", "vault cell"])
+            
+        Returns:
+            List of mask dictionaries with id, label, color, maskBase64, etc.
+        """
+        if not self.model_loaded or self.current_image is None:
+            print("Model not loaded or no image set")
+            return []
+        
+        try:
+            # Bright, saturated colors for high visibility
+            color_palette = [
+                "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
+                "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
+            ]
+            
+            # Create color map for each prompt
+            prompt_color_map = {}
+            for idx, prompt in enumerate(text_prompts):
+                prompt_color_map[prompt] = color_palette[idx % len(color_palette)]
+            
+            all_masks = []
+            
+            # Process each text prompt
+            for prompt_idx, prompt in enumerate(text_prompts):
+                print(f"Processing prompt: '{prompt}'...")
+                
+                # Process image with text prompt using HuggingFace processor
+                # Reference: https://huggingface.co/facebook/sam3#text-only-prompts
+                inputs = self.processor(
+                    images=self.current_image,
+                    text=prompt,
+                    return_tensors="pt"
+                )
+                
+                # Get original sizes for post-processing
+                original_sizes = inputs.get("original_sizes", None)
+                
+                # Move inputs to device
+                if DEVICE != "cpu":
+                    inputs = {k: v.to(DEVICE) if hasattr(v, 'to') else v for k, v in inputs.items()}
+                
+                # Run inference
+                with torch.no_grad():
+                    outputs = self.model(**inputs)
+                
+                # Post-process results using post_process_instance_segmentation
+                # This is the correct method per HuggingFace docs
+                target_sizes = original_sizes.tolist() if hasattr(original_sizes, 'tolist') else [[self.current_image.height, self.current_image.width]]
+                
+                results = self.processor.post_process_instance_segmentation(
+                    outputs,
+                    threshold=0.5,
+                    mask_threshold=0.5,
+                    target_sizes=target_sizes
+                )[0]  # Get first batch result
+                
+                # Results contain: masks, boxes, scores
+                masks = results.get("masks", [])
+                boxes = results.get("boxes", [])
+                scores = results.get("scores", [])
+                
+                print(f"  → Found {len(masks)} masks for '{prompt}'")
+                
+                # Process each mask for this prompt
+                for mask_idx, mask in enumerate(masks):
+                    # Get score
+                    score = float(scores[mask_idx]) if mask_idx < len(scores) else 0.9
+                    
+                    # Get bounding box (xyxy format from HuggingFace)
+                    bbox = None
+                    if mask_idx < len(boxes):
+                        box = boxes[mask_idx]
+                        if hasattr(box, 'tolist'):
+                            box = box.tolist()
+                        # Convert xyxy to xywh
+                        bbox = [int(box[0]), int(box[1]), int(box[2] - box[0]), int(box[3] - box[1])]
+                    
+                    # Convert mask to numpy
+                    if hasattr(mask, 'cpu'):
+                        mask_np = mask.cpu().numpy()
+                    else:
+                        mask_np = np.array(mask)
+                    
+                    # Ensure 2D
+                    while mask_np.ndim > 2:
+                        mask_np = mask_np[0]
+                    
+                    mask_info = self._process_mask(
+                        mask=mask_np,
+                        score=score,
+                        prompt=prompt,
+                        prompt_idx=prompt_idx,
+                        mask_idx=mask_idx,
+                        color=prompt_color_map[prompt],
+                        bbox=bbox
+                    )
+                    
+                    if mask_info:
+                        all_masks.append(mask_info)
+                        print(f"    → Mask {mask_idx + 1}: label='{mask_info['label']}', "
+                              f"color={mask_info['color']}, area={mask_info['area']}")
+            
+            print(f"✓ SAM 3 segmentation complete: {len(all_masks)} total masks")
+            return all_masks
+                
+        except Exception as e:
+            print(f"Error with SAM 3 text segmentation: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
-    async def segment_with_points(
-        self,
-        projection_id: str,
-        points: List[Tuple[float, float, int]],
-    ) -> List[Dict[str, Any]]:
-        """Segment using point prompts."""
+    def generate_automatic_masks(self) -> List[Dict[str, Any]]:
+        """
+        Generate masks automatically without prompts.
+        Uses a generic prompt to detect all objects.
+        """
+        if not self.model_loaded or self.current_image is None:
+            return []
         
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            self._segment_with_points,
-            projection_id,
-            points,
-        )
-        return result
+        try:
+            # Use generic prompts for automatic detection
+            generic_prompts = ["object", "region", "structure"]
+            return self.segment_with_text_prompts(generic_prompts)
+            
+        except Exception as e:
+            print(f"Error generating automatic masks: {e}")
+            return []
     
-    def _segment_with_points(
+    def _process_mask(
         self,
-        projection_id: str,
-        points: List[Tuple[float, float, int]],
-    ) -> List[Dict[str, Any]]:
-        """Internal point-based segmentation."""
-        
-        if not self._ensure_model_loaded() or not HAS_SAM:
-            return self._generate_demo_masks(projection_id)
-        
-        image_path = self.projections_dir / f"{projection_id}.png"
-        if not image_path.exists():
-            return self._generate_demo_masks(projection_id)
-        
-        # Load image
-        image = np.array(Image.open(image_path).convert("RGB"))
-        self.predictor.set_image(image)
-        
-        # Convert points
-        point_coords = np.array([[p[0], p[1]] for p in points])
-        point_labels = np.array([p[2] for p in points])
-        
-        # Predict
-        masks, scores, _ = self.predictor.predict(
-            point_coords=point_coords,
-            point_labels=point_labels,
-            multimask_output=True,
-        )
-        
-        # Return best mask
-        best_idx = np.argmax(scores)
-        return [{
-            "label": "user_selection",
-            "mask_base64": self._mask_to_base64(masks[best_idx]),
-            "confidence": float(scores[best_idx]),
-        }]
+        mask: np.ndarray,
+        score: float,
+        prompt: str,
+        prompt_idx: int,
+        mask_idx: int,
+        color: str,
+        bbox: Optional[List[float]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Process a single mask from SAM 3 output."""
+        try:
+            # Ensure 2D mask
+            while mask.ndim > 2:
+                mask = mask[0]
+            
+            # Ensure boolean mask
+            if mask.dtype != bool:
+                mask = mask > 0.5
+            
+            # Check if mask has any content
+            if not mask.any():
+                return None
+            
+            # Calculate bounding box if not provided
+            if bbox is None:
+                rows = np.any(mask, axis=1)
+                cols = np.any(mask, axis=0)
+                
+                if not rows.any() or not cols.any():
+                    return None
+                
+                rmin, rmax = np.where(rows)[0][[0, -1]]
+                cmin, cmax = np.where(cols)[0][[0, -1]]
+                bbox = [int(cmin), int(rmin), int(cmax - cmin), int(rmax - rmin)]
+            else:
+                # Convert bbox to [x, y, w, h] if in [x1, y1, x2, y2] format
+                if len(bbox) == 4 and bbox[2] > bbox[0] and bbox[3] > bbox[1]:
+                    bbox = [int(bbox[0]), int(bbox[1]), 
+                            int(bbox[2] - bbox[0]), int(bbox[3] - bbox[1])]
+            
+            area = int(mask.sum())
+            
+            # Skip very small masks
+            if area < 100:
+                return None
+            
+            # Convert mask to base64 PNG
+            mask_base64 = self._mask_to_base64(mask, color)
+            
+            # Create label with numbering
+            label = f"{prompt} #{mask_idx + 1}"
+            
+            # Create unique ID
+            safe_prompt = prompt.replace(" ", "-").lower()
+            mask_id = f"seg-{safe_prompt}-{mask_idx}"
+            
+            return {
+                "id": mask_id,
+                "label": label,
+                "color": color,
+                "maskBase64": mask_base64,
+                "bbox": bbox,
+                "area": area,
+                "predictedIou": score,
+                "stabilityScore": score,
+                "visible": True,
+                "source": "auto",
+            }
+            
+        except Exception as e:
+            print(f"Error processing mask: {e}")
+            return None
     
-    async def segment_with_box(
-        self,
-        projection_id: str,
-        box: Tuple[float, float, float, float],
-    ) -> List[Dict[str, Any]]:
-        """Segment using a bounding box prompt."""
-        
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            self._segment_with_box,
-            projection_id,
-            box,
-        )
-        return result
+    def _mask_to_base64(self, mask: np.ndarray, color: str) -> str:
+        """Convert a binary mask to base64 PNG with color."""
+        try:
+            h, w = mask.shape
+            
+            # Parse color hex to RGB
+            color = color.lstrip('#')
+            r, g, b = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+            
+            # Create RGBA image with mask color
+            rgba = np.zeros((h, w, 4), dtype=np.uint8)
+            rgba[mask > 0] = [r, g, b, 200]  # Semi-transparent
+            
+            img = Image.fromarray(rgba, mode="RGBA")
+            
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG")
+            buffer.seek(0)
+            
+            return base64.b64encode(buffer.read()).decode("utf-8")
+            
+        except Exception as e:
+            print(f"Error converting mask to base64: {e}")
+            return ""
     
-    def _segment_with_box(
-        self,
-        projection_id: str,
-        box: Tuple[float, float, float, float],
-    ) -> List[Dict[str, Any]]:
-        """Internal box-based segmentation."""
-        
-        if not self._ensure_model_loaded() or not HAS_SAM:
-            return self._generate_demo_masks(projection_id)
-        
-        image_path = self.projections_dir / f"{projection_id}.png"
-        if not image_path.exists():
-            return self._generate_demo_masks(projection_id)
-        
-        # Load image
-        image = np.array(Image.open(image_path).convert("RGB"))
-        self.predictor.set_image(image)
-        
-        # Convert box (x, y, w, h) to (x1, y1, x2, y2)
-        box_array = np.array([
-            box[0],
-            box[1],
-            box[0] + box[2],
-            box[1] + box[3],
-        ])
-        
-        # Predict
-        masks, scores, _ = self.predictor.predict(
-            box=box_array,
-            multimask_output=True,
-        )
-        
-        # Return best mask
-        best_idx = np.argmax(scores)
-        return [{
-            "label": "box_selection",
-            "mask_base64": self._mask_to_base64(masks[best_idx]),
-            "confidence": float(scores[best_idx]),
-        }]
+    def is_available(self) -> bool:
+        """Check if SAM 3 is available."""
+        return HAS_SAM3 and HAS_TORCH
     
-    async def refine_mask(
-        self,
-        mask_id: str,
-        points: List[Tuple[float, float, int]],
-    ) -> Dict[str, Any]:
-        """Refine an existing mask with additional prompts."""
-        # Implementation would refine the mask with additional SAM prompts
-        return {"success": True}
+    def is_loaded(self) -> bool:
+        """Check if model is loaded."""
+        return self.model_loaded
 
+
+# Singleton accessor
+_sam_service: Optional[SAM3Service] = None
+
+
+def get_sam_service() -> SAM3Service:
+    """Get the SAM 3 service singleton."""
+    global _sam_service
+    if _sam_service is None:
+        _sam_service = SAM3Service()
+    return _sam_service

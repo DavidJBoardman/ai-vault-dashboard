@@ -9,10 +9,10 @@ numpy==1.26.4
 scipy==1.14.1
 pydantic==2.9.2
 
-# Image processing
+# Image processing & Gaussian splatting projection
 Pillow==10.4.0
 scikit-image==0.24.0
-opencv-python-headless==4.10.0.84
+opencv-python-headless==4.10.0.84  # Required for depth colormap (PLASMA)
 
 # Data handling
 pandas==2.2.3
@@ -22,7 +22,7 @@ pandas==2.2.3
 # ===========================================
 
 # Option 1: Open3D (recommended - easier to install, supports E57, PLY, PCD, XYZ)
-open3d==0.18.0
+open3d==0.19.0
 
 # Option 2: pye57 (native E57 support, may require C++ dependencies)
 # On macOS: brew install xerces-c
@@ -34,10 +34,31 @@ open3d==0.18.0
 # laspy==2.5.3
 
 # ===========================================
-# MACHINE LEARNING (optional, for SAM3 segmentation)
+# MACHINE LEARNING (for SAM 3 segmentation)
 # ===========================================
-# torch>=2.0.0
-# segment-anything-2==1.0.0
+
+# PyTorch - install for your platform from https://pytorch.org
+#
+# For macOS (MPS - Apple Silicon):
+#   pip install torch torchvision torchaudio
+#
+# For Linux/Windows with CUDA 12.6:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+#
+# For CPU only:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# SAM 3 (Segment Anything Model 3) via HuggingFace Transformers
+# This version works on macOS without triton dependency!
+# See: https://huggingface.co/facebook/sam3/discussions/11
+#
+# Install with:
+#   pip install git+https://github.com/huggingface/transformers torchvision
+
+# HuggingFace ecosystem
+transformers>=4.47.0
+accelerate
+safetensors
 
 # Packaging
 pyinstaller==6.10.0

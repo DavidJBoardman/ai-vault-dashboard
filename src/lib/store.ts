@@ -13,10 +13,18 @@ export interface Point3D {
 }
 
 export interface ProjectionSettings {
-  perspective: "top" | "bottom" | "north" | "south" | "east" | "west" | "custom";
-  customAngle?: { theta: number; phi: number };
+  perspective: "top" | "bottom" | "north" | "south" | "east" | "west";
   resolution: number;
+  sigma: number;       // Gaussian spread
+  kernelSize: number;  // Kernel size
+  bottomUp: boolean;   // Looking up at vault
   scale: number;
+}
+
+export interface ProjectionImages {
+  colour?: string;         // Base64 colour image
+  depthGrayscale?: string; // Base64 depth grayscale
+  depthPlasma?: string;    // Base64 depth plasma colormap
 }
 
 export interface Segmentation {
@@ -78,15 +86,15 @@ export interface Project {
   e57Path?: string;
   pointCloudStats?: {
     pointCount: number;
-    boundingBox: { min: Point3D; max: Point3D };
+    boundingBox?: { min: Point3D; max: Point3D };
   };
   
-  // Step 2: Projections
+  // Step 2: Projections (Gaussian splatting)
   projections: Array<{
     id: string;
     settings: ProjectionSettings;
-    imagePath: string;
-    imageBase64?: string;
+    images: ProjectionImages;
+    metadata?: Record<string, any>;
   }>;
   
   // Step 3: Segmentations
