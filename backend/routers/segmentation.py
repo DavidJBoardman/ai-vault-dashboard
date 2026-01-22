@@ -12,10 +12,17 @@ from services.projection import get_projection_service
 router = APIRouter()
 
 
+class BoxPrompt(BaseModel):
+    """A bounding box prompt for segmentation."""
+    coords: List[int]  # [x1, y1, x2, y2] in xyxy pixel format
+    label: int = 1  # 1 = positive (include), 0 = negative (exclude)
+
+
 class SegmentationRequest(BaseModel):
     projectionId: str
-    mode: Literal["auto", "text"]
+    mode: Literal["auto", "text", "box", "combined"]
     textPrompts: Optional[List[str]] = None
+    boxes: Optional[List[BoxPrompt]] = None
 
 
 class MaskData(BaseModel):
@@ -56,7 +63,7 @@ async def load_model():
     if not sam.is_available():
         return {
             "success": False,
-            "error": "sam3 package not installed. Run: pip install sam3",
+            "error": "SAM 3 not available. Install transformers from git.",
         }
     
     # Run in thread pool to avoid blocking
@@ -71,7 +78,15 @@ async def load_model():
 
 @router.post("/run", response_model=SegmentationResponse)
 async def run_segmentation(request: SegmentationRequest):
-    """Run SAM 3 segmentation on a projection image with text prompts."""
+    """
+    Run SAM 3 segmentation on a projection image.
+    
+    Modes:
+    - auto: Automatic detection with generic prompts
+    - text: Text-guided segmentation with custom prompts
+    - box: Box-guided segmentation (find similar objects)
+    - combined: Text + box prompts together
+    """
     sam = get_sam_service()
     projection_service = get_projection_service()
     
@@ -79,7 +94,7 @@ async def run_segmentation(request: SegmentationRequest):
     if not sam.is_available():
         return SegmentationResponse(
             success=False,
-            error="SAM 3 not available. Install with: pip install sam3",
+            error="SAM 3 not available. Install with: pip install git+https://github.com/huggingface/transformers",
             samAvailable=False,
         )
     
@@ -112,6 +127,8 @@ async def run_segmentation(request: SegmentationRequest):
                 error="Failed to load image or SAM 3 model",
             )
         
+        masks = []
+        
         # Run segmentation based on mode
         if request.mode == "text" and request.textPrompts:
             # Text-guided segmentation with prompts
@@ -120,6 +137,29 @@ async def run_segmentation(request: SegmentationRequest):
                 None,
                 sam.segment_with_text_prompts,
                 request.textPrompts,
+            )
+        
+        elif request.mode == "box" and request.boxes:
+            # Box-guided segmentation
+            print(f"Running SAM 3 box segmentation with {len(request.boxes)} boxes")
+            box_dicts = [{"coords": b.coords, "label": b.label} for b in request.boxes]
+            masks = await loop.run_in_executor(
+                None,
+                sam.segment_with_boxes,
+                box_dicts,
+                None,  # No text prompt
+            )
+        
+        elif request.mode == "combined" and request.boxes:
+            # Combined text + box segmentation
+            text = request.textPrompts[0] if request.textPrompts else None
+            print(f"Running SAM 3 combined segmentation: text='{text}', boxes={len(request.boxes)}")
+            box_dicts = [{"coords": b.coords, "label": b.label} for b in request.boxes]
+            masks = await loop.run_in_executor(
+                None,
+                sam.segment_with_boxes,
+                box_dicts,
+                text,
             )
         
         elif request.mode == "auto":
@@ -133,7 +173,7 @@ async def run_segmentation(request: SegmentationRequest):
         else:
             return SegmentationResponse(
                 success=False,
-                error="Invalid mode or missing text prompts",
+                error="Invalid mode or missing prompts/boxes",
             )
         
         print(f"✓ SAM 3 segmentation complete: {len(masks)} masks")

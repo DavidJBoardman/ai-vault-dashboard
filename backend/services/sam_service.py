@@ -267,6 +267,144 @@ class SAM3Service:
             traceback.print_exc()
             return []
     
+    def segment_with_boxes(
+        self,
+        boxes: List[Dict[str, Any]],
+        text_prompt: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Segment image using bounding box prompts with SAM 3.
+        
+        Based on HuggingFace SAM 3 documentation:
+        https://huggingface.co/facebook/sam3#single-bounding-box-prompt
+        
+        Args:
+            boxes: List of box dicts with keys:
+                - coords: [x1, y1, x2, y2] in pixel coordinates (xyxy format)
+                - label: 1 for positive (include), 0 for negative (exclude)
+            text_prompt: Optional text to combine with boxes
+            
+        Returns:
+            List of mask dictionaries
+        """
+        if not self.model_loaded or self.current_image is None:
+            print("Model not loaded or no image set")
+            return []
+        
+        if not boxes:
+            print("No boxes provided")
+            return []
+        
+        try:
+            # Extract box coordinates and labels
+            input_boxes = [[box["coords"] for box in boxes]]  # [batch, num_boxes, 4]
+            input_boxes_labels = [[box.get("label", 1) for box in boxes]]  # 1=positive, 0=negative
+            
+            positive_count = sum(1 for box in boxes if box.get("label", 1) == 1)
+            negative_count = len(boxes) - positive_count
+            
+            prompt_desc = f"{positive_count} positive, {negative_count} negative boxes"
+            if text_prompt:
+                prompt_desc += f" + text: '{text_prompt}'"
+            print(f"Processing box prompt: {prompt_desc}")
+            
+            # Build processor inputs
+            processor_kwargs = {
+                "images": self.current_image,
+                "input_boxes": input_boxes,
+                "input_boxes_labels": input_boxes_labels,
+                "return_tensors": "pt"
+            }
+            
+            # Add text if provided (for combined prompts)
+            if text_prompt:
+                processor_kwargs["text"] = text_prompt
+            
+            inputs = self.processor(**processor_kwargs)
+            
+            # Get original sizes for post-processing
+            original_sizes = inputs.get("original_sizes", None)
+            
+            # Move inputs to device
+            if DEVICE != "cpu":
+                inputs = {k: v.to(DEVICE) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            
+            # Run inference
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            
+            # Post-process results
+            target_sizes = original_sizes.tolist() if hasattr(original_sizes, 'tolist') else [[self.current_image.height, self.current_image.width]]
+            
+            results = self.processor.post_process_instance_segmentation(
+                outputs,
+                threshold=0.5,
+                mask_threshold=0.5,
+                target_sizes=target_sizes
+            )[0]
+            
+            # Results contain: masks, boxes, scores
+            masks = results.get("masks", [])
+            result_boxes = results.get("boxes", [])
+            scores = results.get("scores", [])
+            
+            print(f"  → Found {len(masks)} masks from box prompt")
+            
+            # Bright colors for box-prompted masks
+            color_palette = [
+                "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
+                "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9",
+            ]
+            
+            # Create label from prompt
+            label_base = text_prompt if text_prompt else "box selection"
+            
+            all_masks = []
+            for mask_idx, mask in enumerate(masks):
+                score = float(scores[mask_idx]) if mask_idx < len(scores) else 0.9
+                
+                # Get bounding box
+                bbox = None
+                if mask_idx < len(result_boxes):
+                    box = result_boxes[mask_idx]
+                    if hasattr(box, 'tolist'):
+                        box = box.tolist()
+                    bbox = [int(box[0]), int(box[1]), int(box[2] - box[0]), int(box[3] - box[1])]
+                
+                # Convert mask to numpy
+                if hasattr(mask, 'cpu'):
+                    mask_np = mask.cpu().numpy()
+                else:
+                    mask_np = np.array(mask)
+                
+                while mask_np.ndim > 2:
+                    mask_np = mask_np[0]
+                
+                color = color_palette[mask_idx % len(color_palette)]
+                
+                mask_info = self._process_mask(
+                    mask=mask_np,
+                    score=score,
+                    prompt=label_base,
+                    prompt_idx=0,
+                    mask_idx=mask_idx,
+                    color=color,
+                    bbox=bbox
+                )
+                
+                if mask_info:
+                    all_masks.append(mask_info)
+                    print(f"    → Mask {mask_idx + 1}: area={mask_info['area']}, score={score:.2f}")
+            
+            print(f"✓ Box segmentation complete: {len(all_masks)} masks")
+            return all_masks
+            
+        except Exception as e:
+            print(f"Error with box segmentation: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
     def generate_automatic_masks(self) -> List[Dict[str, Any]]:
         """
         Generate masks automatically without prompts.
