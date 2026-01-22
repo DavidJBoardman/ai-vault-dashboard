@@ -1,0 +1,43 @@
+# Core API
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+websockets==12.0
+
+# Essential dependencies
+numpy==1.26.4
+scipy==1.14.1
+pydantic==2.9.2
+
+# Image processing
+Pillow==10.4.0
+scikit-image==0.24.0
+opencv-python-headless==4.10.0.84
+
+# Data handling
+pandas==2.2.3
+
+# ===========================================
+# POINT CLOUD LIBRARIES (install at least one)
+# ===========================================
+
+# Option 1: Open3D (recommended - easier to install, supports E57, PLY, PCD, XYZ)
+open3d==0.18.0
+
+# Option 2: pye57 (native E57 support, may require C++ dependencies)
+# On macOS: brew install xerces-c
+# On Ubuntu: sudo apt-get install libxerces-c-dev
+# Then: pip install pye57
+# pye57==0.4.5
+
+# Optional: LAS/LAZ support (common lidar format)
+# laspy==2.5.3
+
+# ===========================================
+# MACHINE LEARNING (optional, for SAM3 segmentation)
+# ===========================================
+# torch>=2.0.0
+# segment-anything-2==1.0.0
+
+# Packaging
+pyinstaller==6.10.0
