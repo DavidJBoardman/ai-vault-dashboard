@@ -217,10 +217,16 @@ export async function exportProjection(projectionId: string): Promise<ApiRespons
 }
 
 // Segmentation (SAM 3)
+export interface BoxPrompt {
+  coords: [number, number, number, number]; // [x1, y1, x2, y2] xyxy format
+  label: 0 | 1; // 1 = positive (include), 0 = negative (exclude)
+}
+
 export interface SegmentationParams {
   projectionId: string;
-  mode: "auto" | "text";
+  mode: "auto" | "text" | "box" | "combined";
   textPrompts?: string[];
+  boxes?: BoxPrompt[];
 }
 
 export interface SegmentationMask {
