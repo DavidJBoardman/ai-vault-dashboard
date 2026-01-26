@@ -1,4 +1,4 @@
-# Vault Analyzer
+# Vault Analyser
 
 Medieval Vault Architecture Analysis Platform - A cross-platform desktop application for analyzing 3D point cloud scans of historical vault structures.
 
@@ -11,7 +11,7 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 - **3D Reprojection**: Map 2D annotations back to 3D with E57 export
 - **Intrados Line Detection**: Automatic skeleton extraction along vault ribs
 - **Measurement Tools**: Calculate arc radius, rib length, apex and springing points
-- **Three-Circle Chord Method**: Analyze geometric construction techniques
+- **Three-Circle Chord Method**: Analyse geometric construction techniques
 
 ## Architecture
 
