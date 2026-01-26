@@ -1,64 +1,53 @@
+# =====================================================
+# Vault Analyser Backend Requirements
+# Python 3.12+ (via Conda recommended)
+# =====================================================
+#
+# SETUP INSTRUCTIONS:
+#
+# 1. Create conda environment:
+#    conda create -n vault-interface python=3.12
+#    conda activate vault-interface
+#
+# 2. Install PyTorch first (platform-specific):
+#    # macOS (Apple Silicon with MPS):
+#    pip install torch torchvision torchaudio
+#
+#    # Linux/Windows with CUDA 12.6:
+#    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+#
+# 3. Install SAM 3 via HuggingFace:
+#    pip install git+https://github.com/huggingface/transformers torchvision
+#
+# 4. Install remaining requirements:
+#    pip install -r requirements.txt
+#
+# =====================================================
+
 # Core API
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
 websockets==12.0
 
-# Essential dependencies
+# Data handling
 numpy==1.26.4
 scipy==1.14.1
+pandas==2.2.3
 pydantic==2.9.2
 
 # Image processing & Gaussian splatting projection
 Pillow==10.4.0
 scikit-image==0.24.0
-opencv-python-headless==4.10.0.84  # Required for depth colormap (PLASMA)
+opencv-python-headless==4.10.0.84
 
-# Data handling
-pandas==2.2.3
-
-# ===========================================
-# POINT CLOUD LIBRARIES (install at least one)
-# ===========================================
-
-# Option 1: Open3D (recommended - easier to install, supports E57, PLY, PCD, XYZ)
+# Point Cloud (E57, PLY, PCD, XYZ support)
 open3d==0.19.0
 
-# Option 2: pye57 (native E57 support, may require C++ dependencies)
-# On macOS: brew install xerces-c
-# On Ubuntu: sudo apt-get install libxerces-c-dev
-# Then: pip install pye57
-# pye57==0.4.5
-
-# Optional: LAS/LAZ support (common lidar format)
-# laspy==2.5.3
-
-# ===========================================
-# MACHINE LEARNING (for SAM 3 segmentation)
-# ===========================================
-
-# PyTorch - install for your platform from https://pytorch.org
-#
-# For macOS (MPS - Apple Silicon):
-#   pip install torch torchvision torchaudio
-#
-# For Linux/Windows with CUDA 12.6:
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-#
-# For CPU only:
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-
-# SAM 3 (Segment Anything Model 3) via HuggingFace Transformers
-# This version works on macOS without triton dependency!
-# See: https://huggingface.co/facebook/sam3/discussions/11
-#
-# Install with:
-#   pip install git+https://github.com/huggingface/transformers torchvision
-
-# HuggingFace ecosystem
-transformers>=4.47.0
+# HuggingFace ecosystem (for SAM 3)
+# Note: transformers installed via git for latest SAM 3 support
 accelerate
 safetensors
 
-# Packaging
+# Packaging (for production builds)
 pyinstaller==6.10.0

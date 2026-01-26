@@ -44,11 +44,11 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    print("Shutting down Vault Analyzer Backend...")
+    print("Shutting down Vault Analyser Backend...")
 
 
 app = FastAPI(
-    title="Vault Analyzer API",
+    title="Vault Analyser API",
     description="Backend API for Medieval Vault Architecture Analysis",
     version="1.0.0",
     lifespan=lifespan,
