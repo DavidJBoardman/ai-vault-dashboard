@@ -43,7 +43,8 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 ## Prerequisites
 
 - Node.js 18+ 
-- Python 3.10+
+- Python 3.12+ (via Conda)
+- Conda (Miniconda or Anaconda)
 - npm or yarn
 
 ## Installation
@@ -61,33 +62,47 @@ cd ai-vault-interface
 npm install
 ```
 
-### 3. Install Python backend dependencies
+### 3. Set up Python environment with Conda
+
+Create and activate the conda environment:
 
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cd ..
+# Create conda environment with Python 3.12
+conda create -n vault-interface python=3.12
+conda activate vault-interface
+
+# Install PyTorch (required for SAM 3)
+# macOS (Apple Silicon - MPS acceleration):
+pip install torch torchvision torchaudio
+
+# Linux/Windows with CUDA 12.6:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+
+# Install SAM 3 via HuggingFace Transformers
+pip install git+https://github.com/huggingface/transformers torchvision
+
+# Install remaining backend dependencies
+pip install -r backend/requirements.txt
 ```
 
-### 4. Download SAM Model (Optional)
-
-For full segmentation functionality, download the SAM model weights:
+### 4. Verify SAM 3 installation
 
 ```bash
-# Download from https://github.com/facebookresearch/segment-anything
-# Place sam_vit_h_4b8939.pth in the backend/ directory
+conda activate vault-interface
+python -c "from transformers import Sam3Processor, Sam3Model; print('SAM 3 OK')"
 ```
+
+> **Note**: SAM 3 model weights (~2GB) are downloaded automatically on first use from HuggingFace.
 
 ## Development
 
 ### Run in development mode
 
-Start both the frontend and backend:
+**Important**: Always activate the conda environment before running the backend.
 
 ```bash
 # Terminal 1: Start the Python backend
+conda activate vault-interface
 npm run backend:dev
 
 # Terminal 2: Start the Next.js frontend and Electron
@@ -100,9 +115,18 @@ Or run them separately:
 # Frontend only (opens in browser at localhost:3000)
 npm run dev:next
 
-# Backend only
+# Backend only (ensure conda env is active)
+conda activate vault-interface
 cd backend && python -m uvicorn main:app --reload --port 8765
 ```
+
+### Environment Notes
+
+The Electron app will automatically detect your conda environment. It searches for:
+1. `PYTHON_PATH` environment variable
+2. Active conda environment (`CONDA_PREFIX`)
+3. The `vault-interface` conda environment in standard locations
+4. System Python as fallback
 
 ## Building for Production
 
@@ -172,11 +196,11 @@ ai-vault-interface/
 - Zustand
 
 ### Backend
-- Python 3.10+
+- Python 3.12+ (via Conda)
 - FastAPI
-- pye57
 - Open3D
-- Segment Anything (SAM)
+- SAM 3 (Segment Anything Model 3 via HuggingFace Transformers)
+- PyTorch (with MPS support for macOS)
 - NumPy/SciPy
 
 ## License
