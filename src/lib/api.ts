@@ -540,3 +540,69 @@ export async function getReprojectionPreview(
   });
 }
 
+// Intrados Line Tracing
+export interface IntradosLine {
+  id: string;
+  label: string;
+  color: string;
+  points3d: number[][];  // [[x, y, z], ...]
+  points2d: number[][];  // [[px, py], ...]
+  pointCount: number;
+  lineLength: number;
+}
+
+export interface IntradosTraceResponse {
+  lines: IntradosLine[];
+  totalLines: number;
+  totalRibs: number;
+}
+
+export interface ExclusionBox {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+  enabled: boolean;
+}
+
+export interface IntradosTraceOptions {
+  ribMaskIds?: string[];
+  numSlices?: number;
+  depthPercentile?: number;
+  outlierThreshold?: number;
+  continuityThreshold?: number;
+  maxStepMeters?: number;
+  floorPlaneZ?: number;
+  exclusionBox?: ExclusionBox;
+}
+
+export async function traceIntradosLines(
+  projectId: string,
+  options: IntradosTraceOptions = {}
+): Promise<ApiResponse<IntradosTraceResponse>> {
+  return apiRequest("/api/project/trace-intrados", {
+    method: "POST",
+    body: JSON.stringify({ 
+      projectId, 
+      ribMaskIds: options.ribMaskIds,
+      numSlices: options.numSlices ?? 50,
+      depthPercentile: options.depthPercentile ?? 25.0,
+      outlierThreshold: options.outlierThreshold ?? 1.5,
+      continuityThreshold: options.continuityThreshold ?? 0.15,
+      maxStepMeters: options.maxStepMeters ?? 0.5,
+      floorPlaneZ: options.floorPlaneZ,
+      exclusionBox: options.exclusionBox,
+    }),
+  });
+}
+
+export async function getIntradosLines(
+  projectId: string
+): Promise<ApiResponse<IntradosTraceResponse>> {
+  return apiRequest(`/api/project/${projectId}/intrados-lines`, {
+    method: "GET",
+  });
+}
+

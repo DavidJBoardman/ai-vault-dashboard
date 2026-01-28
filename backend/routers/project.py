@@ -873,10 +873,13 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
         print(f"  Available mask groups: {list(available_groups.keys())}")
         
         # Filter groups based on request
-        if request.groupIds:
-            selected_groups = [g for g in groups if g["groupId"] in request.groupIds]
-        else:
+        # Note: groupIds=None means "all groups", groupIds=[] means "no groups"
+        if request.groupIds is None:
             selected_groups = groups  # All groups
+        elif len(request.groupIds) == 0:
+            selected_groups = []  # No groups - user wants to show only unmasked points
+        else:
+            selected_groups = [g for g in groups if g["groupId"] in request.groupIds]
         
         print(f"  Selected groups: {[g['groupId'] for g in selected_groups]}")
         
@@ -916,8 +919,9 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
             }
             print(f"  Loaded group mask: {group_id} ({mask_array.shape}, color={color_hex})")
         
-        if not group_masks:
-            return {"success": False, "error": "No valid mask groups found"}
+        # If no groups selected and no unmasked points requested, we still need to show something
+        if not group_masks and not request.showUnmaskedPoints:
+            return {"success": False, "error": "No mask groups selected and unmasked points disabled"}
         
         # Load the original E57 point cloud
         processor = get_processor()
@@ -1078,6 +1082,289 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
         
     except Exception as e:
         print(f"Error generating reprojection preview: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
+class ExclusionBox(BaseModel):
+    """3D box to exclude points from intrados tracing."""
+    minX: float
+    maxX: float
+    minY: float
+    maxY: float
+    minZ: float
+    maxZ: float
+    enabled: bool = True
+
+
+class IntradosTraceRequest(BaseModel):
+    """Request to trace intrados lines for rib masks."""
+    projectId: str
+    ribMaskIds: Optional[List[str]] = None  # Specific rib mask IDs, or None for all ribs
+    numSlices: int = 50  # Number of slices per rib for tracing
+    depthPercentile: float = 25.0  # Percentile of Z values to use (25 = lower quartile, robust)
+    outlierThreshold: float = 1.5  # IQR multiplier to filter global outliers
+    continuityThreshold: float = 0.15  # Max Z deviation from neighbors (fraction of rib Z range)
+    maxStepMeters: float = 0.5  # Maximum allowed step between consecutive points in meters
+    # Exclusion parameters
+    floorPlaneZ: Optional[float] = None  # Exclude points below this Z value
+    exclusionBox: Optional[ExclusionBox] = None  # Exclude points inside this box
+
+
+@router.post("/trace-intrados")
+async def trace_intrados(request: IntradosTraceRequest):
+    """
+    Trace the intrados (center) lines for rib masks.
+    
+    The intrados line is the center line running along the lowest/shallowest
+    points of each rib's curved profile.
+    """
+    import numpy as np
+    from PIL import Image
+    from services.e57_processor import get_processor
+    from services.intrados_tracer import trace_all_rib_intrados
+    
+    try:
+        project_dir = get_project_dir(request.projectId)
+        
+        # Load project metadata
+        project_path = project_dir / "project.json"
+        if not project_path.exists():
+            return {"success": False, "error": "Project not found"}
+        
+        with open(project_path, "r") as f:
+            project_data = json.load(f)
+        
+        # Get the original E57 path
+        e57_path = project_data.get("e57Path")
+        if not e57_path or not Path(e57_path).exists():
+            return {"success": False, "error": f"E57 file not found: {e57_path}"}
+        
+        print(f"Tracing intrados lines for project: {request.projectId}")
+        print(f"  E57: {e57_path}")
+        
+        # Load projection metadata
+        proj_dir = project_dir / "projections"
+        proj_index_path = proj_dir / "index.json"
+        
+        if not proj_index_path.exists():
+            return {"success": False, "error": "No projections found"}
+        
+        with open(proj_index_path, "r") as f:
+            proj_index = json.load(f)
+        
+        projections = proj_index.get("projections", [])
+        if not projections:
+            return {"success": False, "error": "No projections found"}
+        
+        proj = projections[0]
+        
+        # Load projection metadata
+        metadata_file = proj.get("files", {}).get("metadata")
+        if metadata_file:
+            metadata_path = proj_dir / metadata_file
+            if metadata_path.exists():
+                with open(metadata_path, "r") as f:
+                    proj_metadata = json.load(f)
+            else:
+                proj_metadata = proj.get("metadata", {})
+        else:
+            proj_metadata = proj.get("metadata", {})
+        
+        centroid = np.array(proj_metadata.get("centroid", [0, 0, 0]))
+        
+        # Load segmentation index
+        seg_dir = project_dir / "segmentations"
+        seg_index_path = seg_dir / "index.json"
+        
+        if not seg_index_path.exists():
+            return {"success": False, "error": "No segmentations found"}
+        
+        with open(seg_index_path, "r") as f:
+            seg_index = json.load(f)
+        
+        segmentations = seg_index.get("segmentations", [])
+        
+        # Filter for rib segmentations only
+        rib_segmentations = [
+            s for s in segmentations 
+            if s.get("groupId", "").lower() == "rib" or "rib" in s.get("label", "").lower()
+        ]
+        
+        # Further filter by specific IDs if provided
+        if request.ribMaskIds:
+            rib_segmentations = [s for s in rib_segmentations if s.get("id") in request.ribMaskIds]
+        
+        if not rib_segmentations:
+            return {"success": False, "error": "No rib segmentations found"}
+        
+        print(f"  Found {len(rib_segmentations)} rib segmentations")
+        
+        # Load the individual rib masks
+        rib_masks = {}
+        for seg in rib_segmentations:
+            mask_file = seg.get("maskFile")
+            if not mask_file:
+                continue
+            
+            mask_path = seg_dir / mask_file
+            if not mask_path.exists():
+                continue
+            
+            # Load mask - use alpha channel for RGBA images
+            mask_img = Image.open(mask_path)
+            if mask_img.mode == 'RGBA':
+                mask_array = np.array(mask_img)[:, :, 3]
+            elif mask_img.mode == 'LA':
+                mask_array = np.array(mask_img)[:, :, 1]
+            else:
+                mask_array = np.array(mask_img.convert("L"))
+            
+            rib_masks[seg.get("id")] = mask_array
+        
+        if not rib_masks:
+            return {"success": False, "error": "Could not load any rib masks"}
+        
+        print(f"  Loaded {len(rib_masks)} rib masks")
+        
+        # Load the E57 point cloud
+        processor = get_processor()
+        
+        if processor.current_file != e57_path or processor.points is None:
+            print(f"  Loading E57 file...")
+            await processor.load_file(e57_path)
+        else:
+            print(f"  Using cached E57 data")
+        
+        if processor.points is None or len(processor.points) == 0:
+            return {"success": False, "error": "Failed to load E57 file"}
+        
+        print(f"  E57 loaded: {len(processor.points)} points")
+        
+        # Trace intrados lines for all rib masks
+        # Prepare exclusion box if provided
+        exclusion_box_dict = None
+        if request.exclusionBox:
+            exclusion_box_dict = {
+                "minX": request.exclusionBox.minX,
+                "maxX": request.exclusionBox.maxX,
+                "minY": request.exclusionBox.minY,
+                "maxY": request.exclusionBox.maxY,
+                "minZ": request.exclusionBox.minZ,
+                "maxZ": request.exclusionBox.maxZ,
+                "enabled": request.exclusionBox.enabled,
+            }
+        
+        intrados_results = trace_all_rib_intrados(
+            e57_points=processor.points,
+            e57_colors=processor.colors,
+            rib_masks=rib_masks,
+            projection_metadata=proj_metadata,
+            centroid=centroid,
+            num_slices=request.numSlices,
+            depth_percentile=request.depthPercentile,
+            outlier_threshold=request.outlierThreshold,
+            continuity_threshold=request.continuityThreshold,
+            max_step_meters=request.maxStepMeters,
+            floor_plane_z=request.floorPlaneZ,
+            exclusion_box=exclusion_box_dict
+        )
+        
+        if not intrados_results:
+            return {"success": False, "error": "Could not trace any intrados lines"}
+        
+        # Build result with segmentation metadata
+        lines = []
+        for seg in rib_segmentations:
+            seg_id = seg.get("id")
+            if seg_id in intrados_results:
+                result = intrados_results[seg_id]
+                lines.append({
+                    "id": seg_id,
+                    "label": seg.get("label", ""),
+                    "color": seg.get("color", "#FF0000"),
+                    "points3d": result["points_3d"],
+                    "points2d": result["points_2d"],
+                    "pointCount": result["point_count"],
+                    "lineLength": result["line_length"],
+                })
+        
+        # Save intrados data to project
+        intrados_path = seg_dir / "intrados_lines.json"
+        intrados_data = {
+            "lines": lines,
+            "numSlices": request.numSlices,
+            "totalLines": len(lines),
+            "totalRibs": len(rib_segmentations),
+        }
+        with open(intrados_path, "w") as f:
+            json.dump(intrados_data, f, indent=2)
+        
+        print(f"✓ Traced {len(lines)} intrados lines from {len(rib_segmentations)} ribs")
+        print(f"  Saved to: {intrados_path}")
+        
+        # Verify save
+        if intrados_path.exists():
+            print(f"  File saved successfully: {intrados_path.stat().st_size} bytes")
+        else:
+            print(f"  WARNING: File was not saved!")
+        
+        return {
+            "success": True,
+            "data": {
+                "lines": lines,
+                "totalLines": len(lines),
+                "totalRibs": len(rib_segmentations),
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error tracing intrados: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/{project_id}/intrados-lines")
+async def get_intrados_lines(project_id: str):
+    """Get saved intrados lines for a project."""
+    try:
+        project_dir = get_project_dir(project_id)
+        intrados_path = project_dir / "segmentations" / "intrados_lines.json"
+        
+        print(f"Getting intrados lines for project: {project_id}")
+        print(f"  Looking for: {intrados_path}")
+        print(f"  Exists: {intrados_path.exists()}")
+        
+        if not intrados_path.exists():
+            print(f"  No intrados file found")
+            return {
+                "success": True,
+                "data": {
+                    "lines": [],
+                    "totalLines": 0,
+                    "totalRibs": 0,
+                }
+            }
+        
+        with open(intrados_path, "r") as f:
+            data = json.load(f)
+        
+        lines = data.get("lines", [])
+        print(f"  Found {len(lines)} intrados lines")
+        
+        return {
+            "success": True,
+            "data": {
+                "lines": lines,
+                "totalLines": data.get("totalLines", len(lines)),
+                "totalRibs": data.get("totalRibs", 0),
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error getting intrados lines: {e}")
         import traceback
         traceback.print_exc()
         return {"success": False, "error": str(e)}
