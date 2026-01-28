@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
-from routers import upload, projection, segmentation, geometry, export
+from routers import upload, projection, segmentation, geometry, export, project
 from services.progress_manager import ProgressManager
 from services.e57_processor import get_processor
 
@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     (data_dir / "projections").mkdir(exist_ok=True)
     (data_dir / "segmentations").mkdir(exist_ok=True)
     (data_dir / "exports").mkdir(exist_ok=True)
+    (data_dir / "projects").mkdir(exist_ok=True)
     
     print(f"Data directory: {data_dir.absolute()}")
     print("Backend ready!")
@@ -69,6 +70,7 @@ app.include_router(projection.router, prefix="/api/projection", tags=["Projectio
 app.include_router(segmentation.router, prefix="/api/segmentation", tags=["Segmentation"])
 app.include_router(geometry.router, prefix="/api/geometry", tags=["Geometry"])
 app.include_router(export.router, prefix="/api/export", tags=["Export"])
+app.include_router(project.router, prefix="/api/project", tags=["Project"])
 
 
 @app.get("/health")

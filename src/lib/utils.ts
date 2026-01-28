@@ -33,3 +33,19 @@ export function generateId(): string {
   return Math.random().toString(36).substring(2, 9);
 }
 
+/**
+ * Ensures a base64 image string has the proper data URL prefix.
+ * Handles both raw base64 strings and full data URLs.
+ */
+export function toImageSrc(base64OrDataUrl: string | undefined | null, mimeType = "image/png"): string {
+  if (!base64OrDataUrl) return "";
+  
+  // Already has data URL prefix
+  if (base64OrDataUrl.startsWith("data:")) {
+    return base64OrDataUrl;
+  }
+  
+  // Raw base64 - add prefix
+  return `data:${mimeType};base64,${base64OrDataUrl}`;
+}
+

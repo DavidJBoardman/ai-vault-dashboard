@@ -123,10 +123,10 @@ export default function Step7MeasurementsPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="h-[400px]">
+            <CardContent>
               <PointCloudViewer
                 points={pointCloudData}
-                className="h-full rounded-lg overflow-hidden"
+                className="h-[400px] rounded-lg overflow-hidden"
                 colorMode="height"
                 showGrid={true}
                 showBoundingBox={true}

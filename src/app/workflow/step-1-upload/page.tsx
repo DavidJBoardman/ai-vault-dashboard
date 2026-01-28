@@ -49,7 +49,7 @@ export default function Step1UploadPage() {
     currentProject, 
     setE57Path, 
     setPointCloudStats, 
-    completeStep 
+    completeStep,
   } = useProjectStore();
   
   const [isDragging, setIsDragging] = useState(false);

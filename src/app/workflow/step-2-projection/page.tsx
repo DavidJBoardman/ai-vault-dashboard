@@ -14,6 +14,7 @@ import { createProjection, getPointCloudPreview, PointData } from "@/lib/api";
 import { 
   ChevronLeft, 
   ChevronRight, 
+  ChevronDown,
   Plus,
   Trash2,
   Eye,
@@ -25,15 +26,16 @@ import {
   Image as ImageIcon,
   Box,
   Grid3X3,
-  Layers
+  Layers,
+  Settings2
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toImageSrc } from "@/lib/utils";
 
 type Perspective = "top" | "bottom" | "north" | "south" | "east" | "west";
 
 const PERSPECTIVE_OPTIONS: { value: Perspective; label: string; icon: React.ReactNode; description: string }[] = [
-  { value: "top", label: "Top Down", icon: <ArrowDown className="w-4 h-4" />, description: "Looking down at the vault" },
   { value: "bottom", label: "Bottom Up", icon: <ArrowUp className="w-4 h-4" />, description: "Looking up from below" },
+  { value: "top", label: "Top Down", icon: <ArrowDown className="w-4 h-4" />, description: "Looking down at the vault" },
   { value: "north", label: "North", icon: <Compass className="w-4 h-4" />, description: "View from north side" },
   { value: "south", label: "South", icon: <Compass className="w-4 h-4 rotate-180" />, description: "View from south side" },
   { value: "east", label: "East", icon: <Compass className="w-4 h-4 rotate-90" />, description: "View from east side" },
@@ -338,7 +340,7 @@ export default function Step2ProjectionPage() {
   const { currentProject, addProjection, removeProjection, completeStep } = useProjectStore();
   
   // Projection settings
-  const [perspective, setPerspective] = useState<Perspective>("top");
+  const [perspective, setPerspective] = useState<Perspective>("bottom");
   const [resolution, setResolution] = useState(2048);
   const [sigma, setSigma] = useState(1.0);
   const [kernelSize, setKernelSize] = useState(5);
@@ -355,6 +357,7 @@ export default function Step2ProjectionPage() {
   const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   const [totalPointCount, setTotalPointCount] = useState(0);
   const [displayPointCount, setDisplayPointCount] = useState(100000);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   
   // Get selected projection for display
   const selectedProjection = useMemo(() => {
@@ -394,6 +397,13 @@ export default function Step2ProjectionPage() {
   useEffect(() => {
     loadPointCloud(displayPointCount);
   }, []);
+  
+  // Select first existing projection if available
+  useEffect(() => {
+    if (!selectedProjectionId && currentProject?.projections?.length) {
+      setSelectedProjectionId(currentProject.projections[0].id);
+    }
+  }, [currentProject?.projections, selectedProjectionId]);
   
   const handleReloadPoints = () => {
     loadPointCloud(displayPointCount, true);
@@ -489,94 +499,118 @@ export default function Step2ProjectionPage() {
                 </p>
               </div>
               
-              {/* Resolution */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Output Resolution</Label>
-                  <span className="text-sm font-medium text-primary">{resolution}px</span>
-                </div>
-                <Slider
-                  value={[resolution]}
-                  onValueChange={([v]) => setResolution(v)}
-                  min={512}
-                  max={4096}
-                  step={256}
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>512px</span>
-                  <span>4096px</span>
-                </div>
-              </div>
-              
-              {/* Gaussian Sigma */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Gaussian Spread (σ)</Label>
-                  <span className="text-sm font-medium text-primary">{sigma.toFixed(1)}</span>
-                </div>
-                <Slider
-                  value={[sigma * 10]}
-                  onValueChange={([v]) => setSigma(v / 10)}
-                  min={5}
-                  max={30}
-                  step={1}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Controls point spread. Higher = smoother, Lower = sharper
-                </p>
-              </div>
-              
-              {/* Kernel Size */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Kernel Size</Label>
-                  <span className="text-sm font-medium text-primary">{kernelSize}px</span>
-                </div>
-                <Slider
-                  value={[kernelSize]}
-                  onValueChange={([v]) => setKernelSize(v % 2 === 0 ? v + 1 : v)}
-                  min={3}
-                  max={11}
-                  step={2}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Gaussian kernel size (must be odd)
-                </p>
-              </div>
-              
-              {/* Bottom-up toggle */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Bottom-up View</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Looking up at the vault
-                  </p>
-                </div>
-                <Button
-                  variant={bottomUp ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setBottomUp(!bottomUp)}
+              {/* Advanced Settings - Collapsible */}
+              <div className="border rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                  className="w-full flex items-center justify-between p-3 bg-muted/50 hover:bg-muted transition-colors"
                 >
-                  {bottomUp ? "On" : "Off"}
-                </Button>
-              </div>
-              
-              {/* Scale */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Scale Factor</Label>
-                  <span className="text-sm font-medium text-primary">{scale.toFixed(1)}×</span>
-                </div>
-                <Slider
-                  value={[scale * 10]}
-                  onValueChange={([v]) => setScale(v / 10)}
-                  min={5}
-                  max={20}
-                  step={1}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Adjust to fit the vault region in the output image
-                </p>
+                  <div className="flex items-center gap-2">
+                    <Settings2 className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Advanced Settings</span>
+                  </div>
+                  <ChevronDown 
+                    className={cn(
+                      "w-4 h-4 text-muted-foreground transition-transform",
+                      showAdvancedSettings && "rotate-180"
+                    )} 
+                  />
+                </button>
+                
+                {showAdvancedSettings && (
+                  <div className="p-4 space-y-5 border-t bg-muted/20">
+                    {/* Resolution */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label>Output Resolution</Label>
+                        <span className="text-sm font-medium text-primary">{resolution}px</span>
+                      </div>
+                      <Slider
+                        value={[resolution]}
+                        onValueChange={([v]) => setResolution(v)}
+                        min={512}
+                        max={4096}
+                        step={256}
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>512px</span>
+                        <span>4096px</span>
+                      </div>
+                    </div>
+                    
+                    {/* Gaussian Sigma */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label>Gaussian Spread (σ)</Label>
+                        <span className="text-sm font-medium text-primary">{sigma.toFixed(1)}</span>
+                      </div>
+                      <Slider
+                        value={[sigma * 10]}
+                        onValueChange={([v]) => setSigma(v / 10)}
+                        min={5}
+                        max={30}
+                        step={1}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Controls point spread. Higher = smoother, Lower = sharper
+                      </p>
+                    </div>
+                    
+                    {/* Kernel Size */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label>Kernel Size</Label>
+                        <span className="text-sm font-medium text-primary">{kernelSize}px</span>
+                      </div>
+                      <Slider
+                        value={[kernelSize]}
+                        onValueChange={([v]) => setKernelSize(v % 2 === 0 ? v + 1 : v)}
+                        min={3}
+                        max={11}
+                        step={2}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Gaussian kernel size (must be odd)
+                      </p>
+                    </div>
+                    
+                    {/* Bottom-up toggle */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Bottom-up View</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Looking up at the vault
+                        </p>
+                      </div>
+                      <Button
+                        variant={bottomUp ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setBottomUp(!bottomUp)}
+                      >
+                        {bottomUp ? "On" : "Off"}
+                      </Button>
+                    </div>
+                    
+                    {/* Scale */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label>Scale Factor</Label>
+                        <span className="text-sm font-medium text-primary">{scale.toFixed(1)}×</span>
+                      </div>
+                      <Slider
+                        value={[scale * 10]}
+                        onValueChange={([v]) => setScale(v / 10)}
+                        min={5}
+                        max={20}
+                        step={1}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Adjust to fit the vault region in the output image
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
               
               <Button 
@@ -642,9 +676,9 @@ export default function Step2ProjectionPage() {
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded overflow-hidden bg-muted flex-shrink-0">
-                          {proj.images?.colour ? (
+                          {(proj.images?.colour || proj.previewImage) ? (
                             <img 
-                              src={`data:image/png;base64,${proj.images.colour}`}
+                              src={toImageSrc(proj.images?.colour || proj.previewImage)}
                               alt={`${proj.settings.perspective} projection`}
                               className="w-full h-full object-cover"
                             />
@@ -835,7 +869,7 @@ export default function Step2ProjectionPage() {
                   <div className="aspect-square max-w-lg mx-auto rounded-lg overflow-hidden bg-[#0a0f1a] relative">
                     {currentImage ? (
                       <img 
-                        src={`data:image/png;base64,${currentImage}`}
+                        src={toImageSrc(currentImage)}
                         alt={`${selectedProjection.settings.perspective} projection - ${selectedImageType}`}
                         className="w-full h-full object-contain"
                       />

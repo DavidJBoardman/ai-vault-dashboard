@@ -403,3 +403,140 @@ export function createProgressSocket(
   return ws;
 }
 
+// Project Management
+export interface ProjectSaveData {
+  projectId: string;
+  projectName: string;
+  e57Path?: string;
+  projections: Array<{
+    id: string;
+    perspective: string;
+    resolution: number;
+    sigma: number;
+    kernelSize: number;
+    bottomUp: boolean;
+    scale: number;
+  }>;
+  segmentations: Array<{
+    id: string;
+    label: string;
+    color: string;
+    maskBase64: string;
+    bbox?: number[];
+    area?: number;
+    visible: boolean;
+    source: string;
+  }>;
+  selectedProjectionId?: string;
+}
+
+export interface SavedSegmentation {
+  id: string;
+  label: string;
+  color: string;
+  maskBase64?: string;
+  maskFile?: string;
+  bbox?: number[];
+  area?: number;
+  visible: boolean;
+  source: string;
+}
+
+export interface ProjectData {
+  id: string;
+  name: string;
+  e57Path?: string;
+  selectedProjectionId?: string;
+  projections: Array<{
+    id: string;
+    perspective: string;
+    resolution: number;
+    sigma: number;
+    kernelSize: number;
+    bottomUp: boolean;
+    scale: number;
+  }>;
+  segmentations: SavedSegmentation[];
+  segmentationCount: number;
+  updatedAt: string;
+}
+
+export async function saveProject(data: ProjectSaveData): Promise<ApiResponse<{ projectDir: string; savedSegmentations: number }>> {
+  return apiRequest("/api/project/save", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function loadProject(projectId: string): Promise<ApiResponse<{ project: ProjectData }>> {
+  return apiRequest(`/api/project/load/${projectId}`);
+}
+
+export async function listProjects(): Promise<ApiResponse<{ projects: Array<{ id: string; name: string; updatedAt: string; segmentationCount: number }> }>> {
+  return apiRequest("/api/project/list");
+}
+
+export async function deleteProject(projectId: string): Promise<ApiResponse<{ projectId: string; name: string }>> {
+  return apiRequest(`/api/project/delete/${projectId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getProjectSegmentations(projectId: string): Promise<ApiResponse<{ segmentations: SavedSegmentation[] }>> {
+  return apiRequest(`/api/project/segmentations/${projectId}`);
+}
+
+// Region of Interest (ROI)
+export interface ROIData {
+  x: number;      // Center X (in pixels)
+  y: number;      // Center Y (in pixels)
+  width: number;
+  height: number;
+  rotation: number;  // Rotation angle in degrees
+  corners?: number[][];  // 4 corners [[x,y], ...]
+}
+
+export async function saveROI(
+  projectId: string,
+  roi: ROIData
+): Promise<ApiResponse<{ insideCount: number; outsideCount: number }>> {
+  return apiRequest("/api/project/save-roi", {
+    method: "POST",
+    body: JSON.stringify({ projectId, roi }),
+  });
+}
+
+// Reprojection Preview
+export interface ReprojectionPoint {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  g: number;
+  b: number;
+  label?: string;
+}
+
+export interface ReprojectionPreviewResponse {
+  points: ReprojectionPoint[];
+  total: number;
+  originalTotal: number;
+  maskedCount: number;
+  unmaskedCount: number;
+  groupCounts: Record<string, number>;
+  availableGroups: string[];
+  selectedGroups: string[];
+}
+
+export async function getReprojectionPreview(
+  projectId: string,
+  groupIds?: string[],
+  maxPoints: number = 500000,
+  showUnmaskedPoints: boolean = true
+): Promise<ApiResponse<ReprojectionPreviewResponse>> {
+  return apiRequest("/api/project/reproject-preview", {
+    method: "POST",
+    body: JSON.stringify({ projectId, groupIds, maxPoints, showUnmaskedPoints }),
+  });
+}
+

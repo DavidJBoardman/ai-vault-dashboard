@@ -23,7 +23,8 @@ import {
   runSegmentation, 
   checkSamStatus, 
   SegmentationMask,
-  BoxPrompt
+  BoxPrompt,
+  saveProject
 } from "@/lib/api";
 import { 
   ChevronLeft, 
@@ -45,7 +46,7 @@ import {
   GripVertical,
   Edit2
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toImageSrc } from "@/lib/utils";
 
 // Image type for viewing projections
 type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
@@ -140,6 +141,23 @@ export default function Step3SegmentationPage() {
     };
     checkStatus();
   }, []);
+  
+  // Load existing segmentations from store when project is loaded
+  useEffect(() => {
+    if (currentProject?.segmentations && currentProject.segmentations.length > 0 && masks.length === 0) {
+      // Convert store segmentations to SegmentationMask format
+      const loadedMasks: SegmentationMask[] = currentProject.segmentations.map((seg) => ({
+        id: seg.id,
+        label: seg.label,
+        color: seg.color,
+        maskBase64: seg.mask, // Store uses 'mask', component uses 'maskBase64'
+        visible: seg.visible,
+        bbox: seg.bbox || [0, 0, 100, 100],
+        area: seg.area || 0,
+      }));
+      setMasks(loadedMasks);
+    }
+  }, [currentProject?.segmentations, masks.length]);
   
   const handleAddPrompt = () => {
     const trimmed = newPrompt.trim();
@@ -440,51 +458,127 @@ export default function Step3SegmentationPage() {
         setSamStatus(prev => ({ ...prev, loaded: true }));
         
         if (newMasks.length > 0) {
-          // Append to existing masks with proper renumbering to avoid duplicates
-          setMasks(prev => {
+          // Append to existing masks with proper renumbering, color consistency, and duplicate detection
+          // We need to compute the updated masks outside setState to avoid calling store actions during render
+          const computeUpdatedMasks = (existingMasks: SegmentationMask[]) => {
             // Track label counts as we renumber
             const labelCounts: Record<string, number> = {};
+            // Track colors for each group (for consistency)
+            const groupColors: Record<string, string> = {};
             
-            // First, count existing masks by base label
-            prev.forEach(m => {
+            // First, count existing masks by base label and collect their colors
+            existingMasks.forEach(m => {
               const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
               labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
+              // Store the first color found for this group
+              if (!groupColors[baseLabel]) {
+                groupColors[baseLabel] = m.color;
+              }
             });
             
-            // Renumber new masks based on existing ones
-            const renumberedMasks = newMasks.map((newMask: SegmentationMask) => {
-              // Extract base label (e.g., "boss stone" from "boss stone #1")
-              const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
-              const baseLabelLower = baseLabel.toLowerCase();
+            // Helper to calculate bounding box IoU (Intersection over Union)
+            const calculateBboxIoU = (bbox1: number[], bbox2: number[]): number => {
+              // Both bboxes in [x, y, w, h] format
+              const [x1, y1, w1, h1] = bbox1;
+              const [x2, y2, w2, h2] = bbox2;
               
-              // Increment count for this label
-              labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
-              const newNumber = labelCounts[baseLabelLower];
+              const xA = Math.max(x1, x2);
+              const yA = Math.max(y1, y2);
+              const xB = Math.min(x1 + w1, x2 + w2);
+              const yB = Math.min(y1 + h1, y2 + h2);
               
-              // Create new label with proper numbering
-              const newLabel = `${baseLabel} #${newNumber}`;
+              const interWidth = Math.max(0, xB - xA);
+              const interHeight = Math.max(0, yB - yA);
+              const interArea = interWidth * interHeight;
               
-              // Generate unique ID to avoid conflicts
-              const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+              const area1 = w1 * h1;
+              const area2 = w2 * h2;
+              const unionArea = area1 + area2 - interArea;
               
-              return {
-                ...newMask,
-                id: newId,
-                label: newLabel,
-              };
-            });
+              return unionArea > 0 ? interArea / unionArea : 0;
+            };
             
-            // Update store with ALL masks (existing + new)
-            const allMasks = [...prev, ...renumberedMasks];
-            const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
-              id: m.id,
-              label: m.label,
-              color: m.color,
-              mask: m.maskBase64,
-              visible: m.visible,
-              source: m.source as "auto" | "manual",
-            }));
-            setSegmentations(storeSegmentations);
+            // Check if a new mask overlaps significantly with existing masks
+            const isDuplicateMask = (newMask: SegmentationMask): boolean => {
+              const IOU_THRESHOLD = 0.5; // Consider duplicate if >50% overlap
+              
+              for (const existingMask of existingMasks) {
+                if (existingMask.bbox && newMask.bbox) {
+                  const iou = calculateBboxIoU(existingMask.bbox, newMask.bbox);
+                  if (iou > IOU_THRESHOLD) {
+                    console.log(`Skipping duplicate mask (IoU=${iou.toFixed(2)}): ${newMask.label}`);
+                    return true;
+                  }
+                }
+              }
+              return false;
+            };
+            
+            // Default color palette for new groups
+            const colorPalette = [
+              "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
+              "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
+            ];
+            let colorIndex = Object.keys(groupColors).length;
+            
+            // Filter out duplicates and renumber new masks
+            const renumberedMasks = newMasks
+              .filter((newMask: SegmentationMask) => !isDuplicateMask(newMask))
+              .map((newMask: SegmentationMask) => {
+                // Extract base label (e.g., "boss stone" from "boss stone #1")
+                const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
+                const baseLabelLower = baseLabel.toLowerCase();
+                
+                // Increment count for this label
+                labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
+                const newNumber = labelCounts[baseLabelLower];
+                
+                // Create new label with proper numbering
+                const newLabel = `${baseLabel} #${newNumber}`;
+                
+                // Get consistent color for this group
+                let maskColor = groupColors[baseLabelLower];
+                if (!maskColor) {
+                  // New group - assign a color from palette
+                  maskColor = colorPalette[colorIndex % colorPalette.length];
+                  groupColors[baseLabelLower] = maskColor;
+                  colorIndex++;
+                }
+                
+                // Generate unique ID to avoid conflicts
+                const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                
+                return {
+                  ...newMask,
+                  id: newId,
+                  label: newLabel,
+                  color: maskColor, // Use consistent group color
+                };
+              });
+            
+            if (renumberedMasks.length < newMasks.length) {
+              console.log(`Filtered ${newMasks.length - renumberedMasks.length} duplicate masks`);
+            }
+            
+            return [...existingMasks, ...renumberedMasks];
+          };
+          
+          // Get current masks and compute updated list
+          setMasks(prev => {
+            const allMasks = computeUpdatedMasks(prev);
+            
+            // Schedule store update after this render cycle
+            setTimeout(() => {
+              const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
+                id: m.id,
+                label: m.label,
+                color: m.color,
+                mask: m.maskBase64,
+                visible: m.visible,
+                source: m.source as "auto" | "manual",
+              }));
+              setSegmentations(storeSegmentations);
+            }, 0);
             
             return allMasks;
           });
@@ -539,53 +633,127 @@ export default function Step3SegmentationPage() {
         setSamStatus(prev => ({ ...prev, loaded: true }));
         
         if (masks.length > 0) {
-          // Append to existing masks with proper renumbering (same as box selection)
-          setMasks(prev => {
+          // Append to existing masks with proper renumbering, color consistency, and duplicate detection
+          // Compute updated masks outside setState to avoid calling store actions during render
+          const computeUpdatedMasks = (existingMasks: SegmentationMask[]) => {
             // Track label counts as we renumber
             const labelCounts: Record<string, number> = {};
+            // Track colors for each group (for consistency)
+            const groupColors: Record<string, string> = {};
             
-            // First, count existing masks by base label
-            prev.forEach(m => {
+            // First, count existing masks by base label and collect their colors
+            existingMasks.forEach(m => {
               const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
               labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
+              // Store the first color found for this group
+              if (!groupColors[baseLabel]) {
+                groupColors[baseLabel] = m.color;
+              }
             });
             
-            // Renumber new masks based on existing ones
-            const renumberedMasks = masks.map((newMask: SegmentationMask) => {
-              // Extract base label
-              const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
-              const baseLabelLower = baseLabel.toLowerCase();
+            // Helper to calculate bounding box IoU (Intersection over Union)
+            const calculateBboxIoU = (bbox1: number[], bbox2: number[]): number => {
+              // Both bboxes in [x, y, w, h] format
+              const [x1, y1, w1, h1] = bbox1;
+              const [x2, y2, w2, h2] = bbox2;
               
-              // Increment count for this label
-              labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
-              const newNumber = labelCounts[baseLabelLower];
+              const xA = Math.max(x1, x2);
+              const yA = Math.max(y1, y2);
+              const xB = Math.min(x1 + w1, x2 + w2);
+              const yB = Math.min(y1 + h1, y2 + h2);
               
-              // Create new label with proper numbering
-              const newLabel = `${baseLabel} #${newNumber}`;
+              const interWidth = Math.max(0, xB - xA);
+              const interHeight = Math.max(0, yB - yA);
+              const interArea = interWidth * interHeight;
               
-              // Generate unique ID
-              const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+              const area1 = w1 * h1;
+              const area2 = w2 * h2;
+              const unionArea = area1 + area2 - interArea;
               
-              return {
-                ...newMask,
-                id: newId,
-                label: newLabel,
-              };
-            });
+              return unionArea > 0 ? interArea / unionArea : 0;
+            };
             
-            // Combine existing + new masks
-            const allMasks = [...prev, ...renumberedMasks];
+            // Check if a new mask overlaps significantly with existing masks
+            const isDuplicateMask = (newMask: SegmentationMask): boolean => {
+              const IOU_THRESHOLD = 0.5; // Consider duplicate if >50% overlap
+              
+              for (const existingMask of existingMasks) {
+                if (existingMask.bbox && newMask.bbox) {
+                  const iou = calculateBboxIoU(existingMask.bbox, newMask.bbox);
+                  if (iou > IOU_THRESHOLD) {
+                    console.log(`Skipping duplicate mask (IoU=${iou.toFixed(2)}): ${newMask.label}`);
+                    return true;
+                  }
+                }
+              }
+              return false;
+            };
             
-            // Update store with ALL masks
-            const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
-              id: m.id,
-              label: m.label,
-              color: m.color,
-              mask: m.maskBase64,
-              visible: m.visible,
-              source: m.source as "auto" | "manual",
-            }));
-            setSegmentations(storeSegmentations);
+            // Default color palette for new groups
+            const colorPalette = [
+              "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
+              "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
+            ];
+            let colorIndex = Object.keys(groupColors).length;
+            
+            // Filter out duplicates and renumber new masks
+            const renumberedMasks = masks
+              .filter((newMask: SegmentationMask) => !isDuplicateMask(newMask))
+              .map((newMask: SegmentationMask) => {
+                // Extract base label
+                const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
+                const baseLabelLower = baseLabel.toLowerCase();
+                
+                // Increment count for this label
+                labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
+                const newNumber = labelCounts[baseLabelLower];
+                
+                // Create new label with proper numbering
+                const newLabel = `${baseLabel} #${newNumber}`;
+                
+                // Get consistent color for this group
+                let maskColor = groupColors[baseLabelLower];
+                if (!maskColor) {
+                  // New group - assign a color from palette
+                  maskColor = colorPalette[colorIndex % colorPalette.length];
+                  groupColors[baseLabelLower] = maskColor;
+                  colorIndex++;
+                }
+                
+                // Generate unique ID
+                const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                
+                return {
+                  ...newMask,
+                  id: newId,
+                  label: newLabel,
+                  color: maskColor, // Use consistent group color
+                };
+              });
+            
+            if (renumberedMasks.length < masks.length) {
+              console.log(`Filtered ${masks.length - renumberedMasks.length} duplicate masks`);
+            }
+            
+            return [...existingMasks, ...renumberedMasks];
+          };
+          
+          // Update masks and schedule store update after render
+          setMasks(prev => {
+            const allMasks = computeUpdatedMasks(prev);
+            
+            // Schedule store update after this render cycle
+            setTimeout(() => {
+              const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
+                id: m.id,
+                label: m.label,
+                color: m.color,
+                mask: m.maskBase64,
+                visible: m.visible,
+                source: m.source as "auto" | "manual",
+              }));
+              setSegmentations(storeSegmentations);
+            }, 0);
             
             return allMasks;
           });
@@ -626,7 +794,7 @@ export default function Step3SegmentationPage() {
     });
   };
   
-  const handleContinue = () => {
+  const handleContinue = async () => {
     // Save masks to store
     const storeSegmentations = masks.map(m => ({
       id: m.id,
@@ -638,6 +806,47 @@ export default function Step3SegmentationPage() {
     }));
     setSegmentations(storeSegmentations);
     completeStep(3, { segmentations: storeSegmentations, intradosLines: currentProject?.intradosLines });
+    
+    // Save project data to backend for persistence
+    if (currentProject) {
+      try {
+        const projectData = {
+          projectId: currentProject.id,
+          projectName: currentProject.name,
+          e57Path: currentProject.e57Path,
+          projections: currentProject.projections.map(p => ({
+            id: p.id,
+            perspective: p.settings.perspective,
+            resolution: p.settings.resolution,
+            sigma: p.settings.sigma,
+            kernelSize: p.settings.kernelSize,
+            bottomUp: p.settings.bottomUp,
+            scale: p.settings.scale,
+          })),
+          segmentations: masks.map(m => ({
+            id: m.id,
+            label: m.label,
+            color: m.color,
+            maskBase64: m.maskBase64,
+            bbox: m.bbox,
+            area: m.area,
+            visible: m.visible,
+            source: m.source,
+          })),
+          selectedProjectionId: selectedProjectionId || undefined,
+        };
+        
+        const result = await saveProject(projectData);
+        if (result.success) {
+          console.log(`Project saved: ${result.data?.savedSegmentations} segmentations`);
+        } else {
+          console.warn("Failed to save project:", result.error);
+        }
+      } catch (error) {
+        console.error("Error saving project:", error);
+      }
+    }
+    
     router.push("/workflow/step-4-geometry-2d");
   };
 
@@ -752,9 +961,9 @@ export default function Step3SegmentationPage() {
                     }}
                   >
                     <div className="w-8 h-8 rounded overflow-hidden bg-muted flex-shrink-0">
-                      {proj.images?.colour ? (
+                      {(proj.images?.colour || proj.previewImage) ? (
                         <img
-                          src={`data:image/png;base64,${proj.images.colour}`}
+                          src={toImageSrc(proj.images?.colour || proj.previewImage)}
                           alt={proj.settings.perspective}
                           className="w-full h-full object-cover"
                         />
@@ -1203,7 +1412,7 @@ export default function Step3SegmentationPage() {
                       <>
                         {/* Base projection image - pointer-events-none so mouse events go to parent */}
                         <img
-                          src={`data:image/png;base64,${currentImage}`}
+                          src={toImageSrc(currentImage)}
                           alt="Projection"
                           className="w-full h-full object-contain pointer-events-none select-none"
                           onLoad={handleImageLoad}
@@ -1222,8 +1431,8 @@ export default function Step3SegmentationPage() {
                               className="absolute inset-0"
                               style={{
                                 backgroundColor: mask.color,
-                                maskImage: `url(data:image/png;base64,${mask.maskBase64})`,
-                                WebkitMaskImage: `url(data:image/png;base64,${mask.maskBase64})`,
+                                maskImage: `url(${toImageSrc(mask.maskBase64)})`,
+                                WebkitMaskImage: `url(${toImageSrc(mask.maskBase64)})`,
                                 maskSize: "contain",
                                 WebkitMaskSize: "contain",
                                 maskPosition: "center",
@@ -1237,8 +1446,8 @@ export default function Step3SegmentationPage() {
                               className="absolute inset-0"
                               style={{
                                 background: `linear-gradient(45deg, ${mask.color}, ${mask.color}dd)`,
-                                maskImage: `url(data:image/png;base64,${mask.maskBase64})`,
-                                WebkitMaskImage: `url(data:image/png;base64,${mask.maskBase64})`,
+                                maskImage: `url(${toImageSrc(mask.maskBase64)})`,
+                                WebkitMaskImage: `url(${toImageSrc(mask.maskBase64)})`,
                                 maskSize: "contain",
                                 WebkitMaskSize: "contain",
                                 maskPosition: "center",
