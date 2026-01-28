@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { useProjectStore, Segmentation } from "@/lib/store";
-import { saveROI, ROIData } from "@/lib/api";
+import { saveROI, ROIData, getIntradosLines, IntradosLine } from "@/lib/api";
 import { 
   ChevronLeft, 
   ChevronRight,
@@ -29,7 +29,9 @@ import {
   RotateCw,
   Save,
   Move,
-  Maximize2
+  Maximize2,
+  Spline,
+  Loader2
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
@@ -73,6 +75,10 @@ export default function Step4Geometry2DPage() {
   const [showROI, setShowROI] = useState(true);
   const [isSavingROI, setIsSavingROI] = useState(false);
   const [roiSaveResult, setRoiSaveResult] = useState<{ inside: number; outside: number } | null>(null);
+  
+  // Intrados state (display only - tracing moved to Step 5)
+  const [intradosLines, setIntradosLines] = useState<IntradosLine[]>([]);
+  const [showIntrados, setShowIntrados] = useState(true);
   
   // Interaction state
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("none");
@@ -343,6 +349,24 @@ export default function Step4Geometry2DPage() {
       setIsSavingROI(false);
     }
   };
+  
+  // Load intrados lines from saved data (tracing is now done in Step 5)
+  useEffect(() => {
+    const loadIntradosLines = async () => {
+      if (!currentProject?.id) return;
+      
+      try {
+        const response = await getIntradosLines(currentProject.id);
+        if (response.success && response.data) {
+          setIntradosLines(response.data.lines || []);
+        }
+      } catch (error) {
+        console.error("Error loading intrados lines:", error);
+      }
+    };
+    
+    loadIntradosLines();
+  }, [currentProject?.id]);
   
   const handleAnalyse = async () => {
     setIsAnalysing(true);
@@ -782,6 +806,66 @@ export default function Step4Geometry2DPage() {
                     </svg>
                   )}
                   
+                  {/* Intrados Lines Overlay */}
+                  {showIntrados && intradosLines.length > 0 && (
+                    <svg
+                      className="absolute inset-0 w-full h-full pointer-events-none"
+                      viewBox={`0 0 ${selectedProjection?.settings?.resolution || 2048} ${selectedProjection?.settings?.resolution || 2048}`}
+                      preserveAspectRatio="xMidYMid meet"
+                    >
+                      {intradosLines.map((line) => {
+                        if (line.points2d.length < 2) return null;
+                        
+                        // Create path from 2D points
+                        const pathData = line.points2d
+                          .map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt[0]} ${pt[1]}`)
+                          .join(' ');
+                        
+                        return (
+                          <g key={line.id}>
+                            {/* Shadow/glow effect */}
+                            <path
+                              d={pathData}
+                              fill="none"
+                              stroke="black"
+                              strokeWidth="6"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              opacity="0.3"
+                            />
+                            {/* Main line */}
+                            <path
+                              d={pathData}
+                              fill="none"
+                              stroke={line.color}
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            {/* Start point */}
+                            <circle
+                              cx={line.points2d[0][0]}
+                              cy={line.points2d[0][1]}
+                              r="5"
+                              fill={line.color}
+                              stroke="white"
+                              strokeWidth="2"
+                            />
+                            {/* End point */}
+                            <circle
+                              cx={line.points2d[line.points2d.length - 1][0]}
+                              cy={line.points2d[line.points2d.length - 1][1]}
+                              r="5"
+                              fill={line.color}
+                              stroke="white"
+                              strokeWidth="2"
+                            />
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  )}
+                  
                   {/* Processing overlay */}
                   {isAnalysing && (
                     <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
@@ -827,6 +911,57 @@ export default function Step4Geometry2DPage() {
                 )}
               </CardContent>
             </Card>
+            
+            {/* Intrados Lines (Display Only) */}
+            {intradosLines.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base font-medium flex items-center gap-2">
+                    <Spline className="w-4 h-4" />
+                    Intrados Lines
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="show-intrados"
+                      checked={showIntrados}
+                      onCheckedChange={(checked) => setShowIntrados(checked === true)}
+                    />
+                    <Label htmlFor="show-intrados" className="text-xs">Show</Label>
+                  </div>
+                </div>
+                <CardDescription className="text-xs">
+                  Traced in Step 5 (Reprojection)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    {intradosLines.length} intrados lines traced
+                  </p>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {intradosLines.map((line) => (
+                      <div 
+                        key={line.id} 
+                        className="flex items-center justify-between p-1.5 rounded bg-muted/50 text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: line.color }}
+                          />
+                          <span>{line.label}</span>
+                        </div>
+                        <span className="text-muted-foreground">
+                          {line.lineLength} pts
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            )}
             
             {/* Classification Result */}
             <Card className={cn(!result && "opacity-50")}>

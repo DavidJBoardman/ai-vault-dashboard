@@ -27,14 +27,39 @@ interface Point {
   intensity?: number;
 }
 
+export interface Line3D {
+  id: string;
+  label: string;
+  color: string;
+  points: Array<{ x: number; y: number; z: number }>;
+}
+
+export interface ExclusionBoxProps {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+  enabled: boolean;
+}
+
 interface PointCloudViewerProps {
   points: Point[];
+  lines?: Line3D[];
+  showLines?: boolean;
   colorMode?: "rgb" | "intensity" | "height" | "uniform";
   pointSize?: number;
+  lineWidth?: number;
   className?: string;
   showGrid?: boolean;
   showBoundingBox?: boolean;
   showStats?: boolean;
+  // Exclusion visualization
+  floorPlaneZ?: number;
+  showFloorPlane?: boolean;
+  exclusionBox?: ExclusionBoxProps;
+  showExclusionBox?: boolean;
 }
 
 function PointCloud({ 
@@ -129,6 +154,71 @@ function PointCloud({
   );
 }
 
+function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: number }) {
+  return (
+    <group>
+      {lines.map((line) => {
+        if (line.points.length < 2) return null;
+        
+        // Create line geometry
+        const points: THREE.Vector3[] = line.points.map(
+          (p) => new THREE.Vector3(p.x, p.z, p.y) // Swap Y/Z for correct orientation
+        );
+        
+        // Parse hex color to THREE.Color
+        const color = new THREE.Color(line.color);
+        
+        // Scale sphere size based on line width
+        const sphereRadius = lineWidth * 2;
+        
+        return (
+          <group key={line.id}>
+            {/* Main line using tube geometry for thickness */}
+            <mesh>
+              <tubeGeometry args={[
+                new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5),
+                Math.max(8, line.points.length * 2),
+                lineWidth, // tube radius
+                8, // radial segments
+                false
+              ]} />
+              <meshBasicMaterial color={color} />
+            </mesh>
+            
+            {/* Glow/highlight effect */}
+            <mesh>
+              <tubeGeometry args={[
+                new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5),
+                Math.max(8, line.points.length * 2),
+                lineWidth * 1.5,
+                8,
+                false
+              ]} />
+              <meshBasicMaterial color={color} transparent opacity={0.3} />
+            </mesh>
+            
+            {/* Start sphere */}
+            <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
+              <sphereGeometry args={[sphereRadius, 16, 16]} />
+              <meshBasicMaterial color={color} />
+            </mesh>
+            
+            {/* End sphere */}
+            <mesh position={[
+              line.points[line.points.length - 1].x,
+              line.points[line.points.length - 1].z,
+              line.points[line.points.length - 1].y
+            ]}>
+              <sphereGeometry args={[sphereRadius, 16, 16]} />
+              <meshBasicMaterial color={color} />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 function BoundingBox({ points }: { points: Point[] }) {
   const { min, max, center, size } = useMemo(() => {
     const min = { x: Infinity, y: Infinity, z: Infinity };
@@ -164,6 +254,123 @@ function BoundingBox({ points }: { points: Point[] }) {
         <edgesGeometry args={[new THREE.BoxGeometry(size.x, size.y, size.z)]} />
         <lineBasicMaterial color="#C9A227" opacity={0.6} transparent linewidth={2} />
       </lineSegments>
+    </group>
+  );
+}
+
+function FloorPlane({ 
+  z, 
+  size = 50,
+  center = { x: 0, y: 0 }
+}: { 
+  z: number; 
+  size?: number;
+  center?: { x: number; y: number };
+}) {
+  // Note: Y and Z are swapped in the viewer, so floor plane at Z becomes Y position
+  return (
+    <group position={[center.x, z, center.y]}>
+      {/* Main semi-transparent plane - more visible */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[size, size]} />
+        <meshBasicMaterial 
+          color="#ff3333" 
+          transparent 
+          opacity={0.25} 
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      
+      {/* Grid pattern for visibility */}
+      <gridHelper 
+        args={[size, 10, "#ff0000", "#ff4444"]} 
+        position={[0, 0.01, 0]}
+      />
+      
+      {/* Edge highlight ring */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+        <ringGeometry args={[size / 2 - 0.5, size / 2, 64]} />
+        <meshBasicMaterial color="#ff0000" transparent opacity={0.6} side={THREE.DoubleSide} />
+      </mesh>
+      
+      {/* Center crosshair for reference */}
+      <mesh position={[0, 0.03, 0]}>
+        <boxGeometry args={[size * 0.02, 0.05, size]} />
+        <meshBasicMaterial color="#ff0000" transparent opacity={0.5} />
+      </mesh>
+      <mesh position={[0, 0.03, 0]}>
+        <boxGeometry args={[size, 0.05, size * 0.02]} />
+        <meshBasicMaterial color="#ff0000" transparent opacity={0.5} />
+      </mesh>
+      
+      {/* "FLOOR" indicator pillars at corners */}
+      {[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([dx, dz], i) => (
+        <mesh key={i} position={[dx * size * 0.45, 0.5, dz * size * 0.45]}>
+          <cylinderGeometry args={[0.1, 0.1, 1, 8]} />
+          <meshBasicMaterial color="#ff0000" transparent opacity={0.7} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function ExclusionBoxVisual({ 
+  box 
+}: { 
+  box: ExclusionBoxProps;
+}) {
+  const center = useMemo(() => ({
+    x: (box.minX + box.maxX) / 2,
+    y: (box.minZ + box.maxZ) / 2, // Swap Y/Z
+    z: (box.minY + box.maxY) / 2,
+  }), [box]);
+  
+  const size = useMemo(() => ({
+    x: Math.max(0.1, box.maxX - box.minX),
+    y: Math.max(0.1, box.maxZ - box.minZ), // Swap Y/Z
+    z: Math.max(0.1, box.maxY - box.minY),
+  }), [box]);
+  
+  if (!box.enabled) return null;
+  
+  return (
+    <group position={[center.x, center.y, center.z]}>
+      {/* Semi-transparent box - more visible */}
+      <mesh>
+        <boxGeometry args={[size.x, size.y, size.z]} />
+        <meshBasicMaterial 
+          color="#ff0000" 
+          transparent 
+          opacity={0.15}
+        />
+      </mesh>
+      
+      {/* Wireframe edges - thicker appearance */}
+      <lineSegments>
+        <edgesGeometry args={[new THREE.BoxGeometry(size.x, size.y, size.z)]} />
+        <lineBasicMaterial color="#ff0000" opacity={1} transparent={false} />
+      </lineSegments>
+      
+      {/* Corner spheres for visibility */}
+      {[
+        [-1, -1, -1], [-1, -1, 1], [-1, 1, -1], [-1, 1, 1],
+        [1, -1, -1], [1, -1, 1], [1, 1, -1], [1, 1, 1]
+      ].map(([dx, dy, dz], i) => (
+        <mesh key={i} position={[dx * size.x / 2, dy * size.y / 2, dz * size.z / 2]}>
+          <sphereGeometry args={[0.08, 8, 8]} />
+          <meshBasicMaterial color="#ff0000" />
+        </mesh>
+      ))}
+      
+      {/* Face X markers */}
+      <mesh position={[size.x / 2, 0, 0]}>
+        <boxGeometry args={[0.02, size.y * 0.8, size.z * 0.8]} />
+        <meshBasicMaterial color="#ff0000" transparent opacity={0.3} />
+      </mesh>
+      <mesh position={[-size.x / 2, 0, 0]}>
+        <boxGeometry args={[0.02, size.y * 0.8, size.z * 0.8]} />
+        <meshBasicMaterial color="#ff0000" transparent opacity={0.3} />
+      </mesh>
     </group>
   );
 }
@@ -222,12 +429,19 @@ function CameraController({ center, distance, resetKey }: CameraControllerProps)
 
 export function PointCloudViewer({
   points,
+  lines = [],
+  showLines = true,
   colorMode = "height",
   pointSize = 0.02,
+  lineWidth = 0.03,
   className = "",
   showGrid = true,
   showBoundingBox = true,
   showStats = false,
+  floorPlaneZ,
+  showFloorPlane = false,
+  exclusionBox,
+  showExclusionBox = false,
 }: PointCloudViewerProps) {
   const [localColorMode, setLocalColorMode] = useState(colorMode);
   const [localPointSize, setLocalPointSize] = useState(pointSize);
@@ -320,6 +534,20 @@ export function PointCloudViewer({
         />
         
         {showBoundingBox && <BoundingBox points={points} />}
+        
+        {showLines && lines.length > 0 && <Lines3D lines={lines} lineWidth={lineWidth} />}
+        
+        {showFloorPlane && floorPlaneZ !== undefined && (
+          <FloorPlane 
+            z={floorPlaneZ} 
+            size={cameraDistance * 1.5} 
+            center={{ x: center.x, y: center.z }}
+          />
+        )}
+        
+        {showExclusionBox && exclusionBox && (
+          <ExclusionBoxVisual box={exclusionBox} />
+        )}
         
         {showGrid && (
           <Grid
