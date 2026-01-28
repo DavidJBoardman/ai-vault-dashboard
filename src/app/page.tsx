@@ -9,18 +9,67 @@ import { Label } from "@/components/ui/label";
 import { 
   FolderOpen, 
   Plus, 
-  Clock, 
   Building2,
   ChevronRight,
-  Upload
+  Upload,
+  Loader2,
+  Trash2,
+  CheckCircle
 } from "lucide-react";
 import { useProjectStore } from "@/lib/store";
+import { 
+  listProjects, 
+  loadProject as loadProjectApi, 
+  deleteProject,
+  checkBackendHealth 
+} from "@/lib/api";
+
+// Saved project type
+interface SavedProjectInfo {
+  id: string;
+  name: string;
+  updatedAt: string;
+  segmentationCount: number;
+}
 
 export default function HomePage() {
   const router = useRouter();
-  const { recentProjects, createProject, loadProject } = useProjectStore();
+  const { createProject, loadProjectFromData } = useProjectStore();
   const [newProjectName, setNewProjectName] = useState("");
   const [showNewProject, setShowNewProject] = useState(false);
+  
+  // Saved projects state
+  const [savedProjects, setSavedProjects] = useState<SavedProjectInfo[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [isLoadingProject, setIsLoadingProject] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [backendOnline, setBackendOnline] = useState(false);
+
+  // Check backend and fetch saved projects on mount
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const isHealthy = await checkBackendHealth();
+        setBackendOnline(isHealthy);
+        
+        if (isHealthy) {
+          setIsLoadingProjects(true);
+          const response = await listProjects();
+          if (response.success && response.data) {
+            setSavedProjects(response.data.projects);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to initialize:", error);
+      } finally {
+        setIsLoadingProjects(false);
+      }
+    };
+    
+    init();
+  }, []);
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
@@ -28,21 +77,85 @@ export default function HomePage() {
     router.push("/workflow/step-1-upload");
   };
 
-  const handleOpenProject = async () => {
-    if (typeof window !== "undefined" && window.electronAPI) {
-      const result = await window.electronAPI.openFile({
-        filters: [{ name: "Vault Projects", extensions: ["vault"] }],
-      });
-      if (!result.canceled && result.filePaths[0]) {
-        await loadProject(result.filePaths[0]);
-        router.push("/workflow/step-1-upload");
+  // Load a saved project
+  const handleLoadProject = async (projectId: string) => {
+    setIsLoadingProject(true);
+    setSelectedProjectId(projectId);
+    
+    try {
+      const response = await loadProjectApi(projectId);
+      
+      if (response.success && response.data?.project) {
+        const projectData = response.data.project;
+        
+        // Use the store's loadProjectFromData to properly set all project state
+        loadProjectFromData({
+          id: projectData.id,
+          name: projectData.name,
+          e57Path: projectData.e57Path,
+          selectedProjectionId: projectData.selectedProjectionId,
+          projections: projectData.projections,
+          segmentations: projectData.segmentations,
+          segmentationGroups: projectData.segmentationGroups,
+        });
+        
+        // Navigate to the appropriate step based on available data
+        if (projectData.segmentations?.length > 0) {
+          router.push("/workflow/step-4-geometry-2d");
+        } else if (projectData.projections?.length > 0) {
+          router.push("/workflow/step-3-segmentation");
+        } else {
+          router.push("/workflow/step-2-projection");
+        }
+      } else {
+        console.error("Failed to load project:", response.error);
+        alert(`Failed to load project: ${response.error || "Unknown error"}`);
       }
+    } catch (error) {
+      console.error("Error loading project:", error);
+      alert("Failed to load project. Please try again.");
+    } finally {
+      setIsLoadingProject(false);
+      setSelectedProjectId(null);
     }
   };
 
-  const handleRecentProject = async (projectPath: string) => {
-    await loadProject(projectPath);
-    router.push("/workflow/step-1-upload");
+  // Delete a saved project
+  const handleDeleteProject = async (projectId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDeletingProject(true);
+    
+    try {
+      const response = await deleteProject(projectId);
+      
+      if (response.success) {
+        setSavedProjects(prev => prev.filter(p => p.id !== projectId));
+        setDeleteConfirmId(null);
+      } else {
+        console.error("Failed to delete project:", response.error);
+        alert(`Failed to delete project: ${response.error || "Unknown error"}`);
+      }
+    } catch (error) {
+      console.error("Error deleting project:", error);
+      alert("Failed to delete project. Please try again.");
+    } finally {
+      setIsDeletingProject(false);
+    }
+  };
+
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    if (!dateString) return "Unknown date";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    } catch {
+      return dateString;
+    }
   };
 
   return (
@@ -101,12 +214,11 @@ export default function HomePage() {
 
             {/* Open Project Card */}
             <Card 
-              className="border-2 border-dashed hover:border-primary/50 transition-colors cursor-pointer group animate-fade-in"
+              className="border-2 border-dashed animate-fade-in"
               style={{ animationDelay: "150ms" }}
-              onClick={handleOpenProject}
             >
               <CardHeader className="text-center pb-2">
-                <div className="mx-auto p-4 rounded-full bg-accent/10 group-hover:bg-accent/20 transition-colors mb-2">
+                <div className="mx-auto p-4 rounded-full bg-accent/10 mb-2">
                   <FolderOpen className="w-8 h-8 text-accent" />
                 </div>
                 <CardTitle className="font-display">Open Project</CardTitle>
@@ -114,6 +226,87 @@ export default function HomePage() {
                   Continue working on an existing project
                 </CardDescription>
               </CardHeader>
+              <CardContent>
+                {isLoadingProjects ? (
+                  <div className="flex items-center justify-center gap-2 py-4 text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Loading projects...</span>
+                  </div>
+                ) : !backendOnline ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Backend offline - Start the server to load saved projects
+                  </p>
+                ) : savedProjects.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No saved projects yet
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {savedProjects.map((project) => (
+                      <div
+                        key={project.id}
+                        className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer group"
+                        onClick={() => handleLoadProject(project.id)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{project.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(project.updatedAt)} • {project.segmentationCount} masks
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 ml-2">
+                          {isLoadingProject && selectedProjectId === project.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                          ) : deleteConfirmId === project.id ? (
+                            <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                variant="destructive"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={(e) => handleDeleteProject(project.id, e)}
+                                disabled={isDeletingProject}
+                              >
+                                {isDeletingProject ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <CheckCircle className="w-3 h-3" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteConfirmId(null);
+                                }}
+                              >
+                                ✕
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteConfirmId(project.id);
+                                }}
+                                title="Delete project"
+                              >
+                                <Trash2 className="w-3 h-3 text-destructive" />
+                              </Button>
+                              <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
             </Card>
           </div>
 
@@ -151,35 +344,6 @@ export default function HomePage() {
                 </div>
               </CardContent>
             </Card>
-          )}
-
-          {/* Recent Projects */}
-          {recentProjects.length > 0 && (
-            <div className="animate-fade-in" style={{ animationDelay: "200ms" }}>
-              <div className="flex items-center gap-2 mb-4">
-                <Clock className="w-4 h-4 text-muted-foreground" />
-                <h3 className="font-display text-lg font-medium">Recent Projects</h3>
-              </div>
-              <div className="space-y-2">
-                {recentProjects.map((project, index) => (
-                  <Card 
-                    key={project.path}
-                    className="hover:bg-card/80 transition-colors cursor-pointer group"
-                    onClick={() => handleRecentProject(project.path)}
-                  >
-                    <CardContent className="flex items-center justify-between py-4">
-                      <div>
-                        <p className="font-medium">{project.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Last opened: {new Date(project.lastOpened).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
           )}
 
           {/* Quick Start Guide */}

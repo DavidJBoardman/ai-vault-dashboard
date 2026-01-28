@@ -34,6 +34,10 @@ export interface Segmentation {
   mask: string; // Base64 encoded mask
   visible: boolean;
   source: "auto" | "manual";
+  groupId?: string;
+  bbox?: number[];
+  area?: number;
+  insideRoi?: boolean;
 }
 
 export interface IntradosLine {
@@ -92,13 +96,24 @@ export interface Project {
   // Step 2: Projections (Gaussian splatting)
   projections: Array<{
     id: string;
+    name?: string;
+    previewImage?: string;
     settings: ProjectionSettings;
-    images: ProjectionImages;
-    metadata?: Record<string, any>;
+    images?: ProjectionImages;
+    metadata?: Record<string, unknown>;
   }>;
+  selectedProjectionId?: string;
   
   // Step 3: Segmentations
   segmentations: Segmentation[];
+  segmentationGroups?: Array<{
+    groupId: string;
+    label: string;
+    color?: string;
+    count?: number;
+    insideRoiCount?: number;
+    outsideRoiCount?: number;
+  }>;
   intradosLines: IntradosLine[];
   
   // Step 4: 2D Geometry
@@ -141,6 +156,45 @@ interface ProjectStore {
   // Actions
   createProject: (name: string) => Promise<void>;
   loadProject: (path: string) => Promise<void>;
+  loadProjectFromData: (data: {
+    id: string;
+    name: string;
+    e57Path?: string;
+    selectedProjectionId?: string;
+    projections?: Array<{
+      id: string;
+      name?: string;
+      previewImage?: string;
+      perspective?: string;
+      resolution?: number;
+      sigma?: number;
+      kernelSize?: number;
+      bottomUp?: boolean;
+      scale?: number;
+      settings?: ProjectionSettings;
+      images?: ProjectionImages;
+      metadata?: Record<string, unknown>;
+    }>;
+    segmentations?: Array<{
+      id: string;
+      label: string;
+      groupId?: string;
+      color?: string;
+      maskBase64?: string;
+      maskData?: string;
+      mask?: string;
+      visible?: boolean;
+      bbox?: number[];
+      area?: number;
+      insideRoi?: boolean;
+    }>;
+    segmentationGroups?: Array<{
+      groupId: string;
+      label: string;
+      color?: string;
+      count?: number;
+    }>;
+  }) => void;
   saveProject: () => Promise<void>;
   closeProject: () => void;
   
@@ -230,6 +284,116 @@ export const useProjectStore = create<ProjectStore>()(
             isLoading: false,
           });
         }
+      },
+
+      loadProjectFromData: (data) => {
+        // Create a project from API data
+        const project = initialProject();
+        project.id = data.id;
+        project.name = data.name;
+        project.e57Path = data.e57Path;
+        
+        // Convert projections - map API format to store format
+        if (data.projections && data.projections.length > 0) {
+          project.projections = data.projections.map((p: {
+            id: string;
+            name?: string;
+            perspective?: string;
+            resolution?: number;
+            sigma?: number;
+            kernelSize?: number;
+            bottomUp?: boolean;
+            scale?: number;
+            images?: {
+              colour?: string;
+              depthGrayscale?: string;
+              depthPlasma?: string;
+            };
+            settings?: ProjectionSettings;
+            previewImage?: string;
+            metadata?: Record<string, unknown>;
+          }) => ({
+            id: p.id,
+            name: p.name || `Projection ${p.id}`,
+            // Use colour image as preview, or explicit previewImage
+            previewImage: p.previewImage || p.images?.colour,
+            settings: p.settings || {
+              perspective: (p.perspective as "top" | "bottom" | "north" | "south" | "east" | "west") || "bottom",
+              resolution: p.resolution || 2048,
+              sigma: p.sigma || 1.0,
+              kernelSize: p.kernelSize || 3,
+              bottomUp: p.bottomUp !== false,
+              scale: p.scale || 1.0,
+            },
+            // Store all images
+            images: p.images || {},
+            metadata: p.metadata,
+          }));
+        }
+        
+        // Convert segmentations - map API format to store format
+        if (data.segmentations && data.segmentations.length > 0) {
+          project.segmentations = data.segmentations.map((s: {
+            id: string;
+            label: string;
+            groupId?: string;
+            color?: string;
+            visible?: boolean;
+            source?: string;
+            maskBase64?: string;
+            maskData?: string;
+            mask?: string;
+            bbox?: number[];
+            area?: number;
+            insideRoi?: boolean;
+          }) => ({
+            id: s.id,
+            label: s.label,
+            color: s.color || "#FF0000",
+            // The backend returns maskBase64, but we store as mask
+            mask: s.maskBase64 || s.maskData || s.mask || "",
+            visible: s.visible !== false,
+            source: (s.source as "auto" | "manual") || "auto",
+            groupId: s.groupId,
+            bbox: s.bbox,
+            area: s.area,
+            insideRoi: s.insideRoi,
+          }));
+        }
+        
+        // Store segmentation groups if available
+        if (data.segmentationGroups) {
+          project.segmentationGroups = data.segmentationGroups;
+        }
+        
+        // Store selected projection ID
+        if (data.selectedProjectionId) {
+          project.selectedProjectionId = data.selectedProjectionId;
+        }
+        
+        // Set step completion status
+        project.steps[1] = { completed: true, data: { hasPointCloud: true } };
+        if (project.projections.length > 0) {
+          project.steps[2] = { completed: true, data: { hasProjections: true } };
+        }
+        if (project.segmentations.length > 0) {
+          project.steps[3] = { completed: true, data: { hasSegmentations: true } };
+        }
+        
+        // Update recent projects
+        const recentProjects = get().recentProjects.filter((p) => p.path !== project.id);
+        recentProjects.unshift({
+          name: project.name,
+          path: project.id,
+          lastOpened: new Date(),
+        });
+        
+        set({
+          currentProject: project,
+          recentProjects: recentProjects.slice(0, 10),
+          isLoading: false,
+          error: null,
+        });
       },
 
       saveProject: async () => {

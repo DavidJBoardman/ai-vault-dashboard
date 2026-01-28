@@ -177,33 +177,45 @@ interface CameraControllerProps {
 function CameraController({ center, distance, resetKey }: CameraControllerProps) {
   const { camera } = useThree();
   const controlsRef = useRef<any>(null);
+  const initializedRef = useRef(false);
   
+  // Only reset camera on explicit reset (resetKey change) or initial mount
   useEffect(() => {
-    if (controlsRef.current) {
-      controlsRef.current.target.set(center.x, center.y, center.z);
-      controlsRef.current.update();
+    if (!initializedRef.current || resetKey > 0) {
+      if (controlsRef.current) {
+        controlsRef.current.target.set(center.x, center.y, center.z);
+      }
+      
+      // Reset camera position
+      camera.position.set(
+        center.x + distance * 0.7,
+        center.y + distance * 0.5,
+        center.z + distance * 0.7
+      );
+      camera.lookAt(center.x, center.y, center.z);
+      
+      if (controlsRef.current) {
+        controlsRef.current.update();
+      }
+      
+      initializedRef.current = true;
     }
-    
-    // Reset camera position
-    camera.position.set(
-      center.x + distance * 0.7,
-      center.y + distance * 0.5,
-      center.z + distance * 0.7
-    );
-    camera.lookAt(center.x, center.y, center.z);
-  }, [resetKey, center, distance, camera]);
+  }, [resetKey]); // Only depend on resetKey, not center/distance
   
   return (
     <OrbitControls
       ref={controlsRef}
       target={[center.x, center.y, center.z]}
-      enableDamping
-      dampingFactor={0.05}
+      enableDamping={false}
       rotateSpeed={0.5}
       zoomSpeed={0.8}
       panSpeed={0.5}
       minDistance={distance * 0.1}
       maxDistance={distance * 5}
+      autoRotate={false}
+      enablePan={true}
+      enableZoom={true}
+      enableRotate={true}
     />
   );
 }
@@ -278,11 +290,12 @@ export function PointCloudViewer({
   }
 
   return (
-    <div className={`relative ${className}`}>
+    <div className={`relative overflow-hidden ${className}`} style={{ minHeight: 300 }}>
       <Canvas
-        className="point-cloud-canvas rounded-lg"
+        className="point-cloud-canvas rounded-lg absolute inset-0"
         gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
         dpr={[1, 2]}
+        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
       >
         <color attach="background" args={["#0a0f1a"]} />
         <ambientLight intensity={0.6} />
@@ -310,7 +323,7 @@ export function PointCloudViewer({
         
         {showGrid && (
           <Grid
-            args={[100, 100]}
+            args={[50, 50]}
             position={[gridPos.x, gridPos.y, gridPos.z]}
             cellSize={1}
             cellThickness={0.5}
@@ -318,9 +331,8 @@ export function PointCloudViewer({
             sectionSize={5}
             sectionThickness={1}
             sectionColor="#2a3a5a"
-            fadeDistance={50}
+            fadeDistance={30}
             fadeStrength={1}
-            infiniteGrid
           />
         )}
         

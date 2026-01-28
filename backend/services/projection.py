@@ -135,11 +135,13 @@ class ProjectionService:
             
             # Normalize colours to 0-1 range if needed
             if colours is not None:
+                print(f"  Raw color range: {colours.min():.3f} - {colours.max():.3f}")
                 if colours.max() > 1.0:
                     colours = colours / 255.0
+                print(f"  Normalized color range: {colours.min():.3f} - {colours.max():.3f}")
             
             # Create Gaussian splatting projection
-            depth_img, colour_img, metadata = project_to_2d_gaussian_fast(
+            depth_img, colour_img, coordinate_img, metadata = project_to_2d_gaussian_fast(
                 points=centred_points,
                 colours=colours,
                 resolution=resolution,
@@ -157,6 +159,7 @@ class ProjectionService:
             paths = save_projection_gaussian(
                 depth_img=depth_img,
                 colour_img=colour_img,
+                coordinate_img=coordinate_img,
                 metadata=metadata,
                 folder_dir=str(self.data_dir),
                 projection_id=projection_id,
@@ -167,11 +170,12 @@ class ProjectionService:
         else:
             # Fallback to demo projection
             print("No point cloud loaded, generating demo projection")
-            depth_img, colour_img, metadata = self._generate_demo_gaussian(resolution)
+            depth_img, colour_img, coordinate_img, metadata = self._generate_demo_gaussian(resolution)
             
             paths = save_projection_gaussian(
                 depth_img=depth_img,
                 colour_img=colour_img,
+                coordinate_img=coordinate_img,
                 metadata=metadata,
                 folder_dir=str(self.data_dir),
                 projection_id=projection_id,
@@ -217,7 +221,7 @@ class ProjectionService:
         colours = np.random.uniform(0.4, 0.6, (n_points, 3))
         colours[:, 0] += 0.1  # Slightly warmer
         
-        depth_img, colour_img, metadata = project_to_2d_gaussian_fast(
+        depth_img, colour_img, coordinate_img, metadata = project_to_2d_gaussian_fast(
             points=points,
             colours=colours,
             resolution=resolution,
@@ -229,7 +233,7 @@ class ProjectionService:
         
         metadata["demo"] = True
         
-        return depth_img, colour_img, metadata
+        return depth_img, colour_img, coordinate_img, metadata
     
     def get_projection_images_base64(self, projection_id: str) -> Optional[Dict[str, str]]:
         """Get all projection images as base64 strings."""

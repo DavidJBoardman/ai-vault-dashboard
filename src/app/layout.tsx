@@ -3,7 +3,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "Vault Analyzer - Medieval Architecture Analysis",
+  title: "Vault Analyser - Medieval Architecture Analysis",
   description: "3D point cloud analysis platform for medieval vault architecture",
 };
 

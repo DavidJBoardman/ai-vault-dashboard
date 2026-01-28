@@ -108,12 +108,12 @@ export default function Step6TracesPage() {
         <div className="mt-6 grid lg:grid-cols-3 gap-6">
           {/* 3D Viewer */}
           <div className="lg:col-span-2">
-            <Card className="h-full min-h-[500px]">
-              <CardContent className="h-full p-0">
-                <div className="relative h-full">
+            <Card>
+              <CardContent className="p-4">
+                <div className="relative">
                   <PointCloudViewer
                     points={pointCloudData}
-                    className="h-full rounded-lg overflow-hidden"
+                    className="h-[500px] rounded-lg overflow-hidden"
                     colorMode="height"
                     showGrid={true}
                     showBoundingBox={true}
@@ -121,7 +121,7 @@ export default function Step6TracesPage() {
                   
                   {/* Trace overlay indicator */}
                   {traceLoaded && (
-                    <div className="absolute top-4 left-4 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2">
+                    <div className="absolute top-4 left-4 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2 z-10">
                       <div className="flex items-center gap-2">
                         <Spline className="w-4 h-4 text-primary" />
                         <span className="text-sm">
