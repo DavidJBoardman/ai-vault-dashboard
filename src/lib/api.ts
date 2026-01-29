@@ -606,3 +606,88 @@ export async function getIntradosLines(
   });
 }
 
+// =====================================================
+// 3DM Export/Import Functions
+// =====================================================
+
+export interface Export3dmResponse {
+  filePath: string;
+  fileName: string;
+  curvesExported: number;
+  message: string;
+}
+
+export interface ImportedCurve {
+  id: string;
+  name: string;
+  layer: string;
+  points: number[][];
+  pointCount: number;
+  source: string;
+}
+
+export interface Import3dmResponse {
+  curves: ImportedCurve[];
+  curveCount: number;
+  layers: string[];
+  message: string;
+}
+
+export interface File3dmInfo {
+  layers: string[];
+  objectCounts: {
+    curves: number;
+    points: number;
+    meshes: number;
+    other: number;
+    total: number;
+  };
+  settings: {
+    units: string;
+  };
+}
+
+export async function exportIntrados3dm(
+  projectId: string,
+  layerName: string = "Intrados Lines"
+): Promise<ApiResponse<Export3dmResponse>> {
+  return apiRequest(`/api/project/${projectId}/export-3dm`, {
+    method: "POST",
+    body: JSON.stringify({ 
+      projectId,
+      layerName
+    }),
+  });
+}
+
+export async function import3dmTraces(
+  projectId: string,
+  filePath: string,
+  layerFilter?: string
+): Promise<ApiResponse<Import3dmResponse>> {
+  return apiRequest(`/api/project/${projectId}/import-3dm`, {
+    method: "POST",
+    body: JSON.stringify({ 
+      filePath,
+      layerFilter
+    }),
+  });
+}
+
+export async function getImportedTraces(
+  projectId: string
+): Promise<ApiResponse<{ curves: ImportedCurve[]; curveCount: number; source?: string; importedAt?: string }>> {
+  return apiRequest(`/api/project/${projectId}/imported-traces`, {
+    method: "GET",
+  });
+}
+
+export async function get3dmFileInfo(
+  projectId: string,
+  filePath: string
+): Promise<ApiResponse<File3dmInfo>> {
+  return apiRequest(`/api/project/${projectId}/3dm-info?file_path=${encodeURIComponent(filePath)}`, {
+    method: "GET",
+  });
+}
+

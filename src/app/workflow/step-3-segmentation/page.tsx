@@ -30,7 +30,6 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Wand2,
-  MousePointer,
   Eye,
   EyeOff,
   Image as ImageIcon,
@@ -44,13 +43,14 @@ import {
   Trash2,
   Scan,
   GripVertical,
-  Edit2
+  Edit2,
+  Hexagon
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
 // Image type for viewing projections
 type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
-type Tool = "select" | "box";
+type Tool = "polygon" | "box";
 
 // Drawn box for prompting
 interface DrawnBox {
@@ -58,6 +58,24 @@ interface DrawnBox {
   coords: [number, number, number, number]; // [x1, y1, x2, y2] in image pixels
   label: 0 | 1; // 1 = positive, 0 = negative
   name?: string; // Optional name for the selection
+}
+
+// Box interaction mode
+type BoxInteractionMode = "draw" | "move" | null;
+
+// Polygon point
+interface PolygonPoint {
+  x: number;
+  y: number;
+}
+
+// Drawn polygon for prompting
+interface DrawnPolygon {
+  id: string;
+  points: PolygonPoint[]; // Array of points in image pixels
+  label: 0 | 1;
+  name?: string;
+  closed: boolean; // Whether the polygon is closed/complete
 }
 
 export default function Step3SegmentationPage() {
@@ -81,7 +99,7 @@ export default function Step3SegmentationPage() {
   const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   
   // Tools
-  const [activeTool, setActiveTool] = useState<Tool>("select");
+  const [activeTool, setActiveTool] = useState<Tool>("polygon");
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState("");
   
@@ -100,6 +118,16 @@ export default function Step3SegmentationPage() {
   const [currentBox, setCurrentBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
+  
+  // Box interaction state (for moving existing boxes)
+  const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
+  const [boxInteractionMode, setBoxInteractionMode] = useState<BoxInteractionMode>(null);
+  const [interactionStart, setInteractionStart] = useState<{ x: number; y: number; box: DrawnBox } | null>(null);
+  
+  // Polygon drawing state
+  const [drawnPolygons, setDrawnPolygons] = useState<DrawnPolygon[]>([]);
+  const [currentPolygon, setCurrentPolygon] = useState<PolygonPoint[]>([]);
+  const [polygonName, setPolygonName] = useState<string>("");
   
   // Box naming dialog state
   const [boxNamingDialog, setBoxNamingDialog] = useState<{
@@ -205,76 +233,151 @@ export default function Step3SegmentationPage() {
     return { x, y };
   };
   
-  const handleMouseDown = (e: MouseEvent<HTMLDivElement>) => {
-    if (activeTool !== "box" || !selectedProjection) {
-      console.log("Mouse down blocked:", { activeTool, hasProjection: !!selectedProjection });
+  // Check if a point is inside a box
+  const isPointInBox = (px: number, py: number, box: DrawnBox): boolean => {
+    return px >= box.coords[0] && px <= box.coords[2] &&
+           py >= box.coords[1] && py <= box.coords[3];
+  };
+  
+  // Check if clicking near a polygon point (to remove it)
+  const findNearbyPolygonPoint = (px: number, py: number, points: PolygonPoint[]): number => {
+    const threshold = 15; // pixels
+    for (let i = 0; i < points.length; i++) {
+      const dist = Math.sqrt((px - points[i].x) ** 2 + (py - points[i].y) ** 2);
+      if (dist < threshold) {
+        return i;
+      }
+    }
+    return -1;
+  };
+
+  // Handle click for polygon tool
+  const handlePolygonClick = (e: MouseEvent<HTMLDivElement>) => {
+    if (activeTool !== "polygon" || !selectedProjection) return;
+    
+    e.preventDefault();
+    const coords = getImageCoordinates(e);
+    if (!coords) return;
+    
+    // Check if clicking near an existing point to remove it
+    const nearbyIdx = findNearbyPolygonPoint(coords.x, coords.y, currentPolygon);
+    if (nearbyIdx >= 0) {
+      // Remove the point
+      setCurrentPolygon(prev => prev.filter((_, i) => i !== nearbyIdx));
       return;
     }
     
-    e.preventDefault(); // Prevent text selection
+    // Add new point
+    setCurrentPolygon(prev => [...prev, { x: coords.x, y: coords.y }]);
+  };
+
+  const handleMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    // Handle polygon tool with clicks, not drag
+    if (activeTool === "polygon") {
+      handlePolygonClick(e);
+      return;
+    }
     
+    // Box tool
+    if (activeTool !== "box" || !selectedProjection) {
+      return;
+    }
+    
+    e.preventDefault();
     const coords = getImageCoordinates(e);
-    console.log("Mouse down at:", coords);
     if (!coords) return;
     
+    // Check if clicking inside any existing box (to move it)
+    for (const box of [...drawnBoxes].reverse()) {
+      if (isPointInBox(coords.x, coords.y, box)) {
+        setSelectedBoxId(box.id);
+        setBoxInteractionMode("move");
+        setInteractionStart({ x: coords.x, y: coords.y, box: { ...box } });
+        return;
+      }
+    }
+    
+    // Not clicking on any box - start drawing new one
+    setSelectedBoxId(null);
+    setBoxInteractionMode("draw");
     setIsDrawing(true);
     setDrawStart(coords);
     setCurrentBox({ x1: coords.x, y1: coords.y, x2: coords.x, y2: coords.y });
   };
   
   const handleMouseMove = (e: MouseEvent<HTMLDivElement>) => {
-    if (!isDrawing || !drawStart) return;
-    
     const coords = getImageCoordinates(e);
     if (!coords) return;
     
-    setCurrentBox({
-      x1: Math.min(drawStart.x, coords.x),
-      y1: Math.min(drawStart.y, coords.y),
-      x2: Math.max(drawStart.x, coords.x),
-      y2: Math.max(drawStart.y, coords.y),
-    });
-  };
-  
-  const handleMouseUp = (e: MouseEvent<HTMLDivElement>) => {
-    console.log("Mouse up, isDrawing:", isDrawing, "currentBox:", currentBox);
-    
-    if (!isDrawing || !currentBox) {
-      setIsDrawing(false);
-      setDrawStart(null);
+    // Handle drawing new box
+    if (activeTool === "box" && isDrawing && drawStart && boxInteractionMode === "draw") {
+      setCurrentBox({
+        x1: Math.min(drawStart.x, coords.x),
+        y1: Math.min(drawStart.y, coords.y),
+        x2: Math.max(drawStart.x, coords.x),
+        y2: Math.max(drawStart.y, coords.y),
+      });
       return;
     }
     
-    // Only add box if it has meaningful size (at least 10px in each dimension)
-    const width = Math.abs(currentBox.x2 - currentBox.x1);
-    const height = Math.abs(currentBox.y2 - currentBox.y1);
-    
-    console.log("Box size:", width, "x", height);
-    
-    if (width >= 10 && height >= 10) {
-      const newBoxId = `box-${Date.now()}`;
-      const newBox: DrawnBox = {
-        id: newBoxId,
-        coords: [currentBox.x1, currentBox.y1, currentBox.x2, currentBox.y2],
-        label: 1, // Default to positive
-        name: "",
-      };
-      console.log("Adding box:", newBox);
-      setDrawnBoxes(prev => [...prev, newBox]);
+    // Handle moving box
+    if (activeTool === "box" && boxInteractionMode === "move" && interactionStart && selectedBoxId) {
+      const dx = coords.x - interactionStart.x;
+      const dy = coords.y - interactionStart.y;
       
-      // Open naming dialog
-      setBoxNamingDialog({
-        open: true,
-        boxId: newBoxId,
-        tempName: "",
-      });
-    } else {
-      console.log("Box too small, not adding");
+      setDrawnBoxes(prev => prev.map(box => {
+        if (box.id === selectedBoxId) {
+          const origBox = interactionStart.box;
+          return {
+            ...box,
+            coords: [
+              origBox.coords[0] + dx,
+              origBox.coords[1] + dy,
+              origBox.coords[2] + dx,
+              origBox.coords[3] + dy,
+            ] as [number, number, number, number],
+          };
+        }
+        return box;
+      }));
+      return;
+    }
+  };
+  
+  const handleMouseUp = (e: MouseEvent<HTMLDivElement>) => {
+    // Polygon tool doesn't use mouse up for drawing
+    if (activeTool === "polygon") return;
+    
+    // Handle finishing drawing a new box
+    if (isDrawing && currentBox && boxInteractionMode === "draw") {
+      const width = Math.abs(currentBox.x2 - currentBox.x1);
+      const height = Math.abs(currentBox.y2 - currentBox.y1);
+      
+      if (width >= 10 && height >= 10) {
+        const newBoxId = `box-${Date.now()}`;
+        const newBox: DrawnBox = {
+          id: newBoxId,
+          coords: [currentBox.x1, currentBox.y1, currentBox.x2, currentBox.y2],
+          label: 1,
+          name: "",
+        };
+        setDrawnBoxes(prev => [...prev, newBox]);
+        setSelectedBoxId(newBoxId);
+        
+        setBoxNamingDialog({
+          open: true,
+          boxId: newBoxId,
+          tempName: "",
+        });
+      }
     }
     
+    // Reset all interaction state
     setIsDrawing(false);
     setDrawStart(null);
     setCurrentBox(null);
+    setBoxInteractionMode(null);
+    setInteractionStart(null);
   };
   
   const toggleBoxLabel = (boxId: string) => {
@@ -293,6 +396,35 @@ export default function Step3SegmentationPage() {
   
   const clearAllBoxes = () => {
     setDrawnBoxes([]);
+  };
+  
+  // Polygon functions
+  const saveCurrentPolygon = (name?: string) => {
+    if (currentPolygon.length >= 3) {
+      const newPolygon: DrawnPolygon = {
+        id: `polygon-${Date.now()}`,
+        points: [...currentPolygon],
+        label: 1,
+        name: name || polygonName || undefined,
+        closed: true,
+      };
+      setDrawnPolygons(prev => [...prev, newPolygon]);
+      setCurrentPolygon([]);
+      setPolygonName("");
+    }
+  };
+  
+  const clearCurrentPolygon = () => {
+    setCurrentPolygon([]);
+  };
+  
+  const removePolygon = (polygonId: string) => {
+    setDrawnPolygons(prev => prev.filter(p => p.id !== polygonId));
+  };
+  
+  const clearAllPolygons = () => {
+    setDrawnPolygons([]);
+    setCurrentPolygon([]);
   };
   
   // Save box name from dialog
@@ -349,6 +481,62 @@ export default function Step3SegmentationPage() {
       return [...filtered];
     });
   };
+  
+  // Remove all masks in a group
+  const removeGroup = (groupLabel: string) => {
+    setMasks(prev => {
+      const filtered = prev.filter(mask => {
+        const baseLabel = mask.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
+        return baseLabel !== groupLabel.toLowerCase();
+      });
+      return [...filtered];
+    });
+  };
+  
+  // Keyboard handler for box/polygon interactions
+  useEffect(() => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      // Handle polygon tool
+      if (activeTool === "polygon") {
+        // Escape to clear current polygon
+        if (e.key === "Escape" && currentPolygon.length > 0) {
+          e.preventDefault();
+          setCurrentPolygon([]);
+        }
+        // Enter to save current polygon (if 3+ points)
+        if (e.key === "Enter" && currentPolygon.length >= 3) {
+          e.preventDefault();
+          saveCurrentPolygon();
+        }
+        // Backspace to remove last point
+        if (e.key === "Backspace" && currentPolygon.length > 0) {
+          e.preventDefault();
+          setCurrentPolygon(prev => prev.slice(0, -1));
+        }
+        return;
+      }
+      
+      // Handle box tool
+      if (activeTool === "box") {
+        // Delete selected box with Delete or Backspace
+        if ((e.key === "Delete" || e.key === "Backspace") && selectedBoxId) {
+          if (boxNamingDialog.open) return;
+          e.preventDefault();
+          setDrawnBoxes(prev => prev.filter(box => box.id !== selectedBoxId));
+          setSelectedBoxId(null);
+        }
+        
+        // Deselect with Escape
+        if (e.key === "Escape" && selectedBoxId) {
+          e.preventDefault();
+          setSelectedBoxId(null);
+        }
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeTool, selectedBoxId, boxNamingDialog.open, currentPolygon.length]);
   
   // Drag and drop handlers
   const handleDragStart = (e: DragEvent<HTMLDivElement>, maskId: string) => {
@@ -594,6 +782,151 @@ export default function Step3SegmentationPage() {
       }
     } catch (error) {
       console.error("Box segmentation error:", error);
+    } finally {
+      setIsProcessing(false);
+      setProcessingMessage("");
+    }
+  };
+  
+  // Run segmentation with polygons (converts to bounding boxes for SAM)
+  const handlePolygonSegment = async () => {
+    if (!selectedProjection || drawnPolygons.length === 0) return;
+    
+    setIsProcessing(true);
+    setProcessingMessage(`Segmenting with ${drawnPolygons.length} polygon${drawnPolygons.length > 1 ? "s" : ""}...`);
+    
+    try {
+      // Convert polygons to bounding boxes for SAM
+      const boxPrompts: BoxPrompt[] = drawnPolygons.map(polygon => {
+        const xs = polygon.points.map(p => p.x);
+        const ys = polygon.points.map(p => p.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        
+        return {
+          coords: [minX, minY, maxX, maxY] as [number, number, number, number],
+          label: polygon.label,
+        };
+      });
+      
+      // Get the first polygon name
+      const firstName = drawnPolygons.find(p => p.name?.trim())?.name?.trim();
+      
+      const response = await runSegmentation({
+        projectionId: selectedProjection.id,
+        mode: firstName ? "combined" : "box",
+        boxes: boxPrompts,
+        textPrompts: firstName ? [firstName] : undefined,
+      });
+      
+      console.log("Polygon segmentation response:", response);
+      
+      const data = response.data as any;
+      const isSuccess = response.success && data?.success !== false;
+      const newMasks = data?.masks || [];
+      
+      if (isSuccess) {
+        setSamStatus(prev => ({ ...prev, loaded: true }));
+        
+        if (newMasks.length > 0) {
+          // Same mask processing as box segment
+          const computeUpdatedMasks = (existingMasks: SegmentationMask[]) => {
+            const labelCounts: Record<string, number> = {};
+            const groupColors: Record<string, string> = {};
+            
+            existingMasks.forEach(m => {
+              const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
+              labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
+              if (!groupColors[baseLabel]) {
+                groupColors[baseLabel] = m.color;
+              }
+            });
+            
+            const calculateBboxIoU = (bbox1: number[], bbox2: number[]): number => {
+              const [x1, y1, w1, h1] = bbox1;
+              const [x2, y2, w2, h2] = bbox2;
+              const xA = Math.max(x1, x2);
+              const yA = Math.max(y1, y2);
+              const xB = Math.min(x1 + w1, x2 + w2);
+              const yB = Math.min(y1 + h1, y2 + h2);
+              const interWidth = Math.max(0, xB - xA);
+              const interHeight = Math.max(0, yB - yA);
+              const interArea = interWidth * interHeight;
+              const area1 = w1 * h1;
+              const area2 = w2 * h2;
+              const unionArea = area1 + area2 - interArea;
+              return unionArea > 0 ? interArea / unionArea : 0;
+            };
+            
+            const isDuplicateMask = (newMask: SegmentationMask): boolean => {
+              const IOU_THRESHOLD = 0.5;
+              for (const existingMask of existingMasks) {
+                if (existingMask.bbox && newMask.bbox) {
+                  const iou = calculateBboxIoU(existingMask.bbox, newMask.bbox);
+                  if (iou > IOU_THRESHOLD) return true;
+                }
+              }
+              return false;
+            };
+            
+            const colorPalette = [
+              "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
+              "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
+            ];
+            let colorIndex = Object.keys(groupColors).length;
+            
+            const renumberedMasks = newMasks
+              .filter((newMask: SegmentationMask) => !isDuplicateMask(newMask))
+              .map((newMask: SegmentationMask) => {
+                const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
+                const baseLabelLower = baseLabel.toLowerCase();
+                labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
+                const newNumber = labelCounts[baseLabelLower];
+                const newLabel = `${baseLabel} #${newNumber}`;
+                
+                let maskColor = groupColors[baseLabelLower];
+                if (!maskColor) {
+                  maskColor = colorPalette[colorIndex % colorPalette.length];
+                  groupColors[baseLabelLower] = maskColor;
+                  colorIndex++;
+                }
+                
+                const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                return { ...newMask, id: newId, label: newLabel, color: maskColor };
+              });
+            
+            return [...existingMasks, ...renumberedMasks];
+          };
+          
+          setMasks(prev => {
+            const allMasks = computeUpdatedMasks(prev);
+            setTimeout(() => {
+              const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
+                id: m.id,
+                label: m.label,
+                color: m.color,
+                mask: m.maskBase64,
+                visible: m.visible,
+                source: m.source as "auto" | "manual",
+              }));
+              setSegmentations(storeSegmentations);
+            }, 0);
+            return allMasks;
+          });
+          
+          // Clear polygons after successful segmentation
+          setDrawnPolygons([]);
+        } else {
+          alert("No objects found in the selected polygon region(s).");
+        }
+      } else {
+        const errorMsg = response.error || data?.error;
+        alert(`Segmentation failed: ${errorMsg || "Unknown error"}`);
+      }
+    } catch (error) {
+      console.error("Polygon segmentation error:", error);
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -945,7 +1278,7 @@ export default function Step3SegmentationPage() {
               <CardHeader className="py-2 px-3">
                 <CardTitle className="text-sm font-medium">Select Projection</CardTitle>
               </CardHeader>
-              <CardContent className="px-2 pb-2 pt-0 space-y-1 max-h-32 overflow-y-auto">
+              <CardContent className="px-2 pb-2 pt-1 space-y-1 max-h-32 overflow-y-auto">
                 {currentProject?.projections.map((proj) => (
                   <div
                     key={proj.id}
@@ -1082,7 +1415,7 @@ export default function Step3SegmentationPage() {
                 
                 <div className="grid grid-cols-2 gap-1">
                   {[
-                    { tool: "select", icon: MousePointer, label: "Select", needsMasks: true },
+                    { tool: "polygon", icon: Hexagon, label: "Polygon", needsMasks: false },
                     { tool: "box", icon: Scan, label: "Box", needsMasks: false },
                   ].map(({ tool, icon: Icon, label, needsMasks }) => (
                     <Button
@@ -1188,6 +1521,115 @@ export default function Step3SegmentationPage() {
                     </Button>
                   </div>
                 )}
+                
+                {/* Polygon Section */}
+                {(activeTool === "polygon" || drawnPolygons.length > 0 || currentPolygon.length > 0) && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Hexagon className="w-3 h-3" />
+                        Polygon Selection
+                      </span>
+                      {(drawnPolygons.length > 0 || currentPolygon.length > 0) && (
+                        <button
+                          onClick={clearAllPolygons}
+                          className="text-xs text-muted-foreground hover:text-destructive"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* Current polygon being drawn */}
+                    {currentPolygon.length > 0 && (
+                      <div className="space-y-2 p-2 bg-blue-500/10 rounded">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-blue-400">
+                            Drawing: {currentPolygon.length} points
+                          </span>
+                          <button
+                            onClick={clearCurrentPolygon}
+                            className="text-xs text-muted-foreground hover:text-destructive"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            placeholder="Name (e.g., rib)"
+                            value={polygonName}
+                            onChange={(e) => setPolygonName(e.target.value)}
+                            className="flex-1 h-6 px-2 text-xs bg-background border rounded"
+                          />
+                          <Button
+                            size="sm"
+                            className="h-6 text-xs"
+                            onClick={() => saveCurrentPolygon()}
+                            disabled={currentPolygon.length < 3}
+                          >
+                            Save
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          {currentPolygon.length < 3 
+                            ? `Need ${3 - currentPolygon.length} more point${3 - currentPolygon.length > 1 ? 's' : ''}`
+                            : "Press Enter to save, Esc to cancel, Backspace to undo"
+                          }
+                        </p>
+                      </div>
+                    )}
+                    
+                    {currentPolygon.length === 0 && drawnPolygons.length === 0 && (
+                      <p className="text-xs text-muted-foreground/70 italic">
+                        Click to place points. Click on a point to remove it.
+                      </p>
+                    )}
+                    
+                    {/* Saved polygons list */}
+                    {drawnPolygons.length > 0 && (
+                      <div className="space-y-1 max-h-24 overflow-y-auto">
+                        {drawnPolygons.map((polygon, idx) => (
+                          <div 
+                            key={polygon.id}
+                            className="group flex items-center gap-1.5 px-1.5 py-1 rounded text-xs bg-purple-500/10"
+                          >
+                            <div className="w-4 h-4 rounded flex items-center justify-center bg-purple-500 text-white text-[10px] font-bold">
+                              {polygon.points.length}
+                            </div>
+                            <span className="flex-1 truncate">
+                              {polygon.name || `Polygon ${idx + 1}`}
+                            </span>
+                            <button
+                              className="p-0.5 hover:text-destructive opacity-0 group-hover:opacity-100"
+                              onClick={() => removePolygon(polygon.id)}
+                              title="Remove"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Run SAM on polygons */}
+                    {drawnPolygons.length > 0 && (
+                      <Button 
+                        size="sm"
+                        className="w-full gap-1.5 bg-purple-600 hover:bg-purple-700"
+                        onClick={handlePolygonSegment}
+                        disabled={isProcessing}
+                      >
+                        {isProcessing ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Hexagon className="w-3 h-3" />
+                        )}
+                        Find in Polygons
+                      </Button>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
             
@@ -1228,7 +1670,7 @@ export default function Step3SegmentationPage() {
                         {/* Group Header - Drop target */}
                         <div
                           className={cn(
-                            "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer transition-colors",
+                            "group/header flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer transition-colors",
                             isFullyVisible ? "bg-primary/20" : "bg-muted/30 hover:bg-muted/50",
                             dropTargetGroup === groupLabel && "ring-1 ring-primary ring-dashed bg-primary/10"
                           )}
@@ -1255,6 +1697,19 @@ export default function Step3SegmentationPage() {
                           {dropTargetGroup === groupLabel && (
                             <span className="text-xs text-primary ml-1">↓</span>
                           )}
+                          {/* Delete group button */}
+                          <button
+                            className="p-0.5 opacity-0 group-hover/header:opacity-100 hover:text-destructive transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`Delete all ${groupMasks.length} masks in "${groupLabel}"?`)) {
+                                removeGroup(groupLabel);
+                              }
+                            }}
+                            title={`Delete all ${groupMasks.length} masks in this group`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                         
                         {/* Individual Masks in Group */}
@@ -1386,7 +1841,7 @@ export default function Step3SegmentationPage() {
                     ref={imageContainerRef}
                     className={cn(
                       "relative aspect-square max-w-2xl mx-auto bg-[#0a0f1a] rounded-lg overflow-hidden",
-                      activeTool === "box" && "cursor-crosshair"
+                      (activeTool === "box" || activeTool === "polygon") && "cursor-crosshair"
                     )}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
@@ -1460,15 +1915,17 @@ export default function Step3SegmentationPage() {
                           </div>
                         ))}
                         
-                        {/* Info overlays */}
-                        <div className="absolute top-3 left-3 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs capitalize">
-                          {selectedProjection.settings.perspective} view
-                        </div>
-                        <div className="absolute top-3 right-3 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs">
-                          {selectedProjection.settings.resolution}px
+                        {/* Info overlays - combined top bar */}
+                        <div className="absolute top-2 left-2 right-2 flex justify-between items-center pointer-events-none">
+                          <div className="bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] capitalize">
+                            {selectedProjection.settings.perspective} view
+                          </div>
+                          <div className="bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-[10px]">
+                            {selectedProjection.settings.resolution}px
+                          </div>
                         </div>
                         
-                        {/* Drawn box overlays - use percentage-based positioning */}
+                        {/* Drawn box overlays */}
                         {(drawnBoxes.length > 0 || currentBox) && (() => {
                           const imgW = imageSize?.width || selectedProjection?.settings?.resolution || 2048;
                           const imgH = imageSize?.height || selectedProjection?.settings?.resolution || 2048;
@@ -1480,17 +1937,22 @@ export default function Step3SegmentationPage() {
                                 const top = (box.coords[1] / imgH) * 100;
                                 const width = ((box.coords[2] - box.coords[0]) / imgW) * 100;
                                 const height = ((box.coords[3] - box.coords[1]) / imgH) * 100;
+                                const isSelected = box.id === selectedBoxId;
+                                
                                 return (
                                   <div
                                     key={box.id}
-                                    className="absolute border-4"
+                                    className={cn(
+                                      "absolute border-4",
+                                      isSelected && "ring-2 ring-white"
+                                    )}
                                     style={{
                                       left: `${left}%`,
                                       top: `${top}%`,
                                       width: `${width}%`,
                                       height: `${height}%`,
                                       backgroundColor: box.label === 1 ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)",
-                                      borderColor: box.label === 1 ? "#22c55e" : "#ef4444",
+                                      borderColor: isSelected ? "#3b82f6" : (box.label === 1 ? "#22c55e" : "#ef4444"),
                                       borderStyle: box.label === 0 ? "dashed" : "solid",
                                     }}
                                   >
@@ -1498,25 +1960,25 @@ export default function Step3SegmentationPage() {
                                       className="absolute -top-6 left-0 px-1.5 py-0.5 text-white text-xs font-bold rounded"
                                       style={{ backgroundColor: box.label === 1 ? "#22c55e" : "#ef4444" }}
                                     >
-                                      {box.label === 1 ? "+" : "−"}
+                                      {box.label === 1 ? "+" : "−"} {box.name || ""}
                                     </span>
                                   </div>
                                 );
                               })}
                               {/* Currently drawing box */}
-                              {currentBox && (() => {
+                              {currentBox && boxInteractionMode === "draw" && (() => {
                                 const left = (currentBox.x1 / imgW) * 100;
                                 const top = (currentBox.y1 / imgH) * 100;
-                                const width = ((currentBox.x2 - currentBox.x1) / imgW) * 100;
-                                const height = ((currentBox.y2 - currentBox.y1) / imgH) * 100;
+                                const bwidth = ((currentBox.x2 - currentBox.x1) / imgW) * 100;
+                                const bheight = ((currentBox.y2 - currentBox.y1) / imgH) * 100;
                                 return (
                                   <div
                                     className="absolute border-4 border-dashed border-blue-500 bg-blue-500/30"
                                     style={{
                                       left: `${left}%`,
                                       top: `${top}%`,
-                                      width: `${width}%`,
-                                      height: `${height}%`,
+                                      width: `${bwidth}%`,
+                                      height: `${bheight}%`,
                                     }}
                                   />
                                 );
@@ -1525,18 +1987,158 @@ export default function Step3SegmentationPage() {
                           );
                         })()}
                         
+                        {/* Polygon overlays */}
+                        {(drawnPolygons.length > 0 || currentPolygon.length > 0) && (() => {
+                          const imgW = imageSize?.width || selectedProjection?.settings?.resolution || 2048;
+                          const imgH = imageSize?.height || selectedProjection?.settings?.resolution || 2048;
+                          
+                          // Convert point to 0-100 coordinate space (for viewBox)
+                          const toViewBox = (p: PolygonPoint) => ({
+                            x: (p.x / imgW) * 100,
+                            y: (p.y / imgH) * 100,
+                          });
+                          
+                          return (
+                            <svg 
+                              className="absolute inset-0 w-full h-full pointer-events-none"
+                              viewBox="0 0 100 100"
+                              preserveAspectRatio="none"
+                            >
+                              {/* Saved polygons */}
+                              {drawnPolygons.map((polygon) => {
+                                const pts = polygon.points.map(toViewBox);
+                                const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z';
+                                return (
+                                  <g key={polygon.id}>
+                                    <path
+                                      d={pathD}
+                                      fill="rgba(168, 85, 247, 0.3)"
+                                      stroke="#a855f7"
+                                      strokeWidth="0.3"
+                                      vectorEffect="non-scaling-stroke"
+                                    />
+                                    {/* Points */}
+                                    {pts.map((p, i) => (
+                                      <circle
+                                        key={i}
+                                        cx={p.x}
+                                        cy={p.y}
+                                        r="0.8"
+                                        fill="#a855f7"
+                                        stroke="white"
+                                        strokeWidth="0.2"
+                                      />
+                                    ))}
+                                  </g>
+                                );
+                              })}
+                              
+                              {/* Current polygon being drawn */}
+                              {currentPolygon.length > 0 && (() => {
+                                const pts = currentPolygon.map(toViewBox);
+                                const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + 
+                                  (currentPolygon.length >= 3 ? ' Z' : '');
+                                return (
+                                  <g>
+                                    {/* Fill when 3+ points */}
+                                    {currentPolygon.length >= 3 && (
+                                      <path
+                                        d={pathD}
+                                        fill="rgba(59, 130, 246, 0.2)"
+                                        stroke="none"
+                                      />
+                                    )}
+                                    {/* Lines connecting all points */}
+                                    <path
+                                      d={pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')}
+                                      fill="none"
+                                      stroke="#3b82f6"
+                                      strokeWidth="0.4"
+                                      strokeDasharray="1,0.5"
+                                    />
+                                    {/* Closing line preview when 3+ points */}
+                                    {currentPolygon.length >= 3 && (
+                                      <line
+                                        x1={pts[pts.length - 1].x}
+                                        y1={pts[pts.length - 1].y}
+                                        x2={pts[0].x}
+                                        y2={pts[0].y}
+                                        stroke="#3b82f6"
+                                        strokeWidth="0.3"
+                                        strokeDasharray="0.5,0.5"
+                                        opacity="0.5"
+                                      />
+                                    )}
+                                    {/* Points with numbers */}
+                                    {pts.map((p, i) => (
+                                      <g key={i}>
+                                        <circle
+                                          cx={p.x}
+                                          cy={p.y}
+                                          r="1.2"
+                                          fill="#3b82f6"
+                                          stroke="white"
+                                          strokeWidth="0.2"
+                                        />
+                                        <text
+                                          x={p.x}
+                                          y={p.y}
+                                          textAnchor="middle"
+                                          dominantBaseline="central"
+                                          fill="white"
+                                          fontSize="1.5"
+                                          fontWeight="bold"
+                                        >
+                                          {i + 1}
+                                        </text>
+                                      </g>
+                                    ))}
+                                  </g>
+                                );
+                              })()}
+                            </svg>
+                          );
+                        })()}
+                        
                         {masks.length > 0 && (
-                          <div className="absolute bottom-3 left-3 bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs flex items-center gap-1.5">
+                          <div className="absolute bottom-2 left-2 bg-green-500/20 text-green-400 px-2 py-1 rounded text-[10px] flex items-center gap-1">
                             <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
                             {masks.length} segments
                           </div>
                         )}
                         
-                        {/* Box drawing mode indicator */}
+                        {/* Tool mode indicator */}
                         {activeTool === "box" && (
-                          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-blue-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2">
-                            <Scan className="w-3.5 h-3.5" />
-                            Draw boxes to find similar objects
+                          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-blue-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
+                            {boxInteractionMode === "move" ? (
+                              <>
+                                <Scan className="w-3.5 h-3.5" />
+                                Drag to move box
+                              </>
+                            ) : selectedBoxId ? (
+                              <>
+                                <Scan className="w-3.5 h-3.5" />
+                                Drag to move • Click elsewhere to deselect
+                              </>
+                            ) : (
+                              <>
+                                <Scan className="w-3.5 h-3.5" />
+                                Draw boxes • Click box to move
+                              </>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Polygon mode indicator */}
+                        {activeTool === "polygon" && (
+                          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-purple-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
+                            <Hexagon className="w-3.5 h-3.5" />
+                            {currentPolygon.length === 0 
+                              ? "Click to place points" 
+                              : currentPolygon.length < 3
+                              ? `${currentPolygon.length}/3 points • Click to add`
+                              : `${currentPolygon.length} points • Enter to save • Click point to remove`
+                            }
                           </div>
                         )}
                       </>
