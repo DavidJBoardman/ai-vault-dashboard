@@ -10,15 +10,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { useProjectStore, Segmentation } from "@/lib/store";
+import { useProjectStore } from "@/lib/store";
 import { getReprojectionPreview, ReprojectionPoint, getIntradosLines, IntradosLine, traceIntradosLines } from "@/lib/api";
 import { 
   ChevronLeft, 
   ChevronRight,
   RotateCcw,
   Eye,
-  RefreshCw,
-  FileOutput,
   Layers,
   Info,
   Loader2,
