@@ -223,6 +223,10 @@ export default function Step7MeasurementsPage() {
               line.id
             );
             allTraces.push(...coloredLines);
+
+            if (line.id === selectedRib) {
+              setMeasurementData(response.data);
+            }
           } else {
             console.error(`Error computing trace for ${line.id}:`, response.error);
           }
@@ -237,7 +241,7 @@ export default function Step7MeasurementsPage() {
     if (intradosLines.length > 0) {
       computeAllTraces();
     }
-  }, [intradosLines]);
+  }, [intradosLines, selectedRib]);
   
   // Load measurement data when rib is selected (for details panel)
   useEffect(() => {
@@ -472,44 +476,71 @@ export default function Step7MeasurementsPage() {
                 <CardTitle className="text-lg font-display">{selectedMeasurement.name}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {selectedMeasurement.arcRadius > 0 && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 rounded-lg bg-muted/50 text-center">
-                      <Circle className="w-5 h-5 mx-auto mb-1 text-primary" />
-                      <p className="text-lg font-bold">{selectedMeasurement.arcRadius.toFixed(2)}m</p>
-                      <p className="text-xs text-muted-foreground">Arc Radius</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-muted/50 text-center">
-                      <Ruler className="w-5 h-5 mx-auto mb-1 text-primary" />
-                      <p className="text-lg font-bold">{selectedMeasurement.ribLength.toFixed(2)}m</p>
-                      <p className="text-xs text-muted-foreground">Rib Length</p>
-                    </div>
+                {/* Arc Radius and Rib Length */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                    <Circle className="w-4 h-4 mx-auto mb-1 text-primary" />
+                    <p className="text-base font-bold">{(measurementData?.arcRadius ?? selectedMeasurement.arcRadius).toFixed(2)}m</p>
+                    <p className="text-xs text-muted-foreground">Arc Radius</p>
                   </div>
-                )}
+                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                    <Ruler className="w-4 h-4 mx-auto mb-1 text-primary" />
+                    <p className="text-base font-bold">{(measurementData?.ribLength ?? selectedMeasurement.ribLength).toFixed(2)}m</p>
+                    <p className="text-xs text-muted-foreground">Rib Length</p>
+                  </div>
+                </div>
                 
+                {/* Fit Error */}
                 {measurementData && (
-                  <div className="space-y-2">
-                    <div className="p-2 rounded bg-muted/30">
-                      <p className="text-xs text-muted-foreground">Fit Error</p>
-                      <p className="text-sm font-medium">{measurementData.fitError.toFixed(4)}m</p>
-                    </div>
+                  <div className="p-2 rounded bg-muted/30">
+                    <p className="text-xs text-muted-foreground">Fit Error</p>
+                    <p className="text-sm font-medium">{measurementData.fitError.toFixed(4)}m</p>
                   </div>
                 )}
                 
+                {/* Apex Point */}
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">Apex Point</Label>
-                  <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div className="grid grid-cols-3 gap-2 text-xs">
                     <div className="p-2 rounded bg-muted/30 text-center">
-                      <span className="text-muted-foreground">X:</span> {selectedMeasurement.apexPoint?.x.toFixed(2)}
+                      <p className="text-muted-foreground font-medium">X</p>
+                      <p className="font-mono">{selectedMeasurement.apexPoint?.x.toFixed(2)}</p>
                     </div>
                     <div className="p-2 rounded bg-muted/30 text-center">
-                      <span className="text-muted-foreground">Y:</span> {selectedMeasurement.apexPoint?.y.toFixed(2)}
+                      <p className="text-muted-foreground font-medium">Y</p>
+                      <p className="font-mono">{selectedMeasurement.apexPoint?.y.toFixed(2)}</p>
                     </div>
                     <div className="p-2 rounded bg-muted/30 text-center">
-                      <span className="text-muted-foreground">Z:</span> {selectedMeasurement.apexPoint?.z.toFixed(2)}
+                      <p className="text-muted-foreground font-medium">Z</p>
+                      <p className="font-mono">{selectedMeasurement.apexPoint?.z.toFixed(2)}</p>
                     </div>
                   </div>
                 </div>
+                
+                {/* Springing Points */}
+                {selectedMeasurement.springingPoints && selectedMeasurement.springingPoints.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Springing Points</Label>
+                    <div className="space-y-2">
+                      {selectedMeasurement.springingPoints.map((point, idx) => (
+                        <div key={idx} className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="p-2 rounded bg-muted/30 text-center">
+                            <p className="text-muted-foreground font-medium">X</p>
+                            <p className="font-mono">{point.x.toFixed(2)}</p>
+                          </div>
+                          <div className="p-2 rounded bg-muted/30 text-center">
+                            <p className="text-muted-foreground font-medium">Y</p>
+                            <p className="font-mono">{point.y.toFixed(2)}</p>
+                          </div>
+                          <div className="p-2 rounded bg-muted/30 text-center">
+                            <p className="text-muted-foreground font-medium">Z</p>
+                            <p className="font-mono">{point.z.toFixed(2)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
