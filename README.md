@@ -35,25 +35,25 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 │              Python Backend (FastAPI)            │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │
 │  │   E57    │  │   SAM3   │  │   Geometry   │  │
-│  │ Processor│  │ Segment  │  │   Analyzer   │  │
+│  │ Processor│  │ Segment  │  │   Analyser   │  │
 │  └──────────┘  └──────────┘  └──────────────┘  │
 └─────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
 
-- Node.js 18+ 
+- Node.js 22+
 - Python 3.12+ (via Conda)
 - Conda (Miniconda or Anaconda)
-- npm or yarn
+- n
 
 ## Installation
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/ai-vault-interface.git
-cd ai-vault-interface
+git clone https://github.com/yourusername/ai-vault-dashboard.git
+cd ai-vault-dashboard
 ```
 
 ### 2. Install frontend dependencies
@@ -123,6 +123,7 @@ cd backend && python -m uvicorn main:app --reload --port 8765
 ### Environment Notes
 
 The Electron app will automatically detect your conda environment. It searches for:
+
 1. `PYTHON_PATH` environment variable
 2. Active conda environment (`CONDA_PREFIX`)
 3. The `vault-interface` conda environment in standard locations
@@ -187,6 +188,7 @@ ai-vault-interface/
 ## Technologies
 
 ### Frontend
+
 - Electron
 - Next.js 14
 - React
@@ -196,6 +198,7 @@ ai-vault-interface/
 - Zustand
 
 ### Backend
+
 - Python 3.12+ (via Conda)
 - FastAPI
 - Open3D
@@ -206,4 +209,3 @@ ai-vault-interface/
 ## License
 
 MIT
-

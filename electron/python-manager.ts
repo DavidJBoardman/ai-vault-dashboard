@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
@@ -21,93 +21,118 @@ export class PythonManager {
       if (isDev) {
         // In development, run the Python script
         const backendDir = path.join(__dirname, '..', 'backend');
-        
-        // Debug: print environment info
+
+        // Debug: print environment info (keep compact and platform-neutral)
         console.log('[Python] ========================================');
         console.log('[Python] PYTHON ENVIRONMENT DETECTION');
         console.log('[Python] ========================================');
+        console.log('[Python] NODE_ENV:', process.env.NODE_ENV || '(not set)');
+        console.log('[Python] Platform:', process.platform);
         console.log('[Python] PYTHON_PATH env:', process.env.PYTHON_PATH || '(not set)');
         console.log('[Python] CONDA_PREFIX env:', process.env.CONDA_PREFIX || '(not set)');
-        console.log('[Python] CONDA_DEFAULT_ENV:', process.env.CONDA_DEFAULT_ENV || '(not set)');
-        console.log('[Python] PATH (first 200 chars):', (process.env.PATH || '').substring(0, 200));
+        console.log('[Python] Using repo-local venv candidates: .venv / venv (repo root and backend/)');
         console.log('[Python] ========================================');
-        
+
         if (!fs.existsSync(path.join(backendDir, 'main.py'))) {
           console.warn('Backend not found, skipping Python startup');
           resolve();
           return;
         }
 
-        // Priority order for finding Python:
-        // 1. PYTHON_PATH environment variable (for custom setups)
-        // 2. Conda environment (if CONDA_PREFIX is set)
-        // 3. Well-known conda location for vault-interface env
-        // 4. Local venv in backend folder
-        // 5. System Python
-        
+        // Python resolution order (dev):
+        // 1) PYTHON_PATH env (explicit override)
+        // 2) repo-local venv (.venv preferred; also support venv), including backend-local venvs
+        // 3) active conda env (CONDA_PREFIX) for colleague compatibility
+        // 4) pyenv-managed Python (pyenv which python)
+        // 5) system fallback: python
+
         let foundPython: string | null = null;
-        
-        // Check for explicit PYTHON_PATH env var
+        let foundBy: string | null = null;
+
+        // Helper to check candidates in order
+        const pickFirstExisting = (candidates: string[]): string | null => {
+          for (const p of candidates) {
+            if (p && fs.existsSync(p)) return p;
+          }
+          return null;
+        };
+
+        // 1) Explicit override
         if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
           foundPython = process.env.PYTHON_PATH;
-          console.log('[Python] ✓ Using PYTHON_PATH:', foundPython);
+          foundBy = 'PYTHON_PATH';
         }
-        
-        // Check for active conda environment
+
+        // Resolve repo root based on backendDir
+        const repoRoot = path.resolve(backendDir, '..');
+
+        // 2) Local venvs (repo root first; then backend-local)
+        if (!foundPython) {
+          const venvCandidates: string[] = [];
+
+          // repo-root .venv / venv
+          if (process.platform === 'win32') {
+            venvCandidates.push(
+              path.join(repoRoot, '.venv', 'Scripts', 'python.exe'),
+              path.join(repoRoot, 'venv', 'Scripts', 'python.exe'),
+              path.join(backendDir, '.venv', 'Scripts', 'python.exe'),
+              path.join(backendDir, 'venv', 'Scripts', 'python.exe'),
+            );
+          } else {
+            venvCandidates.push(
+              path.join(repoRoot, '.venv', 'bin', 'python'),
+              path.join(repoRoot, 'venv', 'bin', 'python'),
+              path.join(backendDir, '.venv', 'bin', 'python'),
+              path.join(backendDir, 'venv', 'bin', 'python'),
+            );
+          }
+
+          const picked = pickFirstExisting(venvCandidates);
+          if (picked) {
+            foundPython = picked;
+            foundBy = 'local-venv';
+          }
+        }
+
+        // 3) Active conda env (compat)
         if (!foundPython && process.env.CONDA_PREFIX) {
           const condaPython = process.platform === 'win32'
             ? path.join(process.env.CONDA_PREFIX, 'python.exe')
             : path.join(process.env.CONDA_PREFIX, 'bin', 'python');
-          
+
           if (fs.existsSync(condaPython)) {
             foundPython = condaPython;
-            console.log('[Python] ✓ Using conda env:', process.env.CONDA_PREFIX);
-          } else {
-            console.log('[Python] ✗ CONDA_PREFIX set but python not found at:', condaPython);
+            foundBy = 'conda';
           }
         }
-        
-        // Check well-known conda paths for vault-interface env
+
+        // 4) pyenv (best-effort; only if available)
         if (!foundPython) {
-          const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-          const condaPaths = [
-            path.join(homeDir, 'miniconda3', 'envs', 'vault-interface', 'bin', 'python'),
-            path.join(homeDir, 'anaconda3', 'envs', 'vault-interface', 'bin', 'python'),
-            path.join(homeDir, 'miniforge3', 'envs', 'vault-interface', 'bin', 'python'),
-            path.join(homeDir, '.conda', 'envs', 'vault-interface', 'bin', 'python'),
-          ];
-          
-          for (const condaPath of condaPaths) {
-            if (fs.existsSync(condaPath)) {
-              foundPython = condaPath;
-              console.log('[Python] ✓ Found vault-interface conda env at:', condaPath);
-              break;
+          try {
+            const pyenvPython = execFileSync('pyenv', ['which', 'python'], {
+              encoding: 'utf8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+            }).trim();
+
+            if (pyenvPython && fs.existsSync(pyenvPython)) {
+              foundPython = pyenvPython;
+              foundBy = 'pyenv';
             }
-          }
-          
-          if (!foundPython) {
-            console.log('[Python] ✗ No vault-interface conda env found in standard locations');
+          } catch (e) {
+            // pyenv not installed or not on PATH; ignore
           }
         }
-        
-        // Check for local venv
-        if (!foundPython) {
-          const venvPython = process.platform === 'win32'
-            ? path.join(backendDir, 'venv', 'Scripts', 'python.exe')
-            : path.join(backendDir, 'venv', 'bin', 'python');
-          
-          if (fs.existsSync(venvPython)) {
-            foundPython = venvPython;
-            console.log('[Python] ✓ Using local venv');
-          }
-        }
-        
-        // Fall back to system Python
+
+        // 5) System fallback
         pythonPath = foundPython || 'python';
-        if (!foundPython) {
-          console.log('[Python] ⚠ Falling back to system python');
+
+        if (foundBy) {
+          console.log(`[Python] ✓ Using ${foundBy}:`, pythonPath);
+        } else {
+          console.log('[Python] ⚠ Falling back to system python:', pythonPath);
         }
-        console.log('[Python] Final path:', pythonPath);
+
+        console.log('[Python] Backend cwd:', backendDir);
         console.log('[Python] ========================================');
         args = [
           '-m',
