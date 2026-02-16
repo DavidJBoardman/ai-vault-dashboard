@@ -119,9 +119,18 @@ export class PythonManager {
           this.port.toString(),
         ];
 
+        // Force UTF-8 and unbuffered output
+        // Fixes encoding issues in the terminal when logs print emojis or characters like "✓" and "✗"
+        const env = {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8',  // ← Force UTF-8
+          PYTHONUNBUFFERED: '1',       // ← Force unbuffered output
+        };
+
         this.process = spawn(pythonPath, args, {
           cwd: backendDir,
           stdio: ['pipe', 'pipe', 'pipe'],
+          env: env,
         });
       } else {
         // In production, run the bundled executable
