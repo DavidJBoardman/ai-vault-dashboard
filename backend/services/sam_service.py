@@ -83,11 +83,14 @@ class SAM3Service:
         self.model_loaded = False
         self.current_image = None
         self.current_image_id = None
+        self.last_error = None
         
     def load_model(self) -> bool:
         """Load the SAM 3 model from HuggingFace."""
+        self.last_error = None
         if not HAS_SAM3:
             print("SAM 3 not available - transformers package not installed correctly")
+            self.last_error = "SAM 3 runtime is unavailable. Install transformers with SAM 3 support."
             return False
         
         if self.model_loaded:
@@ -112,6 +115,22 @@ class SAM3Service:
             return True
             
         except Exception as e:
+            models_dir = Path(__file__).resolve().parents[2] / "models"
+            has_sam_v1_checkpoint = (models_dir / "sam_vit_h_4b8939.pth").exists()
+            if "gated repo" in str(e).lower():
+                if has_sam_v1_checkpoint:
+                    self.last_error = (
+                        "Cannot access HuggingFace model facebook/sam3 (gated repo). "
+                        "Local checkpoint models/sam_vit_h_4b8939.pth is SAM v1 and is not compatible with this SAM 3 pipeline."
+                    )
+                else:
+                    self.last_error = (
+                        "Cannot access HuggingFace model facebook/sam3 (gated repo). "
+                        "Request access and authenticate with a HuggingFace token."
+                    )
+            else:
+                self.last_error = f"Error loading SAM 3 model: {e}"
+
             print(f"Error loading SAM 3 model: {e}")
             import traceback
             traceback.print_exc()
@@ -140,6 +159,7 @@ class SAM3Service:
             
         except Exception as e:
             print(f"Error setting image: {e}")
+            self.last_error = f"Error setting image: {e}"
             import traceback
             traceback.print_exc()
             return False

@@ -68,3 +68,12 @@ projects/
 .eslintcache
 *.tgz
 
+.vscode/
+.cursor/
+.cursorignore
+.cursorindexingignore
+
+pyproject.toml
+uv.lock
+.venv/
+backend/.python-version
