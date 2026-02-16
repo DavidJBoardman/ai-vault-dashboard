@@ -342,6 +342,7 @@ export interface MeasurementParams {
   traceId: string;
   segmentStart: number;
   segmentEnd: number;
+  tracePoints: Array<number[]>; // [[x, y, z], ...]
 }
 
 export interface MeasurementResult {
@@ -350,12 +351,14 @@ export interface MeasurementResult {
   apexPoint: { x: number; y: number; z: number };
   springingPoints: Array<{ x: number; y: number; z: number }>;
   fitError: number;
+  pointDistances: number[];
+  segmentPoints: Array<{ x: number; y: number; z: number }>;
 }
 
 export async function calculateMeasurements(
   params: MeasurementParams
 ): Promise<ApiResponse<MeasurementResult>> {
-  return apiRequest<MeasurementResult>("/api/measurements/calculate", {
+  return apiRequest<MeasurementResult>("/api/geometry/measurements/calculate", {
     method: "POST",
     body: JSON.stringify(params),
   });

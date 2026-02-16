@@ -59,6 +59,9 @@ class MeasurementService:
         
         # Calculate arc parameters
         arc_params = self._fit_arc(segment)
+
+        # Calculate point distances from arc for visualization
+        point_distances = self._calculate_point_distances_from_arc(segment, arc_params)
         
         # Calculate rib length
         rib_length = self._calculate_length(segment)
@@ -67,12 +70,17 @@ class MeasurementService:
         apex = self._find_apex(segment)
         springing = self._find_springing_points(segment)
         
+        # Convert segment points to list format for API response
+        segment_points = segment.tolist()
+        
         return {
             "arc_radius": arc_params["radius"],
             "rib_length": rib_length,
             "apex_point": apex,
             "springing_points": springing,
             "fit_error": arc_params["error"],
+            "point_distances": point_distances.tolist(),
+            "segment_points": segment_points,
         }
     
     def _generate_demo_trace(self) -> np.ndarray:
@@ -152,6 +160,38 @@ class MeasurementService:
             })
         
         return springing
+    
+    def _calculate_point_distances_from_arc(
+      self,
+      points: np.ndarray,
+      arc_params: Dict[str, float],
+  ) -> np.ndarray:
+      """Calculate distance of each point from the ideal fitted arc.
+      
+      Args:
+          points: Array of 3D points (N x 3)
+          arc_params: Dictionary containing arc parameters with 'center' and 'radius'
+      
+      Returns:
+          Array of distances for each point from the ideal arc (N,)
+      """
+      
+      # Extract center and radius from arc parameters
+      cx, cz = arc_params["center"]
+      radius = arc_params["radius"]
+      
+      # Project points to 2D (XZ plane)
+      x = points[:, 0]
+      z = points[:, 2]
+      
+      # Calculate distance from each point to the arc center
+      distances_to_center = np.sqrt((x - cx)**2 + (z - cz)**2)
+      
+      # Calculate signed distance from the ideal arc
+      # Positive = outside the arc, Negative = inside the arc
+      point_distances = distances_to_center - radius
+      
+      return point_distances
     
     async def chord_method_analysis(self, hypothesis_id: str) -> Dict[str, Any]:
         """Perform three-circle chord method analysis."""

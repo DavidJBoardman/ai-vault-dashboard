@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter
 from pydantic import BaseModel
+import numpy as np
 
 from services.geometry_analyzer import GeometryAnalyzer
 from services.measurement_service import MeasurementService
@@ -81,6 +82,7 @@ class MeasurementRequest(BaseModel):
     traceId: str
     segmentStart: float
     segmentEnd: float
+    tracePoints: List[List[float]]  # [[x, y, z], ...]
 
 
 class Point3D(BaseModel):
@@ -95,6 +97,8 @@ class MeasurementResult(BaseModel):
     apexPoint: Point3D
     springingPoints: List[Point3D]
     fitError: float
+    pointDistances: List[float]
+    segmentPoints: List[Point3D]
 
 
 class MeasurementResponse(BaseModel):
@@ -108,6 +112,10 @@ async def calculate_measurements(request: MeasurementRequest):
     """Calculate geometric measurements for a trace segment."""
     try:
         service = MeasurementService()
+        
+        # Load the trace points into the service
+        trace_points = np.array(request.tracePoints)
+        service.traces[request.traceId] = trace_points
         
         result = await service.calculate(
             trace_id=request.traceId,
@@ -123,6 +131,8 @@ async def calculate_measurements(request: MeasurementRequest):
                 apexPoint=Point3D(**result["apex_point"]),
                 springingPoints=[Point3D(**p) for p in result["springing_points"]],
                 fitError=result["fit_error"],
+                pointDistances=result["point_distances"],
+                segmentPoints=[Point3D(x=p[0], y=p[1], z=p[2]) for p in result["segment_points"]],
             ),
         )
     except Exception as e:
