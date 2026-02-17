@@ -287,14 +287,15 @@ function Projection2DPreview({
         <div className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs capitalize">
           {perspective} projection
         </div>
-        <div className="absolute bottom-2 right-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs">
-          {formatNumber(points.length)} pts (preview)
-        </div>
-        
-        {/* Full resolution indicator */}
-        <div className="absolute bottom-2 left-2 bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-          Output uses all {formatNumber(totalPointCount)}
+        {/* Bottom info bar - combined to avoid overlap */}
+        <div className="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+          <div className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-[10px] flex items-center gap-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+            All {formatNumber(totalPointCount)} pts
+          </div>
+          <div className="bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-[10px]">
+            {formatNumber(points.length)} preview
+          </div>
         </div>
       </div>
       
@@ -354,6 +355,7 @@ export default function Step2ProjectionPage() {
   const [pointCloudData, setPointCloudData] = useState<PointData[]>([]);
   const [activeTab, setActiveTab] = useState("3d");
   const [selectedProjectionId, setSelectedProjectionId] = useState<string | null>(null);
+  const [viewingPreview, setViewingPreview] = useState(false); // Track if user wants to view preview
   const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   const [totalPointCount, setTotalPointCount] = useState(0);
   const [displayPointCount, setDisplayPointCount] = useState(100000);
@@ -398,12 +400,12 @@ export default function Step2ProjectionPage() {
     loadPointCloud(displayPointCount);
   }, []);
   
-  // Select first existing projection if available
+  // Select first existing projection if available (but not if user is viewing preview)
   useEffect(() => {
-    if (!selectedProjectionId && currentProject?.projections?.length) {
+    if (!selectedProjectionId && currentProject?.projections?.length && !viewingPreview) {
       setSelectedProjectionId(currentProject.projections[0].id);
     }
-  }, [currentProject?.projections, selectedProjectionId]);
+  }, [currentProject?.projections, selectedProjectionId, viewingPreview]);
   
   const handleReloadPoints = () => {
     loadPointCloud(displayPointCount, true);
@@ -672,7 +674,10 @@ export default function Step2ProjectionPage() {
                           ? "bg-primary/20 ring-1 ring-primary" 
                           : "bg-muted/50 hover:bg-muted"
                       )}
-                      onClick={() => setSelectedProjectionId(proj.id)}
+                      onClick={() => {
+                        setSelectedProjectionId(proj.id);
+                        setViewingPreview(false);
+                      }}
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded overflow-hidden bg-muted flex-shrink-0">
@@ -706,6 +711,7 @@ export default function Step2ProjectionPage() {
                           removeProjection(proj.id);
                           if (selectedProjectionId === proj.id) {
                             setSelectedProjectionId(null);
+                            setViewingPreview(true);
                           }
                         }}
                       >
@@ -884,13 +890,16 @@ export default function Step2ProjectionPage() {
                     <div className="absolute top-3 right-3 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs">
                       {selectedProjection.settings.resolution}px • σ{selectedProjection.settings.sigma}
                     </div>
-                    <div className="absolute bottom-3 left-3 bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                      Gaussian Splatting
-                    </div>
-                    <div className="absolute bottom-3 right-3 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs capitalize">
-                      {selectedImageType === "depthGrayscale" ? "Depth (Grayscale)" : 
-                       selectedImageType === "depthPlasma" ? "Depth (Plasma)" : "Colour"}
+                    {/* Bottom info bar */}
+                    <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center">
+                      <div className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-[10px] flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                        Gaussian Splatting
+                      </div>
+                      <div className="bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] capitalize">
+                        {selectedImageType === "depthGrayscale" ? "Depth" : 
+                         selectedImageType === "depthPlasma" ? "Plasma" : "Colour"}
+                      </div>
                     </div>
                   </div>
                   
@@ -905,7 +914,10 @@ export default function Step2ProjectionPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setSelectedProjectionId(null)}
+                      onClick={() => {
+                        setSelectedProjectionId(null);
+                        setViewingPreview(true);
+                      }}
                     >
                       Back to Preview
                     </Button>

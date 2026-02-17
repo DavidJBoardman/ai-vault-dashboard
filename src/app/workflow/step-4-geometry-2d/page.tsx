@@ -339,6 +339,19 @@ export default function Step4Geometry2DPage() {
           inside: result.data.insideCount,
           outside: result.data.outsideCount,
         });
+        
+        // Also save ROI to step data for restoration on reload
+        completeStep(4, { 
+          roi: { 
+            x: roi.x, 
+            y: roi.y, 
+            width: roi.width, 
+            height: roi.height, 
+            rotation: roi.rotation 
+          },
+          insideCount: result.data.insideCount,
+          outsideCount: result.data.outsideCount,
+        });
       } else {
         console.error("Failed to save ROI:", result.error);
         alert(`Failed to save ROI: ${result.error}`);
@@ -367,6 +380,36 @@ export default function Step4Geometry2DPage() {
     
     loadIntradosLines();
   }, [currentProject?.id]);
+  
+  // Restore ROI from saved step data (check step 4 first, then step 3)
+  useEffect(() => {
+    // First check step 4 data
+    const step4Roi = currentProject?.steps?.[4]?.data?.roi as ROIState | undefined;
+    if (step4Roi && step4Roi.x !== undefined) {
+      setRoi({
+        x: step4Roi.x,
+        y: step4Roi.y,
+        width: step4Roi.width,
+        height: step4Roi.height,
+        rotation: step4Roi.rotation || 0,
+      });
+      console.log("Restored ROI from step 4 data:", step4Roi);
+      return;
+    }
+    
+    // Fall back to step 3 data (ROI set during segmentation)
+    const step3Roi = currentProject?.steps?.[3]?.data?.roi as ROIState | undefined;
+    if (step3Roi && step3Roi.x !== undefined) {
+      setRoi({
+        x: step3Roi.x,
+        y: step3Roi.y,
+        width: step3Roi.width,
+        height: step3Roi.height,
+        rotation: step3Roi.rotation || 0,
+      });
+      console.log("Restored ROI from step 3 data:", step3Roi);
+    }
+  }, [currentProject?.steps]);
   
   const handleAnalyse = async () => {
     setIsAnalysing(true);

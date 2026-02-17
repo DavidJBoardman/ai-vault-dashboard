@@ -569,63 +569,69 @@ export function PointCloudViewer({
         {showStats && <Stats />}
       </Canvas>
       
-      {/* Top right: Stats overlay */}
-      <div className="absolute top-4 right-4 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2 space-y-1">
-        <p className="text-xs text-muted-foreground">
-          {points.length.toLocaleString()} points
-        </p>
-      </div>
-      
-      {/* Top left: Reset button */}
-      <div className="absolute top-4 left-4">
+      {/* Top bar */}
+      <div className="absolute top-2 left-2 right-2 flex justify-between items-center">
+        {/* Reset button */}
         <Button
           variant="secondary"
           size="icon"
-          className="h-8 w-8 bg-background/80 backdrop-blur-sm"
+          className="h-7 w-7 bg-background/80 backdrop-blur-sm"
           onClick={handleReset}
           title="Reset camera"
         >
-          <Home className="w-4 h-4" />
+          <Home className="w-3.5 h-3.5" />
         </Button>
+        
+        {/* Stats overlay */}
+        <div className="bg-background/80 backdrop-blur-sm rounded px-2 py-1">
+          <p className="text-[10px] text-muted-foreground">
+            {points.length.toLocaleString()} pts
+          </p>
+        </div>
       </div>
       
-      {/* Controls Overlay */}
-      <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-4">
-        {/* Color mode buttons */}
-        <div className="flex gap-1 bg-background/80 backdrop-blur-sm rounded-lg p-1">
-          {(["height", "rgb", "intensity", "uniform"] as const).map((mode) => (
-            <Button
-              key={mode}
-              variant={localColorMode === mode ? "default" : "ghost"}
-              size="sm"
-              className="h-7 text-xs capitalize"
-              onClick={() => setLocalColorMode(mode)}
-            >
-              {mode}
-            </Button>
-          ))}
+      {/* Controls Overlay - stacked layout to avoid overlap */}
+      <div className="absolute bottom-3 left-3 right-3 flex flex-col gap-2 pointer-events-none">
+        {/* Navigation hint - top of bottom controls */}
+        <div className="flex justify-center pointer-events-none">
+          <div className="bg-background/60 backdrop-blur-sm rounded px-2 py-1">
+            <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+              <Move3D className="w-3 h-3" />
+              Drag to rotate • Scroll to zoom • Shift+drag to pan
+            </p>
+          </div>
         </div>
         
-        {/* Point size slider */}
-        <div className="flex items-center gap-3 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2">
-          <Label className="text-xs text-muted-foreground whitespace-nowrap">Point Size</Label>
-          <Slider
-            value={[localPointSize * 100]}
-            onValueChange={([v]) => setLocalPointSize(v / 100)}
-            min={1}
-            max={15}
-            step={0.5}
-            className="w-24"
-          />
+        {/* Controls row */}
+        <div className="flex items-center justify-between gap-2 pointer-events-auto">
+          {/* Color mode buttons */}
+          <div className="flex gap-0.5 bg-background/80 backdrop-blur-sm rounded-lg p-0.5">
+            {(["height", "rgb", "intensity"] as const).map((mode) => (
+              <Button
+                key={mode}
+                variant={localColorMode === mode ? "default" : "ghost"}
+                size="sm"
+                className="h-6 px-2 text-[10px] capitalize"
+                onClick={() => setLocalColorMode(mode)}
+              >
+                {mode === "intensity" ? "int" : mode}
+              </Button>
+            ))}
+          </div>
+          
+          {/* Point size slider */}
+          <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg px-2 py-1">
+            <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Size</Label>
+            <Slider
+              value={[localPointSize * 100]}
+              onValueChange={([v]) => setLocalPointSize(v / 100)}
+              min={1}
+              max={15}
+              step={0.5}
+              className="w-16"
+            />
+          </div>
         </div>
-      </div>
-      
-      {/* Navigation hint */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/60 backdrop-blur-sm rounded-lg px-3 py-1.5 pointer-events-none">
-        <p className="text-xs text-muted-foreground flex items-center gap-2">
-          <Move3D className="w-3 h-3" />
-          Drag to rotate • Scroll to zoom • Shift+drag to pan
-        </p>
       </div>
     </div>
   );

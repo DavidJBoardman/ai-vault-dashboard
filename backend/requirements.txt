@@ -44,6 +44,9 @@ opencv-python-headless==4.10.0.84
 # Point Cloud (E57, PLY, PCD, XYZ support)
 open3d==0.19.0
 
+# Rhino 3DM file support
+rhino3dm==8.9.0
+
 # HuggingFace ecosystem (for SAM 3)
 # Note: transformers installed via git for latest SAM 3 support
 accelerate
