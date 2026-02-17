@@ -99,7 +99,8 @@ function errorToColor(normalizedError: number): string {
 function createColoredTraceLines(
   segmentPoints: Point3D[],
   pointDistances: number[],
-  traceId: string
+  traceId: string,
+  isSelected: boolean = false
 ): Line3D[] {
   if (segmentPoints.length < 2 || pointDistances.length === 0) {
     return [];
@@ -121,7 +122,9 @@ function createColoredTraceLines(
     
     // Normalize error to 0-1 range
     const normalizedError = Math.abs((avgError - minDist) / range);
-    const color = errorToColor(normalizedError);
+    
+    // If selected, use full color gradient; otherwise use neutral gray
+    const color = isSelected ? "rgb(180, 180, 180)" : errorToColor(normalizedError);
     
     lines.push({
       id: `${traceId}-segment-${i}`,
@@ -143,6 +146,7 @@ export default function Step7MeasurementsPage() {
   const [selectedRib, setSelectedRib] = useState<string | null>(null);
   const [hypothesisName, setHypothesisName] = useState("");
   const [isCalculating, setIsCalculating] = useState(false);
+  const [exportingRibs, setExportingRibs] = useState(false);
   
   // Data loading states
   const [pointCloudData, setPointCloudData] = useState<ReprojectionPoint[] | null>(null);
@@ -220,7 +224,8 @@ export default function Step7MeasurementsPage() {
             const coloredLines = createColoredTraceLines(
               response.data.segmentPoints,
               response.data.pointDistances,
-              line.id
+              line.id,
+              line.id === selectedRib
             );
             allTraces.push(...coloredLines);
 
@@ -356,6 +361,100 @@ export default function Step7MeasurementsPage() {
     a.download = "measurements.csv";
     a.click();
   };
+
+  // Export all ribs: query measurements for each intrados line and download CSV
+  const handleExportAllRibs = async () => {
+    if (!intradosLines || intradosLines.length === 0) return;
+    setExportingRibs(true);
+
+    const rows: string[] = [];
+    // Header
+    rows.push([
+      "RibID",
+      "ApexX",
+      "ApexY",
+      "ApexZ",
+      "Spring1X",
+      "Spring1Y",
+      "Spring1Z",
+      "Spring2X",
+      "Spring2Y",
+      "Spring2Z",
+      "RibLength",
+      "ArcRadius",
+      "FitError"
+    ].join(","));
+
+    for (const line of intradosLines) {
+      try {
+        const resp = await calculateMeasurements({
+          traceId: line.id,
+          segmentStart: 0,
+          segmentEnd: 1,
+          tracePoints: line.points3d,
+        });
+
+        let apex = { x: 0, y: 0, z: 0 };
+        let spring1 = { x: 0, y: 0, z: 0 };
+        let spring2 = { x: 0, y: 0, z: 0 };
+        let ribLength = 0;
+        let arcRadius = 0;
+        let fitError = 0;
+
+        if (resp.success && resp.data) {
+          const d = resp.data;
+          apex = d.apexPoint ?? apex;
+          if (d.springingPoints && d.springingPoints.length >= 2) {
+            spring1 = d.springingPoints[0];
+            spring2 = d.springingPoints[1];
+          }
+          ribLength = d.ribLength ?? 0;
+          arcRadius = d.arcRadius ?? 0;
+          fitError = d.fitError ?? 0;
+        } else {
+          // Fallback: derive apex/springing from raw line points
+          const pts = line.points3d;
+          if (pts && pts.length > 0) {
+            const apexIdx = pts.reduce((maxIdx, p, idx, arr) => p[2] > arr[maxIdx][2] ? idx : maxIdx, 0);
+            const ap = pts[apexIdx];
+            apex = { x: ap[0], y: ap[1], z: ap[2] };
+            spring1 = { x: pts[0][0], y: pts[0][1], z: pts[0][2] };
+            const last = pts[pts.length - 1];
+            spring2 = { x: last[0], y: last[1], z: last[2] };
+          }
+        }
+
+        rows.push([
+          line.id,
+          apex.x.toFixed(4),
+          apex.y.toFixed(4),
+          apex.z.toFixed(4),
+          spring1.x.toFixed(4),
+          spring1.y.toFixed(4),
+          spring1.z.toFixed(4),
+          spring2.x.toFixed(4),
+          spring2.y.toFixed(4),
+          spring2.z.toFixed(4),
+          ribLength.toFixed(4),
+          arcRadius.toFixed(4),
+          fitError.toFixed(6),
+        ].join(","));
+      } catch (err) {
+        console.error(`Error exporting rib ${line.id}:`, err);
+      }
+    }
+
+    const csv = rows.join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ribs_export_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setExportingRibs(false);
+  };
   
   const handleContinue = () => {
     completeStep(7, { measurements, hypotheses });
@@ -439,8 +538,22 @@ export default function Step7MeasurementsPage() {
         <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg font-display">Rib Measurements</CardTitle>
-              <CardDescription>Select a rib to view details</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg font-display">Rib Measurements</CardTitle>
+                  <CardDescription>Select a rib to view details</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={handleExportAllRibs} disabled={exportingRibs} className="gap-2">
+                    {exportingRibs ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                    Export Ribs
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-48">
