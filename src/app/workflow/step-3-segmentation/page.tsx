@@ -24,7 +24,10 @@ import {
   checkSamStatus, 
   SegmentationMask,
   BoxPrompt,
-  saveProject
+  saveProject,
+  saveROI,
+  ROIData,
+  saveProgress
 } from "@/lib/api";
 import { 
   ChevronLeft, 
@@ -44,13 +47,30 @@ import {
   Scan,
   GripVertical,
   Edit2,
-  Hexagon
+  Hexagon,
+  Square,
+  Move,
+  Maximize2,
+  RotateCw,
+  Scissors
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
 // Image type for viewing projections
 type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
-type Tool = "polygon" | "box";
+type Tool = "polygon" | "box" | "roi";
+
+// ROI state interface
+interface ROIState {
+  x: number;      // Center X (0-1 normalized)
+  y: number;      // Center Y (0-1 normalized)
+  width: number;  // Width (0-1 normalized)
+  height: number; // Height (0-1 normalized)
+  rotation: number; // Degrees
+}
+
+// ROI interaction mode
+type ROIInteractionMode = "none" | "drawing" | "moving" | "resizing" | "rotating";
 
 // Drawn box for prompting
 interface DrawnBox {
@@ -128,6 +148,20 @@ export default function Step3SegmentationPage() {
   const [drawnPolygons, setDrawnPolygons] = useState<DrawnPolygon[]>([]);
   const [currentPolygon, setCurrentPolygon] = useState<PolygonPoint[]>([]);
   const [polygonName, setPolygonName] = useState<string>("");
+  
+  // ROI state
+  const [roi, setRoi] = useState<ROIState>({
+    x: 0.5,
+    y: 0.5,
+    width: 0.6,
+    height: 0.6,
+    rotation: 0,
+  });
+  const [showROI, setShowROI] = useState(false);
+  const [roiInteractionMode, setRoiInteractionMode] = useState<ROIInteractionMode>("none");
+  const [roiDragStart, setRoiDragStart] = useState<{ x: number; y: number; roi: ROIState } | null>(null);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
+  const [isApplyingROI, setIsApplyingROI] = useState(false);
   
   // Box naming dialog state
   const [boxNamingDialog, setBoxNamingDialog] = useState<{
@@ -278,6 +312,12 @@ export default function Step3SegmentationPage() {
       return;
     }
     
+    // Handle ROI tool
+    if (activeTool === "roi") {
+      handleROIMouseDown(e);
+      return;
+    }
+    
     // Box tool
     if (activeTool !== "box" || !selectedProjection) {
       return;
@@ -306,6 +346,12 @@ export default function Step3SegmentationPage() {
   };
   
   const handleMouseMove = (e: MouseEvent<HTMLDivElement>) => {
+    // Handle ROI tool
+    if (activeTool === "roi" && roiInteractionMode !== "none") {
+      handleROIMouseMove(e);
+      return;
+    }
+    
     const coords = getImageCoordinates(e);
     if (!coords) return;
     
@@ -347,6 +393,12 @@ export default function Step3SegmentationPage() {
   const handleMouseUp = (e: MouseEvent<HTMLDivElement>) => {
     // Polygon tool doesn't use mouse up for drawing
     if (activeTool === "polygon") return;
+    
+    // Handle ROI tool
+    if (activeTool === "roi") {
+      handleROIMouseUp();
+      return;
+    }
     
     // Handle finishing drawing a new box
     if (isDrawing && currentBox && boxInteractionMode === "draw") {
@@ -425,6 +477,244 @@ export default function Step3SegmentationPage() {
   const clearAllPolygons = () => {
     setDrawnPolygons([]);
     setCurrentPolygon([]);
+  };
+  
+  // ROI helper functions
+  const getROICorners = (roiState: ROIState): [number, number][] => {
+    const { x, y, width, height, rotation } = roiState;
+    const rad = (rotation * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const hw = width / 2;
+    const hh = height / 2;
+    
+    const corners: [number, number][] = [
+      [-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]
+    ].map(([dx, dy]) => [
+      x + dx * cos - dy * sin,
+      y + dx * sin + dy * cos
+    ]);
+    
+    return corners;
+  };
+  
+  const isPointInROI = (px: number, py: number, roiState: ROIState): boolean => {
+    const { x, y, width, height, rotation } = roiState;
+    const rad = (-rotation * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    
+    const dx = px - x;
+    const dy = py - y;
+    const localX = dx * cos - dy * sin;
+    const localY = dx * sin + dy * cos;
+    
+    return Math.abs(localX) <= width / 2 && Math.abs(localY) <= height / 2;
+  };
+  
+  const isMaskInsideROI = (mask: SegmentationMask): boolean => {
+    if (!mask.bbox) return false;
+    const resolution = selectedProjection?.settings?.resolution || 2048;
+    // bbox is [x, y, w, h] in pixels
+    const centerX = (mask.bbox[0] + mask.bbox[2] / 2) / resolution;
+    const centerY = (mask.bbox[1] + mask.bbox[3] / 2) / resolution;
+    return isPointInROI(centerX, centerY, roi);
+  };
+  
+  // ROI mouse handlers
+  const handleROIMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    if (activeTool !== "roi" || !imageContainerRef.current) return;
+    
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    
+    // Check if clicking on resize handles
+    const corners = getROICorners(roi);
+    const handleSize = 0.02;
+    
+    for (let i = 0; i < corners.length; i++) {
+      const [cx, cy] = corners[i];
+      if (Math.abs(x - cx) < handleSize && Math.abs(y - cy) < handleSize) {
+        setRoiInteractionMode("resizing");
+        setResizeHandle(`corner-${i}`);
+        setRoiDragStart({ x, y, roi: { ...roi } });
+        return;
+      }
+    }
+    
+    // Check if clicking on rotation handle (top center)
+    const rad = (roi.rotation * Math.PI) / 180;
+    const rotHandleX = roi.x + Math.sin(rad) * (roi.height / 2 + 0.03);
+    const rotHandleY = roi.y - Math.cos(rad) * (roi.height / 2 + 0.03);
+    if (Math.abs(x - rotHandleX) < handleSize && Math.abs(y - rotHandleY) < handleSize) {
+      setRoiInteractionMode("rotating");
+      setRoiDragStart({ x, y, roi: { ...roi } });
+      return;
+    }
+    
+    // Check if clicking inside ROI (move)
+    if (isPointInROI(x, y, roi)) {
+      setRoiInteractionMode("moving");
+      setRoiDragStart({ x, y, roi: { ...roi } });
+      return;
+    }
+    
+    // Start drawing new ROI
+    setRoiInteractionMode("drawing");
+    setRoiDragStart({ x, y, roi: { x, y, width: 0, height: 0, rotation: 0 } });
+    setRoi({ x, y, width: 0.01, height: 0.01, rotation: 0 });
+  };
+  
+  const handleROIMouseMove = (e: MouseEvent<HTMLDivElement>) => {
+    if (activeTool !== "roi" || roiInteractionMode === "none" || !roiDragStart || !imageContainerRef.current) return;
+    
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    
+    if (roiInteractionMode === "drawing") {
+      const newWidth = Math.abs(x - roiDragStart.x);
+      const newHeight = Math.abs(y - roiDragStart.y);
+      const newX = (x + roiDragStart.x) / 2;
+      const newY = (y + roiDragStart.y) / 2;
+      setRoi({ x: newX, y: newY, width: newWidth, height: newHeight, rotation: 0 });
+    } else if (roiInteractionMode === "moving") {
+      const dx = x - roiDragStart.x;
+      const dy = y - roiDragStart.y;
+      setRoi({
+        ...roiDragStart.roi,
+        x: Math.max(0, Math.min(1, roiDragStart.roi.x + dx)),
+        y: Math.max(0, Math.min(1, roiDragStart.roi.y + dy)),
+      });
+    } else if (roiInteractionMode === "resizing" && resizeHandle) {
+      const handleIdx = parseInt(resizeHandle.split("-")[1]);
+      const dx = x - roiDragStart.x;
+      const dy = y - roiDragStart.y;
+      
+      // Simple resize - adjust width/height based on which corner
+      const origRoi = roiDragStart.roi;
+      let newWidth = origRoi.width;
+      let newHeight = origRoi.height;
+      let newX = origRoi.x;
+      let newY = origRoi.y;
+      
+      if (handleIdx === 0 || handleIdx === 3) { // Left corners
+        newWidth = Math.max(0.05, origRoi.width - dx * 2);
+      } else {
+        newWidth = Math.max(0.05, origRoi.width + dx * 2);
+      }
+      
+      if (handleIdx === 0 || handleIdx === 1) { // Top corners
+        newHeight = Math.max(0.05, origRoi.height - dy * 2);
+      } else {
+        newHeight = Math.max(0.05, origRoi.height + dy * 2);
+      }
+      
+      setRoi({ ...origRoi, width: newWidth, height: newHeight });
+    } else if (roiInteractionMode === "rotating") {
+      const angle = Math.atan2(x - roi.x, -(y - roi.y)) * (180 / Math.PI);
+      setRoi({ ...roi, rotation: angle });
+    }
+  };
+  
+  const handleROIMouseUp = () => {
+    if (roiInteractionMode === "drawing" && roi.width > 0.02 && roi.height > 0.02) {
+      setShowROI(true);
+    }
+    setRoiInteractionMode("none");
+    setRoiDragStart(null);
+    setResizeHandle(null);
+  };
+  
+  // Apply ROI - delete masks outside
+  const handleApplyROI = async () => {
+    if (!currentProject?.id) return;
+    
+    setIsApplyingROI(true);
+    
+    try {
+      // Filter masks - keep only those inside ROI
+      const masksInside = masks.filter(isMaskInsideROI);
+      const masksOutside = masks.filter(m => !isMaskInsideROI(m));
+      
+      console.log(`Applying ROI: ${masksInside.length} inside, ${masksOutside.length} outside`);
+      
+      // Update local state
+      setMasks(masksInside);
+      
+      // Save ROI to backend
+      const resolution = selectedProjection?.settings?.resolution || 2048;
+      const corners = getROICorners(roi);
+      
+      const roiData: ROIData = {
+        x: roi.x * resolution,
+        y: roi.y * resolution,
+        width: roi.width * resolution,
+        height: roi.height * resolution,
+        rotation: roi.rotation,
+        corners: corners.map(([cx, cy]) => [cx * resolution, cy * resolution]),
+      };
+      
+      await saveROI(currentProject.id, roiData);
+      
+      // Save the filtered masks to backend
+      const storeSegmentations = masksInside.map((m: SegmentationMask) => ({
+        id: m.id,
+        label: m.label,
+        color: m.color,
+        mask: m.maskBase64,
+        visible: m.visible,
+        source: m.source as "auto" | "manual",
+        bbox: m.bbox,
+        area: m.area,
+        insideRoi: true,
+      }));
+      
+      setSegmentations(storeSegmentations);
+      
+      // Save project with updated segmentations
+      await saveProject({
+        projectId: currentProject.id,
+        projectName: currentProject.name,
+        e57Path: currentProject.e57Path,
+        projections: currentProject.projections.map(p => ({
+          id: p.id,
+          perspective: p.settings.perspective,
+          resolution: p.settings.resolution,
+          sigma: p.settings.sigma,
+          kernelSize: p.settings.kernelSize,
+          bottomUp: p.settings.bottomUp,
+          scale: p.settings.scale,
+        })),
+        segmentations: storeSegmentations.map(s => ({
+          id: s.id,
+          label: s.label,
+          color: s.color,
+          maskBase64: s.mask,
+          visible: s.visible,
+          source: s.source,
+          bbox: s.bbox,
+          area: s.area,
+        })),
+        selectedProjectionId: selectedProjectionId || undefined,
+      });
+      
+      // Save ROI to step 3 data for carrying over to step 4
+      completeStep(3, { 
+        roi: { x: roi.x, y: roi.y, width: roi.width, height: roi.height, rotation: roi.rotation },
+        masksDeleted: masksOutside.length,
+        masksRemaining: masksInside.length,
+      });
+      
+      alert(`ROI applied! Kept ${masksInside.length} masks, removed ${masksOutside.length} masks outside ROI.`);
+      
+    } catch (error) {
+      console.error("Error applying ROI:", error);
+      alert("Failed to apply ROI");
+    } finally {
+      setIsApplyingROI(false);
+    }
   };
   
   // Save box name from dialog
@@ -1413,17 +1703,21 @@ export default function Step3SegmentationPage() {
                   {textPrompts.length > 0 ? "Run SAM Segmentation" : "Run SAM Segmentation"}
                 </Button>
                 
-                <div className="grid grid-cols-2 gap-1">
+                <div className="grid grid-cols-3 gap-1">
                   {[
                     { tool: "polygon", icon: Hexagon, label: "Polygon", needsMasks: false },
                     { tool: "box", icon: Scan, label: "Box", needsMasks: false },
+                    { tool: "roi", icon: Square, label: "ROI", needsMasks: false },
                   ].map(({ tool, icon: Icon, label, needsMasks }) => (
                     <Button
                       key={tool}
                       variant={activeTool === tool ? "default" : "outline"}
                       size="sm"
                       className="gap-1.5 h-7 text-xs"
-                      onClick={() => setActiveTool(tool as Tool)}
+                      onClick={() => {
+                        setActiveTool(tool as Tool);
+                        if (tool === "roi") setShowROI(true);
+                      }}
                       disabled={!selectedProjection || (needsMasks && masks.length === 0)}
                     >
                       <Icon className="w-3 h-3" />
@@ -1627,6 +1921,68 @@ export default function Step3SegmentationPage() {
                         )}
                         Find in Polygons
                       </Button>
+                    )}
+                  </div>
+                )}
+                
+                {/* ROI Section */}
+                {activeTool === "roi" && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Square className="w-3 h-3" />
+                        Region of Interest
+                      </span>
+                      {showROI && (
+                        <button
+                          onClick={() => setShowROI(false)}
+                          className="text-xs text-muted-foreground hover:text-destructive"
+                        >
+                          Hide
+                        </button>
+                      )}
+                    </div>
+                    
+                    <p className="text-xs text-muted-foreground/70">
+                      Draw a box to define the region. Masks outside will be deleted when applied.
+                    </p>
+                    
+                    {showROI && roi.width > 0.02 && (
+                      <>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Size:</span>
+                            <span>{Math.round(roi.width * 100)}% x {Math.round(roi.height * 100)}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Rotation:</span>
+                            <span>{Math.round(roi.rotation)}°</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Masks inside:</span>
+                            <span className="text-green-600">{masks.filter(isMaskInsideROI).length}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Masks outside:</span>
+                            <span className="text-red-600">{masks.filter(m => !isMaskInsideROI(m)).length}</span>
+                          </div>
+                        </div>
+                        
+                        <Button 
+                          size="sm"
+                          variant="destructive"
+                          className="w-full gap-1.5"
+                          onClick={handleApplyROI}
+                          disabled={isApplyingROI || masks.filter(m => !isMaskInsideROI(m)).length === 0}
+                        >
+                          {isApplyingROI ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Scissors className="w-3 h-3" />
+                          )}
+                          Apply ROI & Delete Outside
+                        </Button>
+                      </>
                     )}
                   </div>
                 )}
@@ -1841,7 +2197,7 @@ export default function Step3SegmentationPage() {
                     ref={imageContainerRef}
                     className={cn(
                       "relative aspect-square max-w-2xl mx-auto bg-[#0a0f1a] rounded-lg overflow-hidden",
-                      (activeTool === "box" || activeTool === "polygon") && "cursor-crosshair"
+                      (activeTool === "box" || activeTool === "polygon" || activeTool === "roi") && "cursor-crosshair"
                     )}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
@@ -2107,6 +2463,88 @@ export default function Step3SegmentationPage() {
                           </div>
                         )}
                         
+                        {/* ROI overlay */}
+                        {showROI && roi.width > 0.02 && (() => {
+                          const corners = getROICorners(roi);
+                          // Convert to percentage
+                          const cornersPct = corners.map(([x, y]) => [x * 100, y * 100]);
+                          
+                          return (
+                            <svg 
+                              className="absolute inset-0 w-full h-full pointer-events-none z-20"
+                              viewBox="0 0 100 100"
+                              preserveAspectRatio="none"
+                            >
+                              {/* Darkened area outside ROI */}
+                              <defs>
+                                <mask id="roi-mask-seg">
+                                  <rect x="0" y="0" width="100" height="100" fill="white" />
+                                  <polygon
+                                    points={cornersPct.map(([x, y]) => `${x},${y}`).join(" ")}
+                                    fill="black"
+                                  />
+                                </mask>
+                              </defs>
+                              <rect 
+                                x="0" y="0" width="100" height="100" 
+                                fill="rgba(0,0,0,0.5)" 
+                                mask="url(#roi-mask-seg)"
+                              />
+                              
+                              {/* ROI border */}
+                              <polygon
+                                points={cornersPct.map(([x, y]) => `${x},${y}`).join(" ")}
+                                fill="none"
+                                stroke="#22c55e"
+                                strokeWidth="0.3"
+                                strokeDasharray={activeTool === "roi" ? "none" : "1,0.5"}
+                              />
+                              
+                              {/* Corner handles (only when ROI tool active) */}
+                              {activeTool === "roi" && cornersPct.map(([x, y], i) => (
+                                <circle
+                                  key={i}
+                                  cx={x}
+                                  cy={y}
+                                  r="1"
+                                  fill="#22c55e"
+                                  stroke="white"
+                                  strokeWidth="0.2"
+                                />
+                              ))}
+                              
+                              {/* Rotation handle (only when ROI tool active) */}
+                              {activeTool === "roi" && (() => {
+                                const rad = (roi.rotation * Math.PI) / 180;
+                                const handleX = (roi.x + Math.sin(rad) * (roi.height / 2 + 0.03)) * 100;
+                                const handleY = (roi.y - Math.cos(rad) * (roi.height / 2 + 0.03)) * 100;
+                                const topCenterX = (roi.x + Math.sin(rad) * (roi.height / 2)) * 100;
+                                const topCenterY = (roi.y - Math.cos(rad) * (roi.height / 2)) * 100;
+                                return (
+                                  <>
+                                    <line
+                                      x1={topCenterX}
+                                      y1={topCenterY}
+                                      x2={handleX}
+                                      y2={handleY}
+                                      stroke="#22c55e"
+                                      strokeWidth="0.15"
+                                    />
+                                    <circle
+                                      cx={handleX}
+                                      cy={handleY}
+                                      r="0.8"
+                                      fill="#22c55e"
+                                      stroke="white"
+                                      strokeWidth="0.2"
+                                    />
+                                  </>
+                                );
+                              })()}
+                            </svg>
+                          );
+                        })()}
+                        
                         {/* Tool mode indicator */}
                         {activeTool === "box" && (
                           <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-blue-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
@@ -2138,6 +2576,25 @@ export default function Step3SegmentationPage() {
                               : currentPolygon.length < 3
                               ? `${currentPolygon.length}/3 points • Click to add`
                               : `${currentPolygon.length} points • Enter to save • Click point to remove`
+                            }
+                          </div>
+                        )}
+                        
+                        {/* ROI mode indicator */}
+                        {activeTool === "roi" && (
+                          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-green-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
+                            <Square className="w-3.5 h-3.5" />
+                            {roiInteractionMode === "drawing" 
+                              ? "Drawing ROI..." 
+                              : roiInteractionMode === "moving"
+                              ? "Moving ROI..."
+                              : roiInteractionMode === "resizing"
+                              ? "Resizing ROI..."
+                              : roiInteractionMode === "rotating"
+                              ? "Rotating ROI..."
+                              : showROI && roi.width > 0.02
+                              ? "Drag to move • Corners to resize • Top handle to rotate"
+                              : "Click and drag to draw ROI"
                             }
                           </div>
                         )}
