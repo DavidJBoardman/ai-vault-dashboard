@@ -371,13 +371,42 @@ export const useProjectStore = create<ProjectStore>()(
           project.selectedProjectionId = data.selectedProjectionId;
         }
         
-        // Set step completion status
-        project.steps[1] = { completed: true, data: { hasPointCloud: true } };
-        if (project.projections.length > 0) {
-          project.steps[2] = { completed: true, data: { hasProjections: true } };
+        // Restore step state from saved data (if available)
+        // Type assertion for extended data that might include these fields
+        const extendedData = data as typeof data & { 
+          currentStep?: number; 
+          steps?: Record<number, StepState>;
+          roi?: { x: number; y: number; width: number; height: number; rotation?: number; corners?: number[][] };
+        };
+        
+        if (extendedData.currentStep) {
+          project.currentStep = extendedData.currentStep;
         }
-        if (project.segmentations.length > 0) {
-          project.steps[3] = { completed: true, data: { hasSegmentations: true } };
+        
+        if (extendedData.steps && Object.keys(extendedData.steps).length > 0) {
+          // Restore saved step states
+          project.steps = extendedData.steps;
+        } else {
+          // Fallback: infer step completion from data
+          project.steps[1] = { completed: true, data: { hasPointCloud: true } };
+          if (project.projections.length > 0) {
+            project.steps[2] = { completed: true, data: { hasProjections: true } };
+          }
+          if (project.segmentations.length > 0) {
+            project.steps[3] = { completed: true, data: { hasSegmentations: true } };
+          }
+        }
+        
+        // Store ROI if available (for step 4)
+        if (extendedData.roi) {
+          // Store ROI in step 4 data for restoration
+          project.steps[4] = { 
+            completed: project.steps[4]?.completed || false, 
+            data: { 
+              ...project.steps[4]?.data,
+              roi: extendedData.roi 
+            } 
+          };
         }
         
         // Update recent projects
@@ -422,13 +451,26 @@ export const useProjectStore = create<ProjectStore>()(
       completeStep: (step: number, data?: any) => {
         set((state) => {
           if (!state.currentProject) return state;
+          
+          const newSteps = {
+            ...state.currentProject.steps,
+            [step]: { completed: true, data },
+          };
+          
+          // Save progress to backend (async, don't block)
+          import("@/lib/api").then(({ saveProgress }) => {
+            const stepsForApi: Record<string, { completed: boolean; data?: Record<string, unknown> }> = {};
+            Object.entries(newSteps).forEach(([k, v]) => {
+              stepsForApi[k] = { completed: v.completed, data: v.data };
+            });
+            saveProgress(state.currentProject!.id, step, stepsForApi).catch(console.error);
+          });
+          
           return {
             currentProject: {
               ...state.currentProject,
-              steps: {
-                ...state.currentProject.steps,
-                [step]: { completed: true, data },
-              },
+              currentStep: step,
+              steps: newSteps,
             },
           };
         });
