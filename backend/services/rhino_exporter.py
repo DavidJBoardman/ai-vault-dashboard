@@ -42,6 +42,9 @@ def export_intrados_to_3dm(
         # Create a new 3dm file
         model = rhino3dm.File3dm()
         
+        # Set units to meters (same as E57 point cloud)
+        model.Settings.ModelUnitSystem = rhino3dm.UnitSystem.Meters
+        
         # Add a layer for intrados lines
         layer = rhino3dm.Layer()
         layer.Name = layer_name
@@ -51,27 +54,29 @@ def export_intrados_to_3dm(
         curves_added = 0
         
         for idx, line_data in enumerate(intrados_lines):
-            points = line_data.get("points", [])
+            # Support both "points3d" (from intrados_lines.json) and "points" formats
+            points = line_data.get("points3d") or line_data.get("points", [])
             if len(points) < 2:
                 continue
             
-            # Create a polyline from points
-            polyline = rhino3dm.Polyline(len(points))
+            # Build list of Point3d objects
+            point3d_list = []
             for pt in points:
                 # Handle both [x, y, z] array format and {x, y, z} dict format
                 if isinstance(pt, dict):
                     x, y, z = pt.get("x", 0), pt.get("y", 0), pt.get("z", 0)
                 else:
                     x, y, z = pt[0], pt[1], pt[2] if len(pt) > 2 else 0
-                polyline.Add(x, y, z)
+                point3d_list.append(rhino3dm.Point3d(x, y, z))
             
-            # Create a curve from the polyline
-            curve = rhino3dm.PolylineCurve(polyline)
+            # Create a polyline curve directly from points
+            curve = rhino3dm.PolylineCurve(point3d_list)
             
             # Set object attributes
             attributes = rhino3dm.ObjectAttributes()
             attributes.LayerIndex = layer_index
-            attributes.Name = line_data.get("maskLabel", f"intrados_{idx}")
+            # Support both "label" and "maskLabel" keys
+            attributes.Name = line_data.get("label") or line_data.get("maskLabel", f"intrados_{idx}")
             
             # Add to model
             model.Objects.AddCurve(curve, attributes)

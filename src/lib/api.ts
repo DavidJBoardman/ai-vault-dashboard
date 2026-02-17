@@ -482,6 +482,22 @@ export async function deleteProject(projectId: string): Promise<ApiResponse<{ pr
   });
 }
 
+export interface StepState {
+  completed: boolean;
+  data?: Record<string, unknown>;
+}
+
+export async function saveProgress(
+  projectId: string, 
+  currentStep: number, 
+  steps: Record<string, StepState>
+): Promise<ApiResponse<{ currentStep: number; stepsCompleted: number }>> {
+  return apiRequest("/api/project/save-progress", {
+    method: "POST",
+    body: JSON.stringify({ projectId, currentStep, steps }),
+  });
+}
+
 export async function getProjectSegmentations(projectId: string): Promise<ApiResponse<{ segmentations: SavedSegmentation[] }>> {
   return apiRequest(`/api/project/segmentations/${projectId}`);
 }
