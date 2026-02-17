@@ -7,6 +7,7 @@ Reference: https://huggingface.co/facebook/sam3/discussions/11
 
 import base64
 import io
+import os
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -61,6 +62,8 @@ except Exception as e:
 
 print("=" * 60)
 
+SAM3_MODEL_ID = os.getenv("SAM3_MODEL_ID", "jetjodh/sam3")
+
 
 class SAM3Service:
     """Service for running SAM 3 segmentation with text prompts via HuggingFace."""
@@ -97,12 +100,12 @@ class SAM3Service:
             return True
         
         try:
-            print("Loading SAM 3 model from HuggingFace (facebook/sam3)...")
+            print(f"Loading SAM 3 model from HuggingFace ({SAM3_MODEL_ID})...")
             print("This may take a few minutes on first run to download the model...")
             
             # Load processor and model from HuggingFace
-            self.processor = Sam3Processor.from_pretrained("facebook/sam3")
-            self.model = Sam3Model.from_pretrained("facebook/sam3")
+            self.processor = Sam3Processor.from_pretrained(SAM3_MODEL_ID)
+            self.model = Sam3Model.from_pretrained(SAM3_MODEL_ID)
             
             # Move model to appropriate device
             if DEVICE != "cpu":
@@ -120,12 +123,12 @@ class SAM3Service:
             if "gated repo" in str(e).lower():
                 if has_sam_v1_checkpoint:
                     self.last_error = (
-                        "Cannot access HuggingFace model facebook/sam3 (gated repo). "
+                        f"Cannot access HuggingFace model {SAM3_MODEL_ID} (gated repo). "
                         "Local checkpoint models/sam_vit_h_4b8939.pth is SAM v1 and is not compatible with this SAM 3 pipeline."
                     )
                 else:
                     self.last_error = (
-                        "Cannot access HuggingFace model facebook/sam3 (gated repo). "
+                        f"Cannot access HuggingFace model {SAM3_MODEL_ID} (gated repo). "
                         "Request access and authenticate with a HuggingFace token."
                     )
             else:
