@@ -57,6 +57,19 @@ class ProjectLoadResponse(BaseModel):
     error: Optional[str] = None
 
 
+class StepState(BaseModel):
+    """State for a workflow step."""
+    completed: bool
+    data: Optional[Dict[str, Any]] = None
+
+
+class SaveProgressRequest(BaseModel):
+    """Request to save project progress."""
+    projectId: str
+    currentStep: int
+    steps: Dict[str, StepState] = {}
+
+
 def get_project_dir(project_id: str) -> Path:
     """Get or create project directory."""
     project_dir = PROJECT_DATA_DIR / "projects" / project_id
@@ -390,6 +403,48 @@ async def save_project(request: ProjectSaveRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/save-progress")
+async def save_progress(request: SaveProgressRequest):
+    """
+    Save project progress (current step and step completion status).
+    
+    This updates project.json with currentStep and steps state.
+    """
+    try:
+        project_dir = get_project_dir(request.projectId)
+        project_path = project_dir / "project.json"
+        
+        if not project_path.exists():
+            return {"success": False, "error": f"Project not found: {request.projectId}"}
+        
+        # Load existing project data
+        with open(project_path, "r") as f:
+            project_data = json.load(f)
+        
+        # Update progress fields
+        project_data["currentStep"] = request.currentStep
+        project_data["steps"] = {k: v.dict() for k, v in request.steps.items()}
+        project_data["updatedAt"] = datetime.now().isoformat()
+        
+        # Save updated project.json
+        with open(project_path, "w") as f:
+            json.dump(project_data, f, indent=2)
+        
+        print(f"✓ Progress saved: step {request.currentStep}, {len(request.steps)} completed steps")
+        
+        return {
+            "success": True,
+            "currentStep": request.currentStep,
+            "stepsCompleted": len([s for s in request.steps.values() if s.completed])
+        }
+        
+    except Exception as e:
+        print(f"Error saving progress: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
 @router.get("/load/{project_id}")
 async def load_project(project_id: str):
     """
@@ -444,6 +499,13 @@ async def load_project(project_id: str):
         
         project_data["segmentations"] = segmentations
         project_data["segmentationGroups"] = groups
+        
+        # Include ROI if it exists in the segmentation index
+        if seg_index_path.exists():
+            with open(seg_index_path, "r") as f:
+                seg_index_data = json.load(f)
+            if isinstance(seg_index_data, dict) and "roi" in seg_index_data:
+                project_data["roi"] = seg_index_data["roi"]
         
         # Load projections from project folder
         proj_dir = project_dir / "projections"
