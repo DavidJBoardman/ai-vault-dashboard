@@ -57,6 +57,19 @@ class ProjectLoadResponse(BaseModel):
     error: Optional[str] = None
 
 
+class StepState(BaseModel):
+    """State for a workflow step."""
+    completed: bool
+    data: Optional[Dict[str, Any]] = None
+
+
+class SaveProgressRequest(BaseModel):
+    """Request to save project progress."""
+    projectId: str
+    currentStep: int
+    steps: Dict[str, StepState] = {}
+
+
 def get_project_dir(project_id: str) -> Path:
     """Get or create project directory."""
     project_dir = PROJECT_DATA_DIR / "projects" / project_id
@@ -390,6 +403,48 @@ async def save_project(request: ProjectSaveRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/save-progress")
+async def save_progress(request: SaveProgressRequest):
+    """
+    Save project progress (current step and step completion status).
+    
+    This updates project.json with currentStep and steps state.
+    """
+    try:
+        project_dir = get_project_dir(request.projectId)
+        project_path = project_dir / "project.json"
+        
+        if not project_path.exists():
+            return {"success": False, "error": f"Project not found: {request.projectId}"}
+        
+        # Load existing project data
+        with open(project_path, "r") as f:
+            project_data = json.load(f)
+        
+        # Update progress fields
+        project_data["currentStep"] = request.currentStep
+        project_data["steps"] = {k: v.dict() for k, v in request.steps.items()}
+        project_data["updatedAt"] = datetime.now().isoformat()
+        
+        # Save updated project.json
+        with open(project_path, "w") as f:
+            json.dump(project_data, f, indent=2)
+        
+        print(f"✓ Progress saved: step {request.currentStep}, {len(request.steps)} completed steps")
+        
+        return {
+            "success": True,
+            "currentStep": request.currentStep,
+            "stepsCompleted": len([s for s in request.steps.values() if s.completed])
+        }
+        
+    except Exception as e:
+        print(f"Error saving progress: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
 @router.get("/load/{project_id}")
 async def load_project(project_id: str):
     """
@@ -444,6 +499,13 @@ async def load_project(project_id: str):
         
         project_data["segmentations"] = segmentations
         project_data["segmentationGroups"] = groups
+        
+        # Include ROI if it exists in the segmentation index
+        if seg_index_path.exists():
+            with open(seg_index_path, "r") as f:
+                seg_index_data = json.load(f)
+            if isinstance(seg_index_data, dict) and "roi" in seg_index_data:
+                project_data["roi"] = seg_index_data["roi"]
         
         # Load projections from project folder
         proj_dir = project_dir / "projections"
@@ -1367,4 +1429,205 @@ async def get_intrados_lines(project_id: str):
         print(f"Error getting intrados lines: {e}")
         import traceback
         traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
+# =====================================================
+# Rhino 3DM Export/Import Endpoints
+# =====================================================
+
+class Export3dmRequest(BaseModel):
+    """Request to export intrados lines as 3DM."""
+    projectId: str
+    layerName: str = "Intrados Lines"
+
+
+@router.post("/{project_id}/export-3dm")
+async def export_intrados_3dm(project_id: str, request: Export3dmRequest):
+    """
+    Export intrados lines to a Rhino 3DM file.
+    Returns the file path for download.
+    """
+    from services.rhino_exporter import export_intrados_to_3dm, RHINO3DM_AVAILABLE
+    
+    if not RHINO3DM_AVAILABLE:
+        return {
+            "success": False, 
+            "error": "rhino3dm library not installed. Run: pip install rhino3dm"
+        }
+    
+    try:
+        # Load intrados lines
+        project_dir = get_project_dir(project_id)
+        intrados_path = project_dir / "segmentations" / "intrados_lines.json"
+        
+        if not intrados_path.exists():
+            return {
+                "success": False,
+                "error": "No intrados lines found. Generate them first on the Reprojection page."
+            }
+        
+        with open(intrados_path, "r") as f:
+            data = json.load(f)
+        
+        lines = data.get("lines", [])
+        if not lines:
+            return {
+                "success": False,
+                "error": "No intrados lines to export."
+            }
+        
+        # Create exports directory
+        exports_dir = project_dir / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"intrados_traces_{timestamp}.3dm"
+        output_path = exports_dir / output_filename
+        
+        # Export to 3DM
+        result = export_intrados_to_3dm(
+            intrados_lines=lines,
+            output_path=str(output_path),
+            layer_name=request.layerName
+        )
+        
+        if result["success"]:
+            return {
+                "success": True,
+                "filePath": str(output_path),
+                "fileName": output_filename,
+                "curvesExported": result.get("curvesExported", 0),
+                "message": f"Exported {result.get('curvesExported', 0)} intrados curves"
+            }
+        else:
+            return result
+            
+    except Exception as e:
+        print(f"Error exporting 3DM: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
+class Import3dmRequest(BaseModel):
+    """Request to import curves from a 3DM file."""
+    filePath: str
+    layerFilter: Optional[str] = None
+
+
+@router.post("/{project_id}/import-3dm")
+async def import_3dm_traces(project_id: str, request: Import3dmRequest):
+    """
+    Import curves from a Rhino 3DM file as manual traces.
+    """
+    from services.rhino_exporter import import_3dm_curves, RHINO3DM_AVAILABLE
+    
+    if not RHINO3DM_AVAILABLE:
+        return {
+            "success": False, 
+            "error": "rhino3dm library not installed. Run: pip install rhino3dm"
+        }
+    
+    try:
+        # Verify file exists
+        if not Path(request.filePath).exists():
+            return {
+                "success": False,
+                "error": f"File not found: {request.filePath}"
+            }
+        
+        # Import curves
+        result = import_3dm_curves(
+            file_path=request.filePath,
+            layer_filter=request.layerFilter
+        )
+        
+        if result["success"]:
+            # Save imported traces
+            project_dir = get_project_dir(project_id)
+            traces_dir = project_dir / "traces"
+            traces_dir.mkdir(parents=True, exist_ok=True)
+            
+            imported_traces_path = traces_dir / "imported_traces.json"
+            with open(imported_traces_path, "w") as f:
+                json.dump({
+                    "source": request.filePath,
+                    "curves": result["curves"],
+                    "importedAt": datetime.now().isoformat()
+                }, f, indent=2)
+            
+            return {
+                "success": True,
+                "curves": result["curves"],
+                "curveCount": result.get("curveCount", 0),
+                "layers": result.get("layers", []),
+                "message": f"Imported {result.get('curveCount', 0)} curves"
+            }
+        else:
+            return result
+            
+    except Exception as e:
+        print(f"Error importing 3DM: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/{project_id}/imported-traces")
+async def get_imported_traces(project_id: str):
+    """Get previously imported manual traces for a project."""
+    try:
+        project_dir = get_project_dir(project_id)
+        traces_path = project_dir / "traces" / "imported_traces.json"
+        
+        if not traces_path.exists():
+            return {
+                "success": True,
+                "data": {
+                    "curves": [],
+                    "curveCount": 0
+                }
+            }
+        
+        with open(traces_path, "r") as f:
+            data = json.load(f)
+        
+        return {
+            "success": True,
+            "data": {
+                "curves": data.get("curves", []),
+                "curveCount": len(data.get("curves", [])),
+                "source": data.get("source"),
+                "importedAt": data.get("importedAt")
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error getting imported traces: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/{project_id}/3dm-info")
+async def get_3dm_info_endpoint(project_id: str, file_path: str):
+    """Get information about a 3DM file before importing."""
+    from services.rhino_exporter import get_3dm_info, RHINO3DM_AVAILABLE
+    
+    if not RHINO3DM_AVAILABLE:
+        return {
+            "success": False, 
+            "error": "rhino3dm library not installed"
+        }
+    
+    try:
+        if not Path(file_path).exists():
+            return {
+                "success": False,
+                "error": f"File not found: {file_path}"
+            }
+        
+        return get_3dm_info(file_path)
+        
+    except Exception as e:
         return {"success": False, "error": str(e)}
