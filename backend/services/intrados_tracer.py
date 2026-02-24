@@ -254,14 +254,15 @@ def trace_all_rib_intrados(
         print(f"  Tracing intrados for {mask_id}...")
         
         # Find points that fall within this mask
-        in_mask = np.zeros(len(e57_points), dtype=bool)
-        
-        for i in range(len(e57_points)):
-            px_i = px_int[i]
-            py_i = py_int[i]
-            if py_i < mask.shape[0] and px_i < mask.shape[1]:
-                if mask[py_i, px_i] > 127:
-                    in_mask[i] = True
+        valid = (
+            (px_int >= 0) &
+            (py_int >= 0) &
+            (px_int < mask.shape[1]) &
+            (py_int < mask.shape[0])
+        )
+
+        in_mask = np.zeros(len(px_int), dtype=bool)
+        in_mask[valid] = mask[py_int[valid], px_int[valid]] > 127
         
         rib_points = e57_points[in_mask]
         original_count = len(rib_points)
