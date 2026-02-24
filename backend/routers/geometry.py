@@ -177,4 +177,3 @@ async def analyze_chord_method(request: ChordAnalysisRequest):
         )
     except Exception as e:
         return ChordAnalysisResponse(success=False, error=str(e))
-

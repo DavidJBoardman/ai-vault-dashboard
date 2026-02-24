@@ -88,19 +88,25 @@ export default function HomePage() {
       if (response.success && response.data?.project) {
         const projectData = response.data.project;
         
-        // Use the store's loadProjectFromData to properly set all project state
-        loadProjectFromData({
-          id: projectData.id,
-          name: projectData.name,
-          e57Path: projectData.e57Path,
-          selectedProjectionId: projectData.selectedProjectionId,
-          projections: projectData.projections,
-          segmentations: projectData.segmentations,
-          segmentationGroups: projectData.segmentationGroups,
-        });
-        
-        // Navigate to the appropriate step based on available data
-        if (projectData.segmentations?.length > 0) {
+        // Pass through full backend payload so persisted workflow state is restored.
+        loadProjectFromData(projectData);
+
+        // Resume from the saved workflow step when available.
+        const stepRouteMap: Record<number, string> = {
+          1: "/workflow/step-1-upload",
+          2: "/workflow/step-2-projection",
+          3: "/workflow/step-3-segmentation",
+          4: "/workflow/step-4-geometry-2d",
+          5: "/workflow/step-5-reprojection",
+          6: "/workflow/step-6-traces",
+          7: "/workflow/step-7-measurements",
+          8: "/workflow/step-8-analysis",
+        };
+        const savedStep = projectData.currentStep;
+        const savedRoute = typeof savedStep === "number" ? stepRouteMap[savedStep] : undefined;
+        if (savedRoute) {
+          router.push(savedRoute);
+        } else if (projectData.segmentations?.length > 0) {
           router.push("/workflow/step-4-geometry-2d");
         } else if (projectData.projections?.length > 0) {
           router.push("/workflow/step-3-segmentation");
@@ -396,4 +402,3 @@ export default function HomePage() {
     </div>
   );
 }
-

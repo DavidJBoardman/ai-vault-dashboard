@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
-from routers import upload, projection, segmentation, geometry, export, project
+from routers import upload, projection, segmentation, geometry, geometry2d, export, project
 from services.progress_manager import ProgressManager
 from services.e57_processor import get_processor
 
@@ -69,6 +69,7 @@ app.include_router(upload.router, prefix="/api/upload", tags=["Upload"])
 app.include_router(projection.router, prefix="/api/projection", tags=["Projection"])
 app.include_router(segmentation.router, prefix="/api/segmentation", tags=["Segmentation"])
 app.include_router(geometry.router, prefix="/api/geometry", tags=["Geometry"])
+app.include_router(geometry2d.router, prefix="/api/geometry2d", tags=["Geometry2D"])
 app.include_router(export.router, prefix="/api/export", tags=["Export"])
 app.include_router(project.router, prefix="/api/project", tags=["Project"])
 

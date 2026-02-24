@@ -366,8 +366,21 @@ async def save_project(request: ProjectSaveRequest):
                 "totalCount": len(projection_refs),
             }, f, indent=2)
         
-        # Build project metadata
+        # Preserve existing progress fields when saving project assets.
+        project_path = project_dir / "project.json"
+        existing_project_data: Dict[str, Any] = {}
+        if project_path.exists():
+            try:
+                with open(project_path, "r") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    existing_project_data = loaded
+            except Exception as e:
+                print(f"Warning: failed to read existing project metadata before save: {e}")
+
+        # Build project metadata and merge over existing fields
         project_data = {
+            **existing_project_data,
             "id": request.projectId,
             "name": request.projectName,
             "e57Path": request.e57Path,
@@ -380,7 +393,6 @@ async def save_project(request: ProjectSaveRequest):
         }
         
         # Save project.json
-        project_path = project_dir / "project.json"
         with open(project_path, "w") as f:
             json.dump(project_data, f, indent=2)
         
@@ -723,30 +735,151 @@ def point_in_rotated_rect(px: float, py: float, roi: dict) -> bool:
     return abs(local_x) <= w / 2 and abs(local_y) <= h / 2
 
 
-def bbox_overlaps_roi(bbox: List[int], roi: dict, overlap_threshold: float = 0.5) -> bool:
+def _roi_corners_from_params(roi: dict) -> List[List[float]]:
+    """Compute 4 ROI corners from centre/size/rotation when explicit corners are absent."""
+    import math
+
+    cx = float(roi.get("x", 0.0))
+    cy = float(roi.get("y", 0.0))
+    w = float(roi.get("width", 0.0))
+    h = float(roi.get("height", 0.0))
+    angle = math.radians(float(roi.get("rotation", 0.0)))
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+    hw = w / 2.0
+    hh = h / 2.0
+    local = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
+    return [[cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a] for dx, dy in local]
+
+
+def _roi_polygon(roi: dict) -> List[List[float]]:
+    """Return ROI polygon, preferring explicit corners if present."""
+    corners = roi.get("corners")
+    if isinstance(corners, list) and len(corners) == 4:
+        try:
+            parsed = [[float(p[0]), float(p[1])] for p in corners]
+            return parsed
+        except Exception:
+            pass
+    return _roi_corners_from_params(roi)
+
+
+def _roi_polygon_variants_for_image(roi: dict, img_w: int, img_h: int) -> List[List[List[float]]]:
+    """Generate plausible ROI polygons for the mask image coordinate space."""
+    poly = _roi_polygon(roi)
+    variants: List[List[List[float]]] = [poly]
+
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    max_abs = max([1.0] + [abs(v) for v in xs + ys])
+
+    # Variant 1: ROI stored in unit space [0..1] -> image pixels.
+    if max_abs <= 2.0:
+        variants.append([[x * img_w, y * img_h] for x, y in poly])
+
+    # Variant 2: ROI stored in a larger pixel frame (e.g. 2048) than current mask.
+    # Downscale uniformly to fit mask extent.
+    limit = float(max(img_w, img_h))
+    if max_abs > limit * 1.2:
+        scale = limit / max_abs
+        variants.append([[x * scale, y * scale] for x, y in poly])
+
+    # Deduplicate near-identical variants
+    unique: List[List[List[float]]] = []
+    seen = set()
+    for v in variants:
+        key = tuple((round(p[0], 2), round(p[1], 2)) for p in v)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(v)
+    return unique
+
+
+def _bbox_to_xywh_candidates(bbox: List[float]) -> List[List[float]]:
     """
-    Check if a bounding box overlaps with the ROI.
-    
-    Uses the bbox center point for simple check, or can use overlap area.
-    
-    Args:
-        bbox: [x, y, width, height] in pixels
-        roi: ROI dict with x, y (center), width, height, rotation
-        overlap_threshold: Minimum overlap ratio to consider "inside"
-    
-    Returns:
-        True if bbox center is inside ROI or significant overlap
+    Build plausible bbox interpretations.
+    Input may be [x,y,w,h] or [x1,y1,x2,y2].
     """
     if not bbox or len(bbox) < 4:
+        return []
+    x1, y1, a, b = [float(v) for v in bbox[:4]]
+    candidates: List[List[float]] = []
+
+    # As [x,y,w,h]
+    if a > 0 and b > 0:
+        candidates.append([x1, y1, a, b])
+
+    # As [x1,y1,x2,y2]
+    w2 = a - x1
+    h2 = b - y1
+    if w2 > 0 and h2 > 0:
+        candidates.append([x1, y1, w2, h2])
+
+    return candidates
+
+
+def bbox_overlaps_roi(bbox: List[int], roi: dict) -> bool:
+    """Fallback inside test using bbox points against rotated ROI."""
+    if not bbox or len(bbox) < 4:
         return False
-    
-    # Get bbox center
-    bx, by, bw, bh = bbox
-    center_x = bx + bw / 2
-    center_y = by + bh / 2
-    
-    # Check if center is inside ROI
-    return point_in_rotated_rect(center_x, center_y, roi)
+
+    for bx, by, bw, bh in _bbox_to_xywh_candidates([float(v) for v in bbox]):
+        points = [
+            (bx + bw / 2.0, by + bh / 2.0),  # centre
+            (bx, by),                        # corners
+            (bx + bw, by),
+            (bx + bw, by + bh),
+            (bx, by + bh),
+        ]
+        if any(point_in_rotated_rect(px, py, roi) for px, py in points):
+            return True
+    return False
+
+
+def _mask_inside_roi(seg: dict, roi: dict, seg_dir: Path, overlap_threshold: float = 0.05) -> Optional[bool]:
+    """
+    Determine insideRoi by pixel overlap between saved mask image and ROI polygon.
+    Returns None when mask image is unavailable.
+    """
+    mask_file = seg.get("maskFile")
+    if not isinstance(mask_file, str):
+        return None
+    mask_path = seg_dir / mask_file
+    if not mask_path.exists():
+        return None
+
+    try:
+        from PIL import Image, ImageDraw
+        import numpy as np
+
+        with Image.open(mask_path).convert("RGBA") as img:
+            w, h = img.size
+            arr = np.array(img)
+
+        # Use alpha as primary signal; fallback to RGB non-black.
+        alpha = arr[:, :, 3]
+        rgb_sum = arr[:, :, 0] + arr[:, :, 1] + arr[:, :, 2]
+        mask_pixels = (alpha > 0) | (rgb_sum > 0)
+        mask_count = int(mask_pixels.sum())
+        if mask_count == 0:
+            return False
+
+        best_overlap_ratio = 0.0
+        for roi_poly in _roi_polygon_variants_for_image(roi, w, h):
+            roi_img = Image.new("L", (w, h), 0)
+            draw = ImageDraw.Draw(roi_img)
+            draw.polygon([(float(x), float(y)) for x, y in roi_poly], fill=255)
+            roi_pixels = np.array(roi_img) > 0
+            overlap = int((mask_pixels & roi_pixels).sum())
+            overlap_ratio = overlap / mask_count
+            if overlap_ratio > best_overlap_ratio:
+                best_overlap_ratio = overlap_ratio
+
+        return best_overlap_ratio >= overlap_threshold
+    except Exception as e:
+        print(f"Warning: failed ROI overlap check from maskFile '{mask_file}': {e}")
+        return None
 
 
 @router.post("/save-roi")
@@ -755,9 +888,9 @@ async def save_roi(request: SaveROIRequest):
     Save Region of Interest (ROI) for a project and update all segmentations
     with insideRoi flag.
     
-    The ROI is stored in the segmentation index.json, and each segmentation
-    is updated with insideRoi: true/false based on whether its bbox center
-    falls within the ROI.
+    The ROI is stored in segmentations/index.json. Each segmentation receives
+    insideRoi=true/false using pixel overlap against the saved mask image
+    when available, with bbox-based fallback.
     """
     try:
         project_dir = get_project_dir(request.projectId)
@@ -790,17 +923,16 @@ async def save_roi(request: SaveROIRequest):
         outside_count = 0
         
         for seg in segmentations:
-            bbox = seg.get("bbox")
-            if bbox:
-                is_inside = bbox_overlaps_roi(bbox, roi_dict)
-                seg["insideRoi"] = is_inside
-                if is_inside:
-                    inside_count += 1
-                else:
-                    outside_count += 1
+            # Prefer robust pixel-overlap classification using mask image.
+            overlap_inside = _mask_inside_roi(seg, roi_dict, seg_dir)
+            if overlap_inside is None:
+                bbox = seg.get("bbox")
+                overlap_inside = bbox_overlaps_roi(bbox, roi_dict) if bbox else False
+
+            seg["insideRoi"] = bool(overlap_inside)
+            if seg["insideRoi"]:
+                inside_count += 1
             else:
-                # No bbox, can't determine - default to False
-                seg["insideRoi"] = False
                 outside_count += 1
         
         index_data["segmentations"] = segmentations
