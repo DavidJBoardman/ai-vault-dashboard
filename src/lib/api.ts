@@ -1,57 +1,7 @@
 // API client for Python backend communication
+import { apiRequest, getBaseUrl, type ApiResponse } from "@/lib/api/base";
 
-const getBaseUrl = async (): Promise<string> => {
-  if (typeof window !== "undefined" && window.electronAPI) {
-    const port = await window.electronAPI.getPythonPort();
-    return `http://127.0.0.1:${port}`;
-  }
-  return "http://127.0.0.1:8765";
-};
-
-interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
-
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<ApiResponse<T>> {
-  try {
-    const baseUrl = await getBaseUrl();
-    const response = await fetch(`${baseUrl}${endpoint}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: "Unknown error" }));
-      return { success: false, error: error.detail || `HTTP ${response.status}` };
-    }
-
-    const data = await response.json();
-    
-    // Handle backend responses that already have success/data structure
-    if (data && typeof data === 'object' && 'success' in data && 'data' in data) {
-      return {
-        success: data.success,
-        data: data.data as T,
-        error: data.error,
-      };
-    }
-    
-    return { success: true, data };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Network error",
-    };
-  }
-}
+export * from "@/lib/api/geometry2d";
 
 // Health check
 export async function checkBackendHealth(): Promise<boolean> {
@@ -447,6 +397,9 @@ export interface ProjectData {
   name: string;
   e57Path?: string;
   selectedProjectionId?: string;
+  currentStep?: number;
+  steps?: Record<string, StepState>;
+  roi?: { x: number; y: number; width: number; height: number; rotation?: number; corners?: number[][] };
   projections: Array<{
     id: string;
     perspective: string;
@@ -455,8 +408,22 @@ export interface ProjectData {
     kernelSize: number;
     bottomUp: boolean;
     scale: number;
+    images?: {
+      colour?: string;
+      depthGrayscale?: string;
+      depthPlasma?: string;
+    };
+    metadata?: Record<string, unknown>;
   }>;
   segmentations: SavedSegmentation[];
+  segmentationGroups?: Array<{
+    groupId: string;
+    label: string;
+    color?: string;
+    count?: number;
+    insideRoiCount?: number;
+    outsideRoiCount?: number;
+  }>;
   segmentationCount: number;
   updatedAt: string;
 }
@@ -706,4 +673,3 @@ export async function get3dmFileInfo(
     method: "GET",
   });
 }
-
