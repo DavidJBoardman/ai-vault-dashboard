@@ -161,6 +161,9 @@ interface ProjectStore {
     name: string;
     e57Path?: string;
     selectedProjectionId?: string;
+    currentStep?: number;
+    steps?: Record<string, { completed: boolean; data?: any }>;
+    roi?: { x: number; y: number; width: number; height: number; rotation?: number; corners?: number[][] };
     projections?: Array<{
       id: string;
       name?: string;
@@ -193,6 +196,8 @@ interface ProjectStore {
       label: string;
       color?: string;
       count?: number;
+      insideRoiCount?: number;
+      outsideRoiCount?: number;
     }>;
   }) => void;
   saveProject: () => Promise<void>;
@@ -375,7 +380,7 @@ export const useProjectStore = create<ProjectStore>()(
         // Type assertion for extended data that might include these fields
         const extendedData = data as typeof data & { 
           currentStep?: number; 
-          steps?: Record<number, StepState>;
+          steps?: Record<string, StepState>;
           roi?: { x: number; y: number; width: number; height: number; rotation?: number; corners?: number[][] };
         };
         
@@ -386,6 +391,38 @@ export const useProjectStore = create<ProjectStore>()(
         if (extendedData.steps && Object.keys(extendedData.steps).length > 0) {
           // Restore saved step states
           project.steps = extendedData.steps;
+
+          // One-time migration: move legacy Step-4 flat keys under data.geometry2d.
+          const step4 = project.steps[4];
+          const step4Data = step4?.data as
+            | {
+                geometry2d?: Record<string, unknown>;
+                roi?: unknown;
+                geometry2dPrep?: unknown;
+                geometryResult?: unknown;
+              }
+            | undefined;
+          if (step4Data) {
+            const hasLegacy =
+              step4Data.roi !== undefined ||
+              step4Data.geometry2dPrep !== undefined ||
+              step4Data.geometryResult !== undefined;
+            if (hasLegacy) {
+              project.steps[4] = {
+                completed: step4?.completed || false,
+                data: {
+                  ...step4Data,
+                  geometry2d: {
+                    ...(step4Data.geometry2d || {}),
+                    roi: (step4Data.geometry2d as { roi?: unknown } | undefined)?.roi ?? step4Data.roi,
+                    prep: (step4Data.geometry2d as { prep?: unknown } | undefined)?.prep ?? step4Data.geometry2dPrep,
+                    analysis:
+                      (step4Data.geometry2d as { analysis?: unknown } | undefined)?.analysis ?? step4Data.geometryResult,
+                  },
+                },
+              };
+            }
+          }
         } else {
           // Fallback: infer step completion from data
           project.steps[1] = { completed: true, data: { hasPointCloud: true } };
@@ -397,15 +434,44 @@ export const useProjectStore = create<ProjectStore>()(
           }
         }
         
-        // Store ROI if available (for step 4)
-        if (extendedData.roi) {
-          // Store ROI in step 4 data for restoration
-          project.steps[4] = { 
-            completed: project.steps[4]?.completed || false, 
-            data: { 
+        // Store ROI fallback if available (for step 4).
+        // `data.roi` from backend load is sourced from segmentations/index.json and
+        // can be in pixel units. Do not override an existing step-4 ROI snapshot.
+        const existingGeometry2dRoi = (
+          project.steps[4]?.data as { geometry2d?: { roi?: unknown } } | undefined
+        )?.geometry2d?.roi;
+        if (extendedData.roi && !existingGeometry2dRoi && !project.steps[4]?.data?.roi) {
+          const selectedProjection =
+            project.projections.find((p) => p.id === project.selectedProjectionId) || project.projections[0];
+          const resolution = selectedProjection?.settings?.resolution || 2048;
+          const roi = extendedData.roi;
+          const appearsPixelUnits =
+            roi.x > 1 || roi.y > 1 || roi.width > 1 || roi.height > 1;
+          const normalisedRoi = appearsPixelUnits
+            ? {
+                x: roi.x / resolution,
+                y: roi.y / resolution,
+                width: roi.width / resolution,
+                height: roi.height / resolution,
+                rotation: roi.rotation || 0,
+              }
+            : {
+                x: roi.x,
+                y: roi.y,
+                width: roi.width,
+                height: roi.height,
+                rotation: roi.rotation || 0,
+              };
+
+          project.steps[4] = {
+            completed: project.steps[4]?.completed || false,
+            data: {
               ...project.steps[4]?.data,
-              roi: extendedData.roi 
-            } 
+              geometry2d: {
+                ...((project.steps[4]?.data as { geometry2d?: Record<string, unknown> } | undefined)?.geometry2d || {}),
+                roi: normalisedRoi,
+              },
+            },
           };
         }
         
@@ -619,4 +685,3 @@ export const useProjectStore = create<ProjectStore>()(
     }
   )
 );
-
