@@ -79,18 +79,27 @@ const DEMO_MEASUREMENTS: Measurement[] = [
 ];
 
 /**
- * Convert normalized error value (0-1) to a color gradient (blue to red)
+ * Convert normalized error value (0-1) to a color gradient (green to red)
  */
 function errorToColor(normalizedError: number): string {
-  // Clamp value between 0 and 1
   const t = Math.max(0, Math.min(1, normalizedError));
-  
-  // Blue (0, 0, 255) to Red (255, 0, 0)
-  const r = Math.round(255 * t);
-  const g = Math.round(255 * (1 - t));
-  const b = 0;
-  
-  return `rgb(${r}, ${g}, ${b})`;
+
+  let r: number;
+  let g: number;
+
+  if (t < 0.5) {
+    // Green → Yellow
+    const localT = t * 2; // scale 0–0.5 to 0–1
+    r = Math.round(255 * localT);
+    g = 255;
+  } else {
+    // Yellow → Red
+    const localT = (t - 0.5) * 2; // scale 0.5–1 to 0–1
+    r = 255;
+    g = Math.round(255 * (1 - localT));
+  }
+
+  return `rgb(${r}, ${g}, 0)`;
 }
 
 /**
@@ -477,7 +486,7 @@ export default function Step7MeasurementsPage() {
                 <div>
                   <CardTitle className="font-display">3D Heatmap View</CardTitle>
                   <CardDescription>
-                    Trace visualization colored by fit error (blue = low error, red = high error)
+                    Trace visualization colored by fit error (green = low error, red = high error)
                   </CardDescription>
                 </div>
                 <Button onClick={handleCalculate} disabled={isCalculating} size="sm" className="gap-2">
