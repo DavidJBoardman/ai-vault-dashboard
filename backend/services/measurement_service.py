@@ -105,12 +105,19 @@ class MeasurementService:
         """Fit a circular arc to the points."""
         
         # Project to 2D (XZ plane for simplicity)
-        x = points[:, 0]
-        z = points[:, 2]
+        centroid = np.mean(points, axis=0)
+        U, S, Vt = np.linalg.svd(points - centroid)
+        u = Vt[0]
+        v = Vt[1]
+
+        coords2d = np.dot(points - centroid, np.vstack((u, v)).T)
+        x = coords2d[:, 0]
+        z = coords2d[:, 1]
         
-        # Initial guess for circle: center at mean, radius = half span
+        # Initial guess for circle: center at mean, radius = mean distance
         x_mean, z_mean = np.mean(x), np.mean(z)
-        r_guess = np.max(np.sqrt((x - x_mean)**2 + (z - z_mean)**2))
+        distances = np.sqrt((x - x_mean)**2 + (z - z_mean)**2)
+        r_guess = np.mean(distances)  # Use mean instead of max
         
         def residuals(params):
             cx, cz, r = params
