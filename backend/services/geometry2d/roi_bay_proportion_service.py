@@ -1,4 +1,4 @@
-"""Orchestration service for Geometry2D pre-analysis pipeline."""
+"""Stage 4.1 ROI and bay proportion service."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
 from services.geometry2d.prepare_bosses import prepare_bosses_for_geometry2d
-from services.geometry2d.roi_correction import auto_correct_roi_params
+from services.geometry2d.roi_correction import auto_correct_roi_params, resolve_auto_correct_options
 from services.geometry2d.roi_adapter import get_project_dir, prepare_roi_for_geometry2d
 
 
-class Geometry2DPipelineService:
-    """Prepare ROI and boss inputs for the Geometry2D algorithm."""
+class RoiBayProportionService:
+    """Prepare ROI and bay proportion inputs for Geometry2D."""
 
-    async def prepare_inputs(
+    async def prepare(
         self,
         *,
         project_id: str,
@@ -23,25 +23,28 @@ class Geometry2DPipelineService:
         manual_bosses: Optional[Sequence[Dict[str, float]]] = None,
         min_boss_area: int = 10,
         auto_correct_roi: bool = True,
+        auto_correct_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
-            self._prepare_inputs_sync,
+            self._prepare_sync,
             project_id,
             projection_id,
             manual_bosses,
             min_boss_area,
             auto_correct_roi,
+            auto_correct_config,
         )
 
-    def _prepare_inputs_sync(
+    def _prepare_sync(
         self,
         project_id: str,
         projection_id: str,
         manual_bosses: Optional[Sequence[Dict[str, float]]],
         min_boss_area: int,
         auto_correct_roi: bool,
+        auto_correct_config: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         project_dir = get_project_dir(project_id)
 
@@ -53,8 +56,11 @@ class Geometry2DPipelineService:
             manual_bosses=manual_bosses,
             min_area=min_boss_area,
         )
+        correction_options = resolve_auto_correct_options(auto_correct_config)
         correction = (
-            auto_correct_roi_params(original_params, boss_payload)
+            auto_correct_roi_params(original_params, boss_payload, **{
+                k: v for k, v in correction_options.items() if k != "preset"
+            })
             if auto_correct_roi and isinstance(original_params, dict)
             else None
         )
@@ -64,6 +70,8 @@ class Geometry2DPipelineService:
         if correction:
             corrected_params = correction["params"]
             correction_meta = correction.get("meta", {})
+            if isinstance(correction_meta, dict):
+                correction_meta["preset"] = correction_options.get("preset", "balanced")
             improved = bool(correction_meta.get("improved")) if isinstance(correction_meta, dict) else True
             roi_payload["corrected_params"] = corrected_params
             roi_payload["correction_applied"] = improved

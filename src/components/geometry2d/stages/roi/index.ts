@@ -1,1 +1,1 @@
-export * from "./RoiGeometricAnalysisPanel";
+export * from "./RoiBayProportionPanel";

@@ -14,6 +14,26 @@ export class PythonManager {
 
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      let startupTimeout: NodeJS.Timeout | null = null;
+      const stderrBuffer: string[] = [];
+      const stdoutBuffer: string[] = [];
+      const maxBufferedLines = 50;
+      const markStarted = () => {
+        if (settled) return;
+        settled = true;
+        this.running = true;
+        if (startupTimeout) clearTimeout(startupTimeout);
+        resolve();
+      };
+      const failStart = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        this.running = false;
+        if (startupTimeout) clearTimeout(startupTimeout);
+        reject(error);
+      };
+
       const isDev = process.env.NODE_ENV !== 'production';
       let pythonPath: string;
       let args: string[];
@@ -171,40 +191,63 @@ export class PythonManager {
       }
 
       this.process.stdout?.on('data', (data) => {
-        console.log(`[Python] ${data}`);
+        const text = data.toString();
+        stdoutBuffer.push(text.trim());
+        if (stdoutBuffer.length > maxBufferedLines) stdoutBuffer.shift();
+        console.log(`[Python] ${text}`);
         if (data.toString().includes('Application startup complete') || 
             data.toString().includes('Uvicorn running')) {
-          this.running = true;
-          resolve();
+          markStarted();
         }
       });
 
       this.process.stderr?.on('data', (data) => {
-        console.error(`[Python Error] ${data}`);
+        const text = data.toString();
+        stderrBuffer.push(text.trim());
+        if (stderrBuffer.length > maxBufferedLines) stderrBuffer.shift();
+        console.error(`[Python Error] ${text}`);
         // Uvicorn logs startup info to stderr
         if (data.toString().includes('Application startup complete') ||
             data.toString().includes('Uvicorn running')) {
-          this.running = true;
-          resolve();
+          markStarted();
         }
       });
 
       this.process.on('error', (error) => {
         console.error('Failed to start Python process:', error);
-        reject(error);
+        failStart(error);
       });
 
       this.process.on('exit', (code) => {
         console.log(`Python process exited with code ${code}`);
+        const exitedDuringStartup = !settled && !this.running;
         this.running = false;
         this.process = null;
+        if (exitedDuringStartup) {
+          const recentStderr = stderrBuffer.filter(Boolean).slice(-10).join('\n');
+          const recentStdout = stdoutBuffer.filter(Boolean).slice(-10).join('\n');
+          const recentLogs = [recentStderr, recentStdout].filter(Boolean).join('\n');
+          failStart(
+            new Error(
+              `Python backend exited before startup (code ${code ?? 'null'}).` +
+                (recentLogs ? ` Recent logs:\n${recentLogs}` : '')
+            )
+          );
+        }
       });
 
       // Timeout after 30 seconds
-      setTimeout(() => {
+      startupTimeout = setTimeout(() => {
         if (!this.running) {
-          console.warn('Python backend startup timeout, continuing anyway');
-          resolve();
+          const recentStderr = stderrBuffer.filter(Boolean).slice(-10).join('\n');
+          const recentStdout = stdoutBuffer.filter(Boolean).slice(-10).join('\n');
+          const recentLogs = [recentStderr, recentStdout].filter(Boolean).join('\n');
+          failStart(
+            new Error(
+              'Python backend startup timed out after 30 seconds.' +
+                (recentLogs ? ` Recent logs:\n${recentLogs}` : '')
+            )
+          );
         }
       }, 30000);
     });
@@ -226,4 +269,3 @@ export class PythonManager {
     return this.running;
   }
 }
-
