@@ -8,10 +8,104 @@ import numpy as np
 
 from services.geometry2d.utils.roi_math import image_to_unit
 from services.geometry2d.utils.template_keypoints import generate_keypoints
-from services.geometry2d.utils.template_scoring import score_template_ratios
 
 RoiParams = Dict[str, float]
 DEFAULT_TOL = 0.01
+
+AUTO_CORRECT_PRESETS: Dict[str, Dict[str, Any]] = {
+    "fast": {
+        "tolerance": 0.009,
+        "xy_step": 4.0,
+        "xy_range": 12.0,
+        "n_range": (2, 6),
+        "include_scale": True,
+        "scale_step": 0.01,
+        "scale_range": 0.01,
+        "include_rotation": True,
+        "rotation_step": 0.5,
+        "rotation_range": 0.75,
+        "regularisation_weight": 0.08,
+        "improvement_margin": 0.003,
+    },
+    "balanced": {
+        "tolerance": 0.008,
+        "xy_step": 2.0,
+        "xy_range": 16.0,
+        "n_range": (2, 6),
+        "include_scale": True,
+        "scale_step": 0.005,
+        "scale_range": 0.015,
+        "include_rotation": True,
+        "rotation_step": 0.25,
+        "rotation_range": 1.0,
+        "regularisation_weight": 0.05,
+        "improvement_margin": 0.002,
+    },
+    "precise": {
+        "tolerance": 0.007,
+        "xy_step": 1.0,
+        "xy_range": 20.0,
+        "n_range": (2, 6),
+        "include_scale": True,
+        "scale_step": 0.0025,
+        "scale_range": 0.02,
+        "include_rotation": True,
+        "rotation_step": 0.1,
+        "rotation_range": 1.5,
+        "regularisation_weight": 0.03,
+        "improvement_margin": 0.001,
+    },
+}
+
+
+def resolve_auto_correct_options(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Resolve user config into validated kwargs for `auto_correct_roi_params`."""
+    cfg = config if isinstance(config, dict) else {}
+    preset = str(cfg.get("preset", "balanced")).lower().strip()
+    if preset not in AUTO_CORRECT_PRESETS:
+        preset = "balanced"
+
+    base = dict(AUTO_CORRECT_PRESETS[preset])
+    merged = {**base}
+    for key in (
+        "tolerance",
+        "xy_step",
+        "xy_range",
+        "include_scale",
+        "scale_step",
+        "scale_range",
+        "include_rotation",
+        "rotation_step",
+        "rotation_range",
+        "regularisation_weight",
+        "improvement_margin",
+    ):
+        if key in cfg:
+            merged[key] = cfg[key]
+
+    raw_n_range = cfg.get("n_range", base.get("n_range", (2, 6)))
+    if isinstance(raw_n_range, (list, tuple)) and len(raw_n_range) == 2:
+        n0 = int(raw_n_range[0])
+        n1 = int(raw_n_range[1])
+        n0 = max(2, min(6, n0))
+        n1 = max(n0, min(6, n1))
+        merged["n_range"] = (n0, n1)
+    else:
+        merged["n_range"] = tuple(base["n_range"])
+
+    merged["tolerance"] = float(max(0.001, min(0.05, float(merged["tolerance"]))))
+    merged["xy_step"] = float(max(0.5, min(8.0, float(merged["xy_step"]))))
+    merged["xy_range"] = float(max(4.0, min(40.0, float(merged["xy_range"]))))
+    merged["include_scale"] = bool(merged["include_scale"])
+    merged["scale_step"] = float(max(0.001, min(0.05, float(merged["scale_step"]))))
+    merged["scale_range"] = float(max(0.0, min(0.08, float(merged["scale_range"]))))
+    merged["include_rotation"] = bool(merged["include_rotation"])
+    merged["rotation_step"] = float(max(0.05, min(2.0, float(merged["rotation_step"]))))
+    merged["rotation_range"] = float(max(0.0, min(8.0, float(merged["rotation_range"]))))
+    merged["regularisation_weight"] = float(max(0.0, min(1.0, float(merged["regularisation_weight"]))))
+    merged["improvement_margin"] = float(max(0.0, min(0.1, float(merged["improvement_margin"]))))
+    merged["preset"] = preset
+    return merged
 
 
 def _extract_boss_xy(boss_payload: Dict[str, Any]) -> np.ndarray:
@@ -35,13 +129,29 @@ def _extract_boss_xy(boss_payload: Dict[str, Any]) -> np.ndarray:
 def _score_roi(
     roi: RoiParams,
     bosses_xy: np.ndarray,
-    candidates: List[np.ndarray],
+    candidate_ratios: List[Tuple[np.ndarray, np.ndarray]],
     tolerance: float,
 ) -> float:
     bosses_uv = np.array([image_to_unit((float(x), float(y)), roi) for x, y in bosses_xy], dtype=float)
     best = float("-inf")
-    for template_uv in candidates:
-        best = max(best, float(score_template_ratios(template_uv, bosses_uv, tolerance)["score"]))
+    for x_ratios, y_ratios in candidate_ratios:
+        x_dists = np.min(np.abs(bosses_uv[:, 0:1] - x_ratios[None, :]), axis=1)
+        y_dists = np.min(np.abs(bosses_uv[:, 1:2] - y_ratios[None, :]), axis=1)
+        matched = (x_dists <= tolerance) & (y_dists <= tolerance)
+        matched_bosses = int(np.count_nonzero(matched))
+
+        n_bosses = int(bosses_uv.shape[0])
+        boss_coverage = float(matched_bosses / n_bosses) if n_bosses > 0 else 0.0
+        if matched_bosses > 0:
+            avg_error = float((np.sum(x_dists[matched]) + np.sum(y_dists[matched])) / (2.0 * matched_bosses))
+            error_norm = avg_error / max(tolerance, 1e-6)
+        else:
+            error_norm = float("inf")
+
+        unmatched_penalty = 1.0 - boss_coverage
+        score = boss_coverage - 0.25 * error_norm - 0.05 * unmatched_penalty
+        score = float(max(-1.0, min(1.0, score)))
+        best = max(best, score)
     return float(best)
 
 
@@ -97,6 +207,11 @@ def auto_correct_roi_params(
     for n in range(n_range[0], min(n_range[1] + 1, 6)):
         candidates.append(np.array(generate_keypoints("standard", n=n), dtype=float))
     candidates.append(np.array(generate_keypoints("inner", roi=original_roi), dtype=float))
+    candidate_ratios: List[Tuple[np.ndarray, np.ndarray]] = []
+    for template_uv in candidates:
+        x_ratios = np.sort(np.unique(template_uv[:, 0]))
+        y_ratios = np.sort(np.unique(template_uv[:, 1]))
+        candidate_ratios.append((x_ratios, y_ratios))
 
     n_xy = max(1, int(round(2 * xy_range / xy_step)) + 1)
     dx_vals = np.linspace(-xy_range, xy_range, n_xy)
@@ -116,7 +231,7 @@ def auto_correct_roi_params(
     else:
         rot_vals = [0.0]
 
-    base_score = _score_roi(original_roi, bosses_xy, candidates, tolerance)
+    base_score = _score_roi(original_roi, bosses_xy, candidate_ratios, tolerance)
     best_score = base_score
     best_obj = base_score
     best_roi = dict(original_roi)
@@ -133,7 +248,7 @@ def auto_correct_roi_params(
                         roi_test["w"] = float(original_roi["w"] * float(sw))
                         roi_test["h"] = float(original_roi["h"] * float(sh))
                         roi_test["rotation_deg"] = float(original_roi.get("rotation_deg", 0.0) + float(drot))
-                        score = _score_roi(roi_test, bosses_xy, candidates, tolerance)
+                        score = _score_roi(roi_test, bosses_xy, candidate_ratios, tolerance)
                         penalty = _regularisation_penalty(
                             float(dx),
                             float(dy),
@@ -168,6 +283,7 @@ def auto_correct_roi_params(
         "params": best_roi,
         "meta": {
             "method": "step03_score_search",
+            "preset": "custom",
             "improved": improved,
             "base_score": float(base_score),
             "best_score": float(best_score),
@@ -190,4 +306,3 @@ def auto_correct_roi_params(
             "boss_count": int(bosses_xy.shape[0]),
         },
     }
-

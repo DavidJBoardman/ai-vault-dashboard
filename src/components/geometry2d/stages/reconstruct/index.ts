@@ -1,1 +1,1 @@
-export * from "./PatternReconstructionPanel";
+export * from "./BayPlanReconstructionPanel";

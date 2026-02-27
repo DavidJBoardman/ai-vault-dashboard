@@ -1,4 +1,4 @@
-export type Geometry2DWorkflowSection = "roi" | "template" | "reconstruct" | "export";
+export type Geometry2DWorkflowSection = "roi" | "nodes" | "matching" | "reconstruct" | "report";
 
 export interface GeometryResult {
   classification: "starcut" | "circlecut" | "starcirclecut";

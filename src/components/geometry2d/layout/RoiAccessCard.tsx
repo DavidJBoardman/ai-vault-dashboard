@@ -13,7 +13,7 @@ export function RoiAccessCard({ onGoToRoi }: RoiAccessCardProps) {
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-medium">ROI Controls</CardTitle>
         <CardDescription className="text-xs">
-          ROI editing is available in the ROI & Geometric Analysis section
+          ROI editing is available in the ROI & Bay Proportion section
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -23,7 +23,7 @@ export function RoiAccessCard({ onGoToRoi }: RoiAccessCardProps) {
           className="w-full"
           onClick={onGoToRoi}
         >
-          Go to ROI & Geometric Analysis
+          Go to ROI & Bay Proportion
         </Button>
       </CardContent>
     </Card>
