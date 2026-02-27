@@ -1,1 +1,1 @@
-export * from "./TemplateMatchingPanel";
+export * from "./CutTypologyMatchingPanel";

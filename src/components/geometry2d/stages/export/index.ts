@@ -1,1 +1,1 @@
-export * from "./ExportPanel";
+export * from "./EvidenceReportPanel";
