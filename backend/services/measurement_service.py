@@ -66,8 +66,6 @@ class MeasurementService:
         # Calculate rib length
         rib_length = self._calculate_length(segment)
 
-        
-        
         # Find apex and springing points
         apex = self._find_apex(segment)
         springing = self._find_springing_points(segment)
@@ -83,6 +81,7 @@ class MeasurementService:
             "fit_error": arc_params["error"],
             "point_distances": point_distances.tolist(),
             "segment_points": segment_points,
+            "arc_center": arc_params["center"],
         }
 
     def calculate_impost_line(
@@ -196,7 +195,7 @@ class MeasurementService:
         
         return np.column_stack([x, y, z])
     
-    def _fit_arc(self, points: np.ndarray) -> Dict[str, float]:
+    def _fit_arc(self, points: np.ndarray) -> Dict[str, Any]:
         """Fit a circular arc to the points."""
         
         # Project to 2D (XZ plane for simplicity)
@@ -228,9 +227,24 @@ class MeasurementService:
             cx, cz, radius = result.x
             error = np.sqrt(np.mean(result.fun**2))
             
-            return {"radius": float(radius), "center": (cx, cz), "error": float(error)}
+            # Reconstruct 3D center from 2D projection
+            center_3d = centroid + cx * u + cz * v
+            
+            return {
+                "radius": float(radius),
+                "center": {"x": float(center_3d[0]), "y": float(center_3d[1]), "z": float(center_3d[2])},
+                "center_2d": (float(cx), float(cz)),
+                "error": float(error)
+            }
         except Exception:
-            return {"radius": float(r_guess), "center": (x_mean, z_mean), "error": 0.5}
+            # Fallback 3D center
+            center_3d = centroid + x_mean * u + z_mean * v
+            return {
+                "radius": float(r_guess),
+                "center": {"x": float(center_3d[0]), "y": float(center_3d[1]), "z": float(center_3d[2])},
+                "center_2d": (float(x_mean), float(z_mean)),
+                "error": 0.5
+            }
     
     def _calculate_length(self, points: np.ndarray) -> float:
         """Calculate the arc length of the rib."""
@@ -266,20 +280,26 @@ class MeasurementService:
     def _calculate_point_distances_from_arc(
       self,
       points: np.ndarray,
-      arc_params: Dict[str, float],
+      arc_params: Dict[str, Any],
   ) -> np.ndarray:
       """Calculate distance of each point from the ideal fitted arc.
       
       Args:
           points: Array of 3D points (N x 3)
-          arc_params: Dictionary containing arc parameters with 'center' and 'radius'
+          arc_params: Dictionary containing arc parameters with 'center' (2D tuple) and 'radius'
       
       Returns:
           Array of distances for each point from the ideal arc (N,)
       """
       
       # Extract center and radius from arc parameters
-      cx, cz = arc_params["center"]
+      # center_2d is stored as tuple (cx, cz) for 2D projection calculations
+      center_2d = arc_params.get("center_2d", (0, 0))
+      if isinstance(center_2d, dict):
+          # Fallback if center is 3D dict (shouldn't happen, but be safe)
+          cx, cz = 0, 0
+      else:
+          cx, cz = center_2d
       radius = arc_params["radius"]
       
       # Project points to 2D (XZ plane)

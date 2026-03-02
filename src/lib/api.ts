@@ -353,6 +353,7 @@ export interface MeasurementResult {
   fitError: number;
   pointDistances: number[];
   segmentPoints: Array<{ x: number; y: number; z: number }>;
+  arcCenter: { x: number; y: number; z: number };
 }
 
 export async function calculateMeasurements(
