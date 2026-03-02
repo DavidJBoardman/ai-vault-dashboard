@@ -99,6 +99,7 @@ class MeasurementResult(BaseModel):
     fitError: float
     pointDistances: List[float]
     segmentPoints: List[Point3D]
+    arcCenter: Point3D
 
 
 class MeasurementResponse(BaseModel):
@@ -133,6 +134,7 @@ async def calculate_measurements(request: MeasurementRequest):
                 fitError=result["fit_error"],
                 pointDistances=result["point_distances"],
                 segmentPoints=[Point3D(x=p[0], y=p[1], z=p[2]) for p in result["segment_points"]],
+                arcCenter=Point3D(**result["arc_center"]),
             ),
         )
     except Exception as e:

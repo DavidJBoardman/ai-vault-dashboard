@@ -67,6 +67,7 @@ interface MeasurementResponse {
     fitError: number;
     pointDistances: number[];
     segmentPoints: Point3D[];
+    arcCenter: Point3D;
   };
   error?: string;
 }
@@ -146,6 +147,128 @@ function createColoredTraceLines(
   return lines;
 }
 
+function createBestFitArcLines(
+  segmentPoints: Point3D[],
+  arcCenter: Point3D,
+  arcRadius: number,
+  traceId: string
+): Line3D[] {
+  if (segmentPoints.length < 3 || !arcCenter || arcRadius <= 0) return [];
+
+  const arcColor = "rgb(100, 150, 255)";
+  const lines: Line3D[] = [];
+
+  // --- 1. Compute robust normal using cross of endpoints ---
+  const pStart = segmentPoints[0];
+  const pMid = segmentPoints[Math.floor(segmentPoints.length / 2)];
+  const pEnd = segmentPoints[segmentPoints.length - 1];
+
+  const v1 = {
+    x: pMid.x - pStart.x,
+    y: pMid.y - pStart.y,
+    z: pMid.z - pStart.z,
+  };
+
+  const v2 = {
+    x: pEnd.x - pStart.x,
+    y: pEnd.y - pStart.y,
+    z: pEnd.z - pStart.z,
+  };
+
+  let normal = {
+    x: v1.y * v2.z - v1.z * v2.y,
+    y: v1.z * v2.x - v1.x * v2.z,
+    z: v1.x * v2.y - v1.y * v2.x,
+  };
+
+  const normalLen = Math.hypot(normal.x, normal.y, normal.z);
+  if (normalLen === 0) return [];
+
+  normal = {
+    x: normal.x / normalLen,
+    y: normal.y / normalLen,
+    z: normal.z / normalLen,
+  };
+
+  // --- 2. Build basis ---
+  const firstVec = {
+    x: pStart.x - arcCenter.x,
+    y: pStart.y - arcCenter.y,
+    z: pStart.z - arcCenter.z,
+  };
+
+  const uLen = Math.hypot(firstVec.x, firstVec.y, firstVec.z);
+  if (uLen === 0) return [];
+
+  const u = {
+    x: firstVec.x / uLen,
+    y: firstVec.y / uLen,
+    z: firstVec.z / uLen,
+  };
+
+  const v = {
+    x: normal.y * u.z - normal.z * u.y,
+    y: normal.z * u.x - normal.x * u.z,
+    z: normal.x * u.y - normal.y * u.x,
+  };
+
+  // --- 3. Compute angles ---
+  let angles = segmentPoints.map((p) => {
+    const vec = {
+      x: p.x - arcCenter.x,
+      y: p.y - arcCenter.y,
+      z: p.z - arcCenter.z,
+    };
+
+    const dotU = vec.x * u.x + vec.y * u.y + vec.z * u.z;
+    const dotV = vec.x * v.x + vec.y * v.y + vec.z * v.z;
+
+    return Math.atan2(dotV, dotU);
+  });
+
+  // --- 4. Sort + unwrap angles ---
+  angles = angles.sort((a, b) => a - b);
+
+  for (let i = 1; i < angles.length; i++) {
+    while (angles[i] - angles[i - 1] > Math.PI) {
+      angles[i] -= 2 * Math.PI;
+    }
+    while (angles[i] - angles[i - 1] < -Math.PI) {
+      angles[i] += 2 * Math.PI;
+    }
+  }
+
+  const minAngle = angles[0];
+  const maxAngle = angles[angles.length - 1];
+
+  // --- 5. Sample ideal arc ---
+  const steps = 64;
+  const arcPoints: Point3D[] = [];
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const angle = minAngle + t * (maxAngle - minAngle);
+
+    arcPoints.push({
+      x: arcCenter.x + arcRadius * (Math.cos(angle) * u.x + Math.sin(angle) * v.x),
+      y: arcCenter.y + arcRadius * (Math.cos(angle) * u.y + Math.sin(angle) * v.y),
+      z: arcCenter.z + arcRadius * (Math.cos(angle) * u.z + Math.sin(angle) * v.z),
+    });
+  }
+
+  // --- 6. Convert to segments ---
+  for (let i = 0; i < arcPoints.length - 1; i++) {
+    lines.push({
+      id: `${traceId}-ideal-arc-${i}`,
+      label: `Ideal Arc ${i}`,
+      color: arcColor,
+      points: [arcPoints[i], arcPoints[i + 1]],
+    });
+  }
+
+  return lines;
+}
+
 export default function Step7MeasurementsPage() {
   const router = useRouter();
   const { currentProject, addMeasurement, saveHypothesis, completeStep } = useProjectStore();
@@ -169,6 +292,7 @@ export default function Step7MeasurementsPage() {
   // Measurement visualization data
   const [measurementData, setMeasurementData] = useState<MeasurementResponse["data"] | null>(null);
   const [traceLines, setTraceLines] = useState<Line3D[]>([]);
+  const [viewMode, setViewMode] = useState<"errorHeatmap" | "bestFitArc">("errorHeatmap");
   
   // Impost line data
   const [impostLineData, setImpostLineData] = useState<ImpostLineResult | null>(null);
@@ -267,13 +391,27 @@ export default function Step7MeasurementsPage() {
           });
           
           if (response.success && response.data) {
-            const coloredLines = createColoredTraceLines(
-              response.data.segmentPoints,
-              response.data.pointDistances,
-              line.id,
-              line.id === selectedRib
-            );
-            allTraces.push(...coloredLines);
+            let lineTraces: Line3D[] = [];
+            
+            if (viewMode === "bestFitArc") {
+              // Best fit arc view: uniform colored arc
+              lineTraces = createBestFitArcLines(
+                response.data.segmentPoints,
+                response.data.arcCenter,
+                response.data.arcRadius,
+                line.id
+              );
+            } else {
+              // Error heatmap view: color by fit error
+              lineTraces = createColoredTraceLines(
+                response.data.segmentPoints,
+                response.data.pointDistances,
+                line.id,
+                line.id === selectedRib
+              );
+            }
+
+            allTraces.push(...lineTraces);
 
             if (line.id === selectedRib) {
               setMeasurementData(response.data);
@@ -292,7 +430,7 @@ export default function Step7MeasurementsPage() {
     if (intradosLines.length > 0) {
       computeAllTraces();
     }
-  }, [intradosLines, selectedRib]);
+  }, [intradosLines, selectedRib, viewMode]);
   
   // Load measurement data when rib is selected (for details panel)
   useEffect(() => {
@@ -521,19 +659,45 @@ export default function Step7MeasurementsPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="font-display">3D Heatmap View</CardTitle>
+                  <CardTitle className="font-display">
+                    {viewMode === "errorHeatmap" ? "3D Error Heatmap" : "3D Best Fit Arc"}
+                  </CardTitle>
                   <CardDescription>
-                    Trace visualization colored by fit error (green = low error, red = high error)
+                    {viewMode === "errorHeatmap"
+                      ? "Trace visualization colored by fit error (green = low error, red = high error)"
+                      : "Ideal circular arcs for each rib based on calculated radius"}
                   </CardDescription>
                 </div>
-                <Button onClick={handleCalculate} disabled={isCalculating} size="sm" className="gap-2">
-                  {isCalculating ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Ruler className="w-4 h-4" />
-                  )}
-                  Recalculate
-                </Button>
+                <div className="flex items-center gap-2">
+                  <div className="flex rounded-lg border border-border bg-muted p-1">
+                    <Button
+                      variant={viewMode === "errorHeatmap" ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setViewMode("errorHeatmap")}
+                      className="gap-1"
+                    >
+                      <Target className="w-3.5 h-3.5" />
+                      <span className="text-xs">Error Heat</span>
+                    </Button>
+                    <Button
+                      variant={viewMode === "bestFitArc" ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setViewMode("bestFitArc")}
+                      className="gap-1"
+                    >
+                      <Circle className="w-3.5 h-3.5" />
+                      <span className="text-xs">Best Fit Arc</span>
+                    </Button>
+                  </div>
+                  <Button onClick={handleCalculate} disabled={isCalculating} size="sm" className="gap-2">
+                    {isCalculating ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Ruler className="w-4 h-4" />
+                    )}
+                    Recalculate
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -563,17 +727,34 @@ export default function Step7MeasurementsPage() {
                 
                 {/* Color legend */}
                 <div className="absolute bottom-4 right-4 bg-background/90 backdrop-blur-sm rounded-lg p-3 z-10 text-sm">
-                  <p className="font-medium mb-2">Error Gradient</p>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-3 rounded" style={{background: "rgb(0, 255, 0)"}}></div>
-                      <span className="text-xs text-muted-foreground">Low Error</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-3 rounded" style={{background: "rgb(255, 0, 0)"}}></div>
-                      <span className="text-xs text-muted-foreground">High Error</span>
-                    </div>
-                  </div>
+                  {viewMode === "errorHeatmap" ? (
+                    <>
+                      <p className="font-medium mb-2">Error Gradient</p>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-3 rounded" style={{background: "rgb(0, 255, 0)"}}></div>
+                          <span className="text-xs text-muted-foreground">Low Error</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-3 rounded" style={{background: "rgb(255, 0, 0)"}}></div>
+                          <span className="text-xs text-muted-foreground">High Error</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium mb-2">Arc View</p>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-3 rounded" style={{background: "rgb(100, 150, 255)"}}></div>
+                          <span className="text-xs text-muted-foreground">Ideal Arc</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2 max-w-xs">
+                          Shows fitted circular arcs for each rib
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </CardContent>
