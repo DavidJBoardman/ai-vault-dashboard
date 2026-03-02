@@ -188,3 +188,61 @@ async def analyze_chord_method(request: ChordAnalysisRequest):
     except Exception as e:
         return ChordAnalysisResponse(success=False, error=str(e))
 
+
+class RibImpostData(BaseModel):
+    springing_z: float
+    springing_point: Point3D
+    impost_distance: float
+
+
+class ImpostLineResult(BaseModel):
+    impost_height: float
+    num_ribs_used: int
+    ribs: dict  # Dictionary of {rib_id: RibImpostData}
+
+
+class ImpostLineResponse(BaseModel):
+    success: bool
+    data: Optional[ImpostLineResult] = None
+    error: Optional[str] = None
+
+
+class ImpostLineRequest(BaseModel):
+    """Request for impost line calculation with multiple rib traces."""
+    ribs: List[dict]  # [{id: str, points: [[x, y, z], ...]}, ...]
+
+
+@router.post("/measurements/impost-line", response_model=ImpostLineResponse)
+async def calculate_impost_line_endpoint(request: ImpostLineRequest):
+    """Calculate impost line height and per-rib impost distances.
+    
+    This analyzes ribs that originate from walls/piers to determine the
+    horizontal impost line height and calculates the distance from the
+    impost line to each rib's springing point.
+    """
+    try:
+        service = MeasurementService()
+        
+        # Load all rib traces into the service
+        for rib in request.ribs:
+            rib_id = rib.get("id", f"rib-{len(service.traces)}")
+            points = np.array(rib.get("points", []))
+            if len(points) > 0:
+                service.traces[rib_id] = points
+        
+        if not service.traces:
+            return ImpostLineResponse(success=False, error="No valid rib traces provided")
+        
+        result = await service._async_calculate_impost_line()
+        
+        return ImpostLineResponse(
+            success=True,
+            data=ImpostLineResult(
+                impost_height=result["impost_height"],
+                num_ribs_used=result["num_ribs_used"],
+                ribs=result["ribs"],
+            ),
+        )
+    except Exception as e:
+        return ImpostLineResponse(success=False, error=str(e))
+

@@ -364,6 +364,35 @@ export async function calculateMeasurements(
   });
 }
 
+// Impost Line Calculation
+export interface RibImpostData {
+  springing_z: number;
+  springing_point: { x: number; y: number; z: number };
+  impost_distance: number;
+}
+
+export interface ImpostLineResult {
+  impost_height: number;
+  num_ribs_used: number;
+  ribs: Record<string, RibImpostData>;
+}
+
+export interface ImpostLineRequest {
+  ribs: Array<{
+    id: string;
+    points: Array<[number, number, number]>;
+  }>;
+}
+
+export async function calculateImpostLine(
+  params: ImpostLineRequest
+): Promise<ApiResponse<ImpostLineResult>> {
+  return apiRequest<ImpostLineResult>("/api/geometry/measurements/impost-line", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 // Chord Method Analysis
 export interface ChordAnalysisResult {
   predictedMethod: string;

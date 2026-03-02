@@ -26,7 +26,7 @@ import {
   Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getReprojectionPreview, getIntradosLines, calculateMeasurements } from "@/lib/api";
+import { getReprojectionPreview, getIntradosLines, calculateMeasurements, calculateImpostLine, type RibImpostData, type ImpostLineResult, type ImpostLineRequest } from "@/lib/api";
 
 interface Point3D {
   x: number;
@@ -170,7 +170,12 @@ export default function Step7MeasurementsPage() {
   const [measurementData, setMeasurementData] = useState<MeasurementResponse["data"] | null>(null);
   const [traceLines, setTraceLines] = useState<Line3D[]>([]);
   
+  // Impost line data
+  const [impostLineData, setImpostLineData] = useState<ImpostLineResult | null>(null);
+  const [isLoadingImpost, setIsLoadingImpost] = useState(false);
+  
   const selectedMeasurement = measurements.find(m => m.id === selectedRib);
+  const selectedRibImpostData = selectedRib && impostLineData?.ribs[selectedRib] as RibImpostData | undefined;
   
   // Load 3D preview and intrados lines on mount or when project changes
   useEffect(() => {
@@ -214,6 +219,38 @@ export default function Step7MeasurementsPage() {
     
     loadData();
   }, [currentProject?.id, selectedRib]);
+  
+  // Calculate impost line when intrados lines load
+  useEffect(() => {
+    const loadImpostLine = async () => {
+      if (intradosLines.length === 0) return;
+      
+      setIsLoadingImpost(true);
+      try {
+        // Prepare request with all intrados lines as ribs
+        const ribsData: ImpostLineRequest["ribs"] = intradosLines.map(line => ({
+          id: line.id,
+          points: line.points3d,
+        }));
+        
+        const response = await calculateImpostLine({
+          ribs: ribsData,
+        });
+        
+        if (response.success && response.data) {
+          setImpostLineData(response.data);
+        } else {
+          console.error("Error loading impost line:", response.error);
+        }
+      } catch (err) {
+        console.error("Error calculating impost line:", err);
+      } finally {
+        setIsLoadingImpost(false);
+      }
+    };
+    
+    loadImpostLine();
+  }, [intradosLines]);
   
   // Compute colored traces for all intrados lines
   useEffect(() => {
@@ -591,6 +628,24 @@ export default function Step7MeasurementsPage() {
             </CardContent>
           </Card>
           
+          {/* Impost Line Display - Always Show */}
+          {impostLineData && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-display">Impost Line</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="p-3 rounded-lg bg-muted/50 text-center">
+                  <p className="text-base font-bold">{impostLineData.impost_height.toFixed(3)}m</p>
+                  <p className="text-xs text-muted-foreground">Height</p>
+                </div>
+                <div className="text-xs text-muted-foreground text-center">
+                  Calculated from {impostLineData.num_ribs_used} springing rib(s)
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
           {/* Selected Measurement Details */}
           {selectedMeasurement && (
             <Card>
@@ -598,6 +653,15 @@ export default function Step7MeasurementsPage() {
                 <CardTitle className="text-lg font-display">{selectedMeasurement.name}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Impost Distance - Conditionally Show */}
+                {selectedRibImpostData && (
+                  <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
+                    <p className="text-base font-bold text-blue-900 dark:text-blue-100">{selectedRibImpostData.impost_distance.toFixed(3)}m</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-300">Impost Distance</p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">Distance from springing point to impost line</p>
+                  </div>
+                )}
+                
                 {/* Arc Radius and Rib Length */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 rounded-lg bg-muted/50 text-center">

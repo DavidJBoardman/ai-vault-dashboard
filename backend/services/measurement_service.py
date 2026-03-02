@@ -65,6 +65,8 @@ class MeasurementService:
         
         # Calculate rib length
         rib_length = self._calculate_length(segment)
+
+        
         
         # Find apex and springing points
         apex = self._find_apex(segment)
@@ -82,6 +84,99 @@ class MeasurementService:
             "point_distances": point_distances.tolist(),
             "segment_points": segment_points,
         }
+
+    def calculate_impost_line(
+        self,
+        boundary_margin: float = 0.5,
+        min_rise: float = 1.0,
+    ) -> Dict[str, Any]:
+        """
+        Calculate impost line and per-rib impost distance.
+
+        impost_distance = springing_z - global_impost_height
+        """
+
+        if not self.traces:
+            raise ValueError("No ribs available for impost calculation.")
+
+        # Compute global XY bounds
+        all_points = np.vstack(list(self.traces.values()))
+        x_vals = all_points[:, 0]
+        y_vals = all_points[:, 1]
+
+        x_min, x_max = x_vals.min(), x_vals.max()
+        y_min, y_max = y_vals.min(), y_vals.max()
+
+        candidate_z = []
+        rib_data: Dict[str, Dict[str, Any]] = {}
+
+        for rib_id, points in self.traces.items():
+            if len(points) < 3:
+                continue
+
+            z_vals = points[:, 2]
+            z_min = float(z_vals.min())
+            z_max = float(z_vals.max())
+            z_range = z_max - z_min
+
+            # Filter by rise
+            if z_range < min_rise:
+                continue
+
+            min_idx = int(np.argmin(z_vals))
+            x_low, y_low = points[min_idx][0], points[min_idx][1]
+
+            near_boundary = (
+                (x_low < x_min + boundary_margin) or
+                (x_low > x_max - boundary_margin) or
+                (y_low < y_min + boundary_margin) or
+                (y_low > y_max - boundary_margin)
+            )
+
+            if not near_boundary:
+                continue
+
+            candidate_z.append(z_min)
+
+            rib_data[rib_id] = {
+                "springing_z": z_min,
+                "springing_point": {
+                    "x": float(points[min_idx][0]),
+                    "y": float(points[min_idx][1]),
+                    "z": float(points[min_idx][2]),
+                },
+            }
+
+        if not candidate_z:
+            raise ValueError("No ribs identified as springing ribs.")
+
+        impost_height = float(np.median(candidate_z))
+
+        # Compute impost distance per rib
+        for rib_id in rib_data:
+            spring_z = rib_data[rib_id]["springing_z"]
+            rib_data[rib_id]["impost_distance"] = float(spring_z - impost_height)
+
+        return {
+            "impost_height": impost_height,
+            "num_ribs_used": len(rib_data),
+            "ribs": rib_data,
+        }
+    
+    async def _async_calculate_impost_line(
+        self,
+        boundary_margin: float = 0.5,
+        min_rise: float = 1.0,
+    ) -> Dict[str, Any]:
+        """Async wrapper for impost line calculation."""
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            self.calculate_impost_line,
+            boundary_margin,
+            min_rise,
+        )
+        return result
     
     def _generate_demo_trace(self) -> np.ndarray:
         """Generate a demo rib trace."""
