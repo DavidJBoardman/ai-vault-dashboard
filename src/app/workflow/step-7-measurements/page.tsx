@@ -558,15 +558,10 @@ export default function Step7MeasurementsPage() {
       "ApexX",
       "ApexY",
       "ApexZ",
-      "Spring1X",
-      "Spring1Y",
-      "Spring1Z",
-      "Spring2X",
-      "Spring2Y",
-      "Spring2Z",
       "RibLength",
       "ArcRadius",
-      "FitError"
+      "FitError",
+      "ImpostDistance"
     ].join(","));
 
     for (const line of intradosLines) {
@@ -579,49 +574,41 @@ export default function Step7MeasurementsPage() {
         });
 
         let apex = { x: 0, y: 0, z: 0 };
-        let spring1 = { x: 0, y: 0, z: 0 };
-        let spring2 = { x: 0, y: 0, z: 0 };
         let ribLength = 0;
         let arcRadius = 0;
         let fitError = 0;
+        let impostDistance = 0;
 
         if (resp.success && resp.data) {
           const d = resp.data;
           apex = d.apexPoint ?? apex;
-          if (d.springingPoints && d.springingPoints.length >= 2) {
-            spring1 = d.springingPoints[0];
-            spring2 = d.springingPoints[1];
-          }
           ribLength = d.ribLength ?? 0;
           arcRadius = d.arcRadius ?? 0;
           fitError = d.fitError ?? 0;
         } else {
-          // Fallback: derive apex/springing from raw line points
+          // Fallback: derive apex from raw line points
           const pts = line.points3d;
           if (pts && pts.length > 0) {
             const apexIdx = pts.reduce((maxIdx, p, idx, arr) => p[2] > arr[maxIdx][2] ? idx : maxIdx, 0);
             const ap = pts[apexIdx];
             apex = { x: ap[0], y: ap[1], z: ap[2] };
-            spring1 = { x: pts[0][0], y: pts[0][1], z: pts[0][2] };
-            const last = pts[pts.length - 1];
-            spring2 = { x: last[0], y: last[1], z: last[2] };
           }
         }
 
+        // Get impost distance from impost line data
+        if (impostLineData && impostLineData.ribs[line.id]) {
+          impostDistance = impostLineData.ribs[line.id].impost_distance ?? 0;
+        }
+
         rows.push([
-          line.id,
+          line.label,
           apex.x.toFixed(4),
           apex.y.toFixed(4),
           apex.z.toFixed(4),
-          spring1.x.toFixed(4),
-          spring1.y.toFixed(4),
-          spring1.z.toFixed(4),
-          spring2.x.toFixed(4),
-          spring2.y.toFixed(4),
-          spring2.z.toFixed(4),
           ribLength.toFixed(4),
           arcRadius.toFixed(4),
           fitError.toFixed(6),
+          impostDistance.toFixed(4),
         ].join(","));
       } catch (err) {
         console.error(`Error exporting rib ${line.id}:`, err);
