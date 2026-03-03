@@ -16,14 +16,14 @@ AUTO_CORRECT_PRESETS: Dict[str, Dict[str, Any]] = {
     "fast": {
         "tolerance": 0.009,
         "xy_step": 4.0,
-        "xy_range": 12.0,
+        "xy_range": 20.0,
         "n_range": (2, 6),
         "include_scale": True,
         "scale_step": 0.01,
-        "scale_range": 0.01,
+        "scale_range": 0.02,
         "include_rotation": True,
-        "rotation_step": 0.5,
-        "rotation_range": 0.75,
+        "rotation_step": 1.0,
+        "rotation_range": 5.0,
         "regularisation_weight": 0.08,
         "improvement_margin": 0.003,
     },
@@ -34,10 +34,10 @@ AUTO_CORRECT_PRESETS: Dict[str, Dict[str, Any]] = {
         "n_range": (2, 6),
         "include_scale": True,
         "scale_step": 0.005,
-        "scale_range": 0.015,
+        "scale_range": 0.02,
         "include_rotation": True,
         "rotation_step": 0.25,
-        "rotation_range": 1.0,
+        "rotation_range": 1.25,
         "regularisation_weight": 0.05,
         "improvement_margin": 0.002,
     },
@@ -59,7 +59,7 @@ AUTO_CORRECT_PRESETS: Dict[str, Dict[str, Any]] = {
 
 
 def resolve_auto_correct_options(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Resolve user config into validated kwargs for `auto_correct_roi_params`."""
+    """Resolve preset selection into validated kwargs for `auto_correct_roi_params`."""
     cfg = config if isinstance(config, dict) else {}
     preset = str(cfg.get("preset", "balanced")).lower().strip()
     if preset not in AUTO_CORRECT_PRESETS:
@@ -67,31 +67,7 @@ def resolve_auto_correct_options(config: Optional[Dict[str, Any]]) -> Dict[str, 
 
     base = dict(AUTO_CORRECT_PRESETS[preset])
     merged = {**base}
-    for key in (
-        "tolerance",
-        "xy_step",
-        "xy_range",
-        "include_scale",
-        "scale_step",
-        "scale_range",
-        "include_rotation",
-        "rotation_step",
-        "rotation_range",
-        "regularisation_weight",
-        "improvement_margin",
-    ):
-        if key in cfg:
-            merged[key] = cfg[key]
-
-    raw_n_range = cfg.get("n_range", base.get("n_range", (2, 6)))
-    if isinstance(raw_n_range, (list, tuple)) and len(raw_n_range) == 2:
-        n0 = int(raw_n_range[0])
-        n1 = int(raw_n_range[1])
-        n0 = max(2, min(6, n0))
-        n1 = max(n0, min(6, n1))
-        merged["n_range"] = (n0, n1)
-    else:
-        merged["n_range"] = tuple(base["n_range"])
+    merged["n_range"] = tuple(base["n_range"])
 
     merged["tolerance"] = float(max(0.001, min(0.05, float(merged["tolerance"]))))
     merged["xy_step"] = float(max(0.5, min(8.0, float(merged["xy_step"]))))

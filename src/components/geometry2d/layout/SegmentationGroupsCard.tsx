@@ -82,7 +82,7 @@ export function SegmentationGroupsCard({
                     className="w-3 h-3 rounded-full flex-shrink-0"
                     style={{ backgroundColor: info.color }}
                   />
-                  <span className="flex-1 text-sm truncate capitalize">{label}</span>
+                  <span className="flex-1 text-sm truncate">{label}</span>
                   <Badge
                     variant={info.visible === info.total ? "default" : "secondary"}
                     className="text-xs px-1.5"
