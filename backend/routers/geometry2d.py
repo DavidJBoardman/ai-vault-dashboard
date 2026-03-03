@@ -1,14 +1,13 @@
 """Geometry 2D router for Step 4 staged workflow endpoints."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from services.geometry2d import (
-    BayPlanReconstructionService,
+    BayPlanCandidateService,
     CutTypologyMatchingService,
-    EvidenceReportService,
     NodePreparationService,
     RoiBayProportionService,
 )
@@ -21,13 +20,17 @@ class XYPoint(BaseModel):
     y: float
 
 
+class AutoCorrectConfig(BaseModel):
+    preset: Optional[Literal["fast", "balanced", "precise"]] = None
+
+
 class RoiBayProportionPrepareRequest(BaseModel):
     projectId: str
     projectionId: str
     manualBosses: Optional[List[XYPoint]] = None
     minBossArea: int = 10
     autoCorrectRoi: bool = True
-    autoCorrectConfig: Optional[Dict[str, Any]] = None
+    autoCorrectConfig: Optional[AutoCorrectConfig] = None
 
 
 class RoiBayProportionPrepareResult(BaseModel):
@@ -63,7 +66,7 @@ async def prepare_roi_bay_proportion(request: RoiBayProportionPrepareRequest):
             manual_bosses=[p.dict() for p in request.manualBosses] if request.manualBosses else None,
             min_boss_area=request.minBossArea,
             auto_correct_roi=request.autoCorrectRoi,
-            auto_correct_config=request.autoCorrectConfig,
+            auto_correct_config=request.autoCorrectConfig.dict(exclude_none=True) if request.autoCorrectConfig else None,
         )
         boss_report = payload.get("bossReport", {})
         boss_count = int(boss_report.get("boss_count", 0)) if isinstance(boss_report, dict) else 0
@@ -349,6 +352,11 @@ class BayPlanStateRequest(BaseModel):
     projectId: str
 
 
+class BayPlanRunRequest(BaseModel):
+    projectId: str
+    params: Optional[Dict[str, Any]] = None
+
+
 class BayPlanNode(BaseModel):
     id: str
     bossId: Optional[str] = None
@@ -363,6 +371,13 @@ class BayPlanEdge(BaseModel):
     a: int
     b: int
     isConstraint: bool = False
+    isManual: bool = False
+    constraintFamily: Optional[str] = None
+
+
+class BayPlanManualSaveRequest(BaseModel):
+    projectId: str
+    edges: List[BayPlanEdge]
 
 
 class BayPlanBossPoint(BaseModel):
@@ -376,8 +391,50 @@ class BayPlanStateSummary(BaseModel):
     ranAt: Optional[str] = None
     nodeCount: Optional[int] = None
     edgeCount: Optional[int] = None
+    candidateEdgeCount: Optional[int] = None
     enabledConstraintFamilies: List[str] = Field(default_factory=list)
     fallbackApplied: bool = False
+
+
+class BayPlanSpoke(BaseModel):
+    bossIndex: int
+    bossId: str
+    angleDeg: float
+    strength: float
+    supportCount: int = 0
+    ribIds: List[str] = Field(default_factory=list)
+    labels: List[str] = Field(default_factory=list)
+
+
+class BayPlanCandidateEdge(BaseModel):
+    a: int
+    b: int
+    score: float
+    distanceUv: float
+    angleAB: float
+    angleBA: float
+    angleErrorA: float
+    angleErrorB: float
+    spokeStrengthA: float
+    spokeStrengthB: float
+    spokeSupportCountA: int = 0
+    spokeSupportCountB: int = 0
+    thirdBossPenalty: float = 0.0
+    overlapScore: float = 0.0
+    mutual: bool = False
+    isBoundaryForced: bool = False
+    selected: bool = False
+
+
+class BayPlanComparisonResult(BaseModel):
+    mode: Literal["delaunay"]
+    available: bool
+    error: Optional[str] = None
+    nodeCount: int = 0
+    edgeCount: int = 0
+    constraintFamilies: List[str] = Field(default_factory=list)
+    nodes: List[BayPlanNode] = Field(default_factory=list)
+    edges: List[BayPlanEdge] = Field(default_factory=list)
 
 
 class BayPlanStateResult(BaseModel):
@@ -388,25 +445,36 @@ class BayPlanStateResult(BaseModel):
     previewBosses: List[BayPlanBossPoint] = Field(default_factory=list)
     statePath: str
     resultPath: Optional[str] = None
+    latestResult: Optional[Dict[str, Any]] = None
 
 
 class BayPlanRunResult(BaseModel):
     projectDir: str
     outputDir: str
     outputImagePath: Optional[str] = None
+    debugImagePath: Optional[str] = None
     ranAt: str
     nodeCount: int
     edgeCount: int
+    candidateEdgeCount: int = 0
     constraintEdgeCount: int
     idealBossUsedCount: int
     bossCount: int
+    acceptedRibCount: int = 0
+    rejectedRibCount: int = 0
     enabledConstraintFamilies: List[str] = Field(default_factory=list)
     familySupportScores: Dict[str, float] = Field(default_factory=dict)
     fallbackApplied: bool = False
     fallbackReason: str = ""
+    overallScore: float = 0.0
+    overallScoreBreakdown: Dict[str, float] = Field(default_factory=dict)
     params: Dict[str, Any]
     nodes: List[BayPlanNode] = Field(default_factory=list)
     edges: List[BayPlanEdge] = Field(default_factory=list)
+    comparison: Optional[BayPlanComparisonResult] = None
+    bossSpokes: List[BayPlanSpoke] = Field(default_factory=list)
+    candidateEdges: List[BayPlanCandidateEdge] = Field(default_factory=list)
+    optimisationDiagnostics: List[Dict[str, Any]] = Field(default_factory=list)
     usedBosses: List[BayPlanBossPoint] = Field(default_factory=list)
     idealBosses: List[BayPlanBossPoint] = Field(default_factory=list)
     extractedBosses: List[BayPlanBossPoint] = Field(default_factory=list)
@@ -426,9 +494,9 @@ class BayPlanRunResponse(BaseModel):
 
 @router.post("/bay-plan/state", response_model=BayPlanStateResponse)
 async def load_bay_plan_state(request: BayPlanStateRequest):
-    """Load Step 4.4 bay plan reconstruction state."""
+    """Load Step 4.4 bay-plan candidate generation state."""
     try:
-        service = BayPlanReconstructionService()
+        service = BayPlanCandidateService()
         payload = await service.get_state(request.projectId)
         return BayPlanStateResponse(success=True, data=BayPlanStateResult(**payload))
     except Exception as e:
@@ -436,64 +504,25 @@ async def load_bay_plan_state(request: BayPlanStateRequest):
 
 
 @router.post("/bay-plan/run", response_model=BayPlanRunResponse)
-async def run_bay_plan(request: BayPlanStateRequest):
-    """Run Step 4.4 bay plan reconstruction."""
+async def run_bay_plan(request: BayPlanRunRequest):
+    """Run Step 4.4 bay-plan candidate generation."""
     try:
-        service = BayPlanReconstructionService()
-        payload = await service.run_reconstruction(request.projectId)
+        service = BayPlanCandidateService()
+        payload = await service.run_reconstruction(request.projectId, request.params)
         return BayPlanRunResponse(success=True, data=BayPlanRunResult(**payload))
     except Exception as e:
         return BayPlanRunResponse(success=False, error=str(e))
 
 
-class EvidenceReportStateRequest(BaseModel):
-    projectId: str
-
-
-class EvidenceReportStateResult(BaseModel):
-    projectDir: str
-    outputDir: str
-    statePath: str
-    reportJsonPath: Optional[str] = None
-    reportHtmlPath: Optional[str] = None
-    lastGeneratedAt: Optional[str] = None
-    summary: Optional[Dict[str, Any]] = None
-
-
-class EvidenceReportGenerateResult(EvidenceReportStateResult):
-    reportHtml: str
-    ranAt: Optional[str] = None
-
-
-class EvidenceReportStateResponse(BaseModel):
-    success: bool
-    data: Optional[EvidenceReportStateResult] = None
-    error: Optional[str] = None
-
-
-class EvidenceReportGenerateResponse(BaseModel):
-    success: bool
-    data: Optional[EvidenceReportGenerateResult] = None
-    error: Optional[str] = None
-
-
-@router.post("/evidence-report/state", response_model=EvidenceReportStateResponse)
-async def load_evidence_report_state(request: EvidenceReportStateRequest):
-    """Load Step 4.5 evidence report state."""
+@router.post("/bay-plan/save-manual", response_model=BayPlanRunResponse)
+async def save_bay_plan_manual(request: BayPlanManualSaveRequest):
+    """Persist manual reconstructed-rib edits for Step 4.4."""
     try:
-        service = EvidenceReportService()
-        payload = await service.get_state(request.projectId)
-        return EvidenceReportStateResponse(success=True, data=EvidenceReportStateResult(**payload))
+        service = BayPlanCandidateService()
+        payload = await service.save_manual_edges(
+            request.projectId,
+            edges=[edge.dict() for edge in request.edges],
+        )
+        return BayPlanRunResponse(success=True, data=BayPlanRunResult(**payload))
     except Exception as e:
-        return EvidenceReportStateResponse(success=False, error=str(e))
-
-
-@router.post("/evidence-report/generate", response_model=EvidenceReportGenerateResponse)
-async def generate_evidence_report(request: EvidenceReportStateRequest):
-    """Generate Step 4.5 evidence report artefacts."""
-    try:
-        service = EvidenceReportService()
-        payload = await service.generate(request.projectId)
-        return EvidenceReportGenerateResponse(success=True, data=EvidenceReportGenerateResult(**payload))
-    except Exception as e:
-        return EvidenceReportGenerateResponse(success=False, error=str(e))
+        return BayPlanRunResponse(success=False, error=str(e))

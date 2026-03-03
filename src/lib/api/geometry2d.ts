@@ -9,20 +9,10 @@ export interface Geometry2DRoiBayProportionParams {
   autoCorrectConfig?: Geometry2DAutoCorrectConfig;
 }
 
+export type Geometry2DAutoCorrectPreset = "fast" | "balanced" | "precise";
+
 export interface Geometry2DAutoCorrectConfig {
-  preset?: "fast" | "balanced" | "precise";
-  tolerance?: number;
-  xy_step?: number;
-  xy_range?: number;
-  n_range?: [number, number];
-  include_scale?: boolean;
-  scale_step?: number;
-  scale_range?: number;
-  include_rotation?: boolean;
-  rotation_step?: number;
-  rotation_range?: number;
-  regularisation_weight?: number;
-  improvement_margin?: number;
+  preset?: Geometry2DAutoCorrectPreset;
 }
 
 export interface Geometry2DRoiParams {
@@ -223,6 +213,7 @@ export interface Geometry2DBayPlanStateSummary {
   ranAt?: string;
   nodeCount?: number;
   edgeCount?: number;
+  candidateEdgeCount?: number;
   enabledConstraintFamilies: string[];
   fallbackApplied: boolean;
 }
@@ -242,6 +233,22 @@ export interface Geometry2DBayPlanStateResult {
   previewBosses: Geometry2DBayPlanBossPoint[];
   statePath: string;
   resultPath?: string;
+  latestResult?: Geometry2DBayPlanRunResult;
+}
+
+export interface Geometry2DBayPlanRunParams {
+  reconstructionMode?: "current" | "delaunay";
+  angleToleranceDeg?: number;
+  candidateMinScore?: number;
+  candidateMaxDistanceUv?: number;
+  corridorWidthPx?: number;
+  mutualOnly?: boolean;
+  minNodeDegree?: number;
+  maxNodeDegree?: number;
+  enforcePlanarity?: boolean;
+  delaunayUseRoiBoundary?: boolean;
+  delaunayUseCrossAxes?: boolean;
+  delaunayUseHalfLines?: boolean;
 }
 
 export interface Geometry2DBayPlanNode {
@@ -258,25 +265,78 @@ export interface Geometry2DBayPlanEdge {
   a: number;
   b: number;
   isConstraint: boolean;
+  isManual?: boolean;
+  constraintFamily?: string | null;
+}
+
+export interface Geometry2DBayPlanComparisonResult {
+  mode: "delaunay";
+  available: boolean;
+  error?: string;
+  nodeCount: number;
+  edgeCount: number;
+  constraintFamilies: string[];
+  nodes: Geometry2DBayPlanNode[];
+  edges: Geometry2DBayPlanEdge[];
+}
+
+export interface Geometry2DBayPlanSpoke {
+  bossIndex: number;
+  bossId: string;
+  angleDeg: number;
+  strength: number;
+  supportCount: number;
+  ribIds: string[];
+  labels: string[];
+}
+
+export interface Geometry2DBayPlanCandidateEdge {
+  a: number;
+  b: number;
+  score: number;
+  distanceUv: number;
+  angleAB: number;
+  angleBA: number;
+  angleErrorA: number;
+  angleErrorB: number;
+  spokeStrengthA: number;
+  spokeStrengthB: number;
+  spokeSupportCountA: number;
+  spokeSupportCountB: number;
+  thirdBossPenalty: number;
+  overlapScore: number;
+  mutual: boolean;
+  isBoundaryForced: boolean;
+  selected: boolean;
 }
 
 export interface Geometry2DBayPlanRunResult {
   projectDir: string;
   outputDir: string;
   outputImagePath?: string;
+  debugImagePath?: string;
   ranAt: string;
   nodeCount: number;
   edgeCount: number;
+  candidateEdgeCount: number;
   constraintEdgeCount: number;
   idealBossUsedCount: number;
   bossCount: number;
+  acceptedRibCount: number;
+  rejectedRibCount: number;
   enabledConstraintFamilies: string[];
   familySupportScores: Record<string, number>;
   fallbackApplied: boolean;
   fallbackReason: string;
+  overallScore: number;
+  overallScoreBreakdown: Record<string, number>;
   params: Record<string, unknown>;
   nodes: Geometry2DBayPlanNode[];
   edges: Geometry2DBayPlanEdge[];
+  comparison?: Geometry2DBayPlanComparisonResult | null;
+  bossSpokes: Geometry2DBayPlanSpoke[];
+  candidateEdges: Geometry2DBayPlanCandidateEdge[];
+  optimisationDiagnostics: Array<Record<string, unknown>>;
   usedBosses: Geometry2DBayPlanBossPoint[];
   idealBosses: Geometry2DBayPlanBossPoint[];
   extractedBosses: Geometry2DBayPlanBossPoint[];
@@ -292,43 +352,21 @@ export async function getBayPlanState(
 }
 
 export async function runBayPlanReconstruction(
-  projectId: string
+  projectId: string,
+  params?: Geometry2DBayPlanRunParams
 ): Promise<ApiResponse<Geometry2DBayPlanRunResult>> {
   return apiRequest<Geometry2DBayPlanRunResult>("/api/geometry2d/bay-plan/run", {
     method: "POST",
-    body: JSON.stringify({ projectId }),
+    body: JSON.stringify({ projectId, params }),
   });
 }
 
-export interface Geometry2DEvidenceReportStateResult {
-  projectDir: string;
-  outputDir: string;
-  statePath: string;
-  reportJsonPath?: string;
-  reportHtmlPath?: string;
-  lastGeneratedAt?: string;
-  summary?: Record<string, unknown>;
-}
-
-export interface Geometry2DEvidenceReportGenerateResult extends Geometry2DEvidenceReportStateResult {
-  reportHtml: string;
-  ranAt?: string;
-}
-
-export async function getEvidenceReportState(
-  projectId: string
-): Promise<ApiResponse<Geometry2DEvidenceReportStateResult>> {
-  return apiRequest<Geometry2DEvidenceReportStateResult>("/api/geometry2d/evidence-report/state", {
+export async function saveBayPlanManualEdges(
+  projectId: string,
+  edges: Geometry2DBayPlanEdge[]
+): Promise<ApiResponse<Geometry2DBayPlanRunResult>> {
+  return apiRequest<Geometry2DBayPlanRunResult>("/api/geometry2d/bay-plan/save-manual", {
     method: "POST",
-    body: JSON.stringify({ projectId }),
-  });
-}
-
-export async function generateEvidenceReport(
-  projectId: string
-): Promise<ApiResponse<Geometry2DEvidenceReportGenerateResult>> {
-  return apiRequest<Geometry2DEvidenceReportGenerateResult>("/api/geometry2d/evidence-report/generate", {
-    method: "POST",
-    body: JSON.stringify({ projectId }),
+    body: JSON.stringify({ projectId, edges }),
   });
 }

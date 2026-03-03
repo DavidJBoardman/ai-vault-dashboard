@@ -6,7 +6,11 @@ import { Camera, Hand, MousePointer2, Redo2, RefreshCw, Undo2, ZoomIn, ZoomOut }
 type InteractionMode = "select" | "pan";
 
 interface PreviewToolkitProps {
+  minimal?: boolean;
   showSelectMode?: boolean;
+  showHistoryControls?: boolean;
+  selectLabel?: string;
+  selectTitle?: string;
   interactionMode: InteractionMode;
   zoom: number;
   minZoom: number;
@@ -24,7 +28,11 @@ interface PreviewToolkitProps {
 }
 
 export function PreviewToolkit({
+  minimal = false,
   showSelectMode = false,
+  showHistoryControls = false,
+  selectLabel = "Select",
+  selectTitle = "Select and drag points",
   interactionMode,
   zoom,
   minZoom,
@@ -43,61 +51,67 @@ export function PreviewToolkit({
   return (
     <div className="mt-2 flex items-center justify-center">
       <div className="flex items-center gap-1 rounded-md border border-border bg-background/90 px-2 py-1">
-        {showSelectMode && (
-          <Button
-            variant={interactionMode === "select" ? "default" : "outline"}
-            size="sm"
-            onClick={() => onInteractionModeChange("select")}
-            className="h-7 px-2 text-xs gap-1.5"
-            title="Select and drag points"
-          >
-            <MousePointer2 className="w-3.5 h-3.5" />
-            Select
-          </Button>
+        {!minimal && (
+          <>
+            {showSelectMode && (
+              <>
+                <Button
+                  variant={interactionMode === "select" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => onInteractionModeChange("select")}
+                  className="h-7 px-2 text-xs gap-1.5"
+                  title={selectTitle}
+                >
+                  <MousePointer2 className="w-3.5 h-3.5" />
+                  {selectLabel}
+                </Button>
+
+                <Button
+                  variant={interactionMode === "pan" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => onInteractionModeChange("pan")}
+                  className="h-7 px-2 text-xs gap-1.5"
+                  title="Pan view"
+                >
+                  <Hand className="w-3.5 h-3.5" />
+                  Pan
+                </Button>
+              </>
+            )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onZoomOut}
+              disabled={zoom <= minZoom}
+              className="h-7 w-7 p-0"
+              title="Zoom out"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onZoomReset}
+              className="h-7 min-w-[3.25rem] px-2 text-xs font-mono"
+              title="Reset zoom and pan"
+            >
+              {Math.round(zoom * 100)}%
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onZoomIn}
+              disabled={zoom >= maxZoom}
+              className="h-7 w-7 p-0"
+              title="Zoom in"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </Button>
+          </>
         )}
-
-        <Button
-          variant={interactionMode === "pan" ? "default" : "outline"}
-          size="sm"
-          onClick={() => onInteractionModeChange("pan")}
-          className="h-7 px-2 text-xs gap-1.5"
-          title="Pan view"
-        >
-          <Hand className="w-3.5 h-3.5" />
-          Pan
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onZoomOut}
-          disabled={zoom <= minZoom}
-          className="h-7 w-7 p-0"
-          title="Zoom out"
-        >
-          <ZoomOut className="w-3.5 h-3.5" />
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onZoomReset}
-          className="h-7 min-w-[3.25rem] px-2 text-xs font-mono"
-          title="Reset zoom and pan"
-        >
-          {Math.round(zoom * 100)}%
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onZoomIn}
-          disabled={zoom >= maxZoom}
-          className="h-7 w-7 p-0"
-          title="Zoom in"
-        >
-          <ZoomIn className="w-3.5 h-3.5" />
-        </Button>
 
         <Button
           variant="outline"
@@ -121,7 +135,7 @@ export function PreviewToolkit({
           Shot
         </Button>
 
-        {showSelectMode && (
+        {!minimal && showHistoryControls && (
           <>
             <div className="mx-1 h-5 w-px bg-border" />
             <Button

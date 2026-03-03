@@ -84,3 +84,46 @@ Replace staged placeholder with:
 - Persist stage data under `steps[4].data.geometry2d` (existing pattern).
 - Keep small focused service modules in `backend/services/geometry2d`.
 - Use existing UI primitives (`Card`, `Input`, `Checkbox`, `Button`, `Slider`, `Badge`) and current layout split.
+
+
+```
+```mermaid
+flowchart TD
+  A["POST /api/geometry2d/cut-typology/run"] --> B["router: run_cut_typology_matching()"]
+  B --> C["CutTypologyMatchingService.run_matching()"]
+  C --> D["_run_matching_sync()"]
+
+  D --> E["load ROI and node points"]
+  E --> E1["get_project_dir()"]
+  E --> E2["_load_roi_params()"]
+  E --> E3["_read_or_build_points() / _normalise_points() / _attach_uv()"]
+
+  D --> F["build template variants"]
+  F --> F1["_build_variants()"]
+  F1 --> F2["generate_keypoints()"]
+
+  D --> G["match every boss against every variant"]
+  G --> G1["extract_template_ratios()"]
+  G --> G2["match_boss_to_ratios()"]
+  G --> G3["_match_with_ratio_sets()"]
+
+  G --> H["variant_summaries"]
+  G --> I["per_boss_rows"]
+
+  H --> J["global best variant"]
+  J --> J1["sort with _variant_summary_rank_key()"]
+  J1 --> J2["bestVariantLabel = circlecut_inner"]
+
+  I --> K["CSV output"]
+  K --> K1["_select_simplest_match() per boss"]
+  K1 --> K2["_write_match_csv()"]
+  K2 --> K3["boss 1 -> starcut_n=6"]
+  K2 --> K4["boss 3 -> starcut_n=4"]
+  K2 --> K5["boss 6 -> starcut_n=2"]
+  K2 --> K6["..."]
+
+  J2 --> L["Frontend global card"]
+  K2 --> M["Frontend CSV/per-boss summary"]
+  M --> N["standard starcut family"]
+
+```

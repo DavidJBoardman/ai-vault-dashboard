@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   Geometry2DCutTypologyOverlayVariant,
@@ -15,7 +15,27 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
-import { Download, EyeOff, FileText, Play, RefreshCw, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, EyeOff, FileText, Play, RefreshCw, Sparkles } from "lucide-react";
+import {
+  buildPerBossTypologySummary,
+  getMatchColumnClass,
+  getXyErrorSeverity,
+  normaliseMatchCsvRows,
+  parseXyErrorScore,
+  rankOverlayVariants,
+  type MatchCsvRow,
+  variantLabelToTitle,
+} from "./cutTypologyMatchingUtils";
+
+const RESET_TEMPLATE_PARAMS: Geometry2DCutTypologyParams = {
+  starcutMin: 2,
+  starcutMax: 6,
+  includeStarcut: true,
+  includeInner: true,
+  includeOuter: true,
+  allowCrossTemplate: true,
+  tolerance: 0.02,
+};
 
 interface CutTypologyMatchingPanelProps {
   headingPrefix?: string;
@@ -23,7 +43,6 @@ interface CutTypologyMatchingPanelProps {
   overlayVariants: Geometry2DCutTypologyOverlayVariant[];
   selectedOverlayLabels: string[];
   variantResults: Geometry2DCutTypologyVariantResult[];
-  bestVariantLabel?: string;
   matchCsvColumns: string[];
   matchCsvRows: Array<Record<string, string>>;
   lastRunAt?: string;
@@ -34,132 +53,9 @@ interface CutTypologyMatchingPanelProps {
   onOverlayToggle: (variantLabel: string, enabled: boolean) => void;
   onRunMatching: () => void;
   onHideAllOverlays: () => void;
-  onShowBestOverlay: () => void;
+  onShowPrimaryOverlays: () => void;
   onLoadMatchCsv: () => void;
-}
-
-function variantLabelToTitle(variant: Geometry2DCutTypologyOverlayVariant): string {
-  const fromLabel = (label?: string): string => {
-    if (!label) return "unknown";
-    if (label.startsWith("starcut_n=")) {
-      const n = Number(label.split("=", 2)[1]);
-      return Number.isFinite(n) ? `standardcut n=${n}` : "standardcut";
-    }
-    if (label === "circlecut_inner") return "circlecut inner";
-    if (label === "circlecut_outer") return "circlecut outer";
-    return label;
-  };
-
-  if (variant.templateType === "cross" || variant.isCrossTemplate) {
-    return `cross (x: ${fromLabel(variant.xTemplate)}, y: ${fromLabel(variant.yTemplate)})`;
-  }
-
-  if (variant.templateType === "starcut" && typeof variant.n === "number") {
-    return `standardcut n=${variant.n}`;
-  }
-  return fromLabel(variant.variantLabel);
-}
-
-function variantComplexityRank(variant: {
-  templateType: string;
-  variant: string;
-  isCrossTemplate: boolean;
-}) {
-  if (variant.templateType === "starcut") return 0;
-  if (variant.templateType === "circlecut") {
-    return variant.variant === "inner" ? 1 : 2;
-  }
-  if (variant.templateType === "cross" || variant.isCrossTemplate) return 3;
-  return 4;
-}
-
-function rankVariantResults(a: Geometry2DCutTypologyVariantResult, b: Geometry2DCutTypologyVariantResult) {
-  if (a.matchedCount !== b.matchedCount) return b.matchedCount - a.matchedCount;
-
-  const complexityDiff = variantComplexityRank(a) - variantComplexityRank(b);
-  if (complexityDiff !== 0) return complexityDiff;
-
-  const nA = typeof a.n === "number" ? a.n : Number.MAX_SAFE_INTEGER;
-  const nB = typeof b.n === "number" ? b.n : Number.MAX_SAFE_INTEGER;
-  if (nA !== nB) return nA - nB;
-
-  return a.variantLabel.localeCompare(b.variantLabel);
-}
-
-function rankOverlayVariants(a: Geometry2DCutTypologyOverlayVariant, b: Geometry2DCutTypologyOverlayVariant) {
-  const overlayGroupRank = (variant: {
-    templateType: string;
-    variant: string;
-    isCrossTemplate: boolean;
-  }) => {
-    if (variant.templateType === "circlecut") return variant.variant === "inner" ? 0 : 1;
-    if (variant.templateType === "starcut") return 2;
-    if (variant.templateType === "cross" || variant.isCrossTemplate) return 3;
-    return 4;
-  };
-
-  const groupDiff = overlayGroupRank(a) - overlayGroupRank(b);
-  if (groupDiff !== 0) return groupDiff;
-
-  const nA = typeof a.n === "number" ? a.n : Number.MAX_SAFE_INTEGER;
-  const nB = typeof b.n === "number" ? b.n : Number.MAX_SAFE_INTEGER;
-  if (nA !== nB) return nA - nB;
-
-  return a.variantLabel.localeCompare(b.variantLabel);
-}
-
-function estimateBossTotal(variant: Geometry2DCutTypologyVariantResult): number {
-  if (variant.coverage > 0) {
-    return Math.max(variant.matchedCount, Math.round(variant.matchedCount / variant.coverage));
-  }
-  return variant.matchedCount;
-}
-
-function formatDecimalSix(value: string | number | undefined | null): string {
-  if (value === undefined || value === null) return "";
-  const raw = String(value).trim();
-  if (!raw || raw.toLowerCase() === "none") return raw;
-  const num = Number(raw);
-  if (!Number.isFinite(num)) return raw;
-  return num.toFixed(6);
-}
-
-function formatUvPair(value: string | undefined): string {
-  if (!value) return "";
-  const raw = value.trim();
-  if (!raw || raw.toLowerCase() === "none") return raw;
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length >= 2) {
-      return `[${formatDecimalSix(parsed[0])}, ${formatDecimalSix(parsed[1])}]`;
-    }
-    return raw;
-  } catch {
-    return raw;
-  }
-}
-
-function getMatchColumnClass(column: string): string {
-  switch (column) {
-    case "boss_id":
-      return "w-[64px]";
-    case "x_cut":
-    case "y_cut":
-      return "w-[132px]";
-    case "boss_uv":
-      return "w-[190px]";
-    case "template_uv":
-      return "w-[120px]";
-    case "boss_xy":
-    case "template_xy":
-      return "w-[118px]";
-    case "xy_error":
-      return "w-[180px]";
-    case "matched":
-      return "w-[80px]";
-    default:
-      return "w-[120px]";
-  }
+  onGoToNodes: () => void;
 }
 
 export function CutTypologyMatchingPanel({
@@ -168,7 +64,6 @@ export function CutTypologyMatchingPanel({
   overlayVariants,
   selectedOverlayLabels,
   variantResults,
-  bestVariantLabel,
   matchCsvColumns,
   matchCsvRows,
   lastRunAt,
@@ -179,11 +74,13 @@ export function CutTypologyMatchingPanel({
   onOverlayToggle,
   onRunMatching,
   onHideAllOverlays,
-  onShowBestOverlay,
+  onShowPrimaryOverlays,
   onLoadMatchCsv,
+  onGoToNodes,
 }: CutTypologyMatchingPanelProps) {
   const [isMatchCsvOpen, setIsMatchCsvOpen] = useState(false);
   const [isTemplateOverlayOpen, setIsTemplateOverlayOpen] = useState(false);
+  const [isAdvancedParamsOpen, setIsAdvancedParamsOpen] = useState(false);
   const [filterMode, setFilterMode] = useState<"all" | "matched" | "unmatched" | "highError">("all");
   const [sortConfig, setSortConfig] = useState<{ column: string; direction: "asc" | "desc" }>({
     column: "xy_error",
@@ -194,28 +91,8 @@ export function CutTypologyMatchingPanel({
     () => [...overlayVariants].sort(rankOverlayVariants),
     [overlayVariants]
   );
-  const rankedVariants = useMemo(
-    () => [...variantResults].sort(rankVariantResults),
-    [variantResults]
-  );
-  const recommendedVariant = useMemo(() => {
-    if (rankedVariants.length === 0) return undefined;
-    if (!bestVariantLabel) return rankedVariants[0];
-    return rankedVariants.find((variant) => variant.variantLabel === bestVariantLabel) || rankedVariants[0];
-  }, [bestVariantLabel, rankedVariants]);
-  const equivalentFits = useMemo(() => {
-    if (!recommendedVariant) return [];
-    return rankedVariants.filter(
-      (variant) =>
-        variant.variantLabel !== recommendedVariant.variantLabel &&
-        variant.matchedCount === recommendedVariant.matchedCount
-    );
-  }, [rankedVariants, recommendedVariant]);
-  const recommendedBossTotal = recommendedVariant ? estimateBossTotal(recommendedVariant) : 0;
-  const recommendedIsFullMatch = !!recommendedVariant && recommendedVariant.matchedCount >= recommendedBossTotal;
-  const recommendationReason = recommendedIsFullMatch
-    ? "All bosses are matched. Simplest template was selected as the recommendation."
-    : "Highest match count is prioritised, with simpler templates used as tie-breakers.";
+  const matchingStatusLabel = isRunningMatching ? "Running" : lastRunAt ? "Match ready" : "Awaiting run";
+  const formattedLastRunAt = lastRunAt ? new Date(lastRunAt).toLocaleString("en-GB") : null;
   const displayMatchCsvColumns = useMemo(() => {
     const filtered = matchCsvColumns.filter(
       (column) =>
@@ -231,35 +108,13 @@ export function CutTypologyMatchingPanel({
     }
     return filtered;
   }, [matchCsvColumns]);
-  const displayMatchCsvRows = useMemo(() => {
-    return matchCsvRows.map((row) => {
-      const xError = formatDecimalSix(row.x_error);
-      const yError = formatDecimalSix(row.y_error);
-      return {
-        ...row,
-        boss_uv: formatUvPair(row.boss_uv),
-        xy_error:
-          (!xError || xError.toLowerCase() === "none") && (!yError || yError.toLowerCase() === "none")
-            ? "None"
-            : `[${xError || "None"}, ${yError || "None"}]`,
-      };
-    });
-  }, [matchCsvRows]);
-  const parseXyErrorScore = (value: string | undefined): number => {
-    if (!value || value.toLowerCase() === "none") return -1;
-    const match = value.match(/\[\s*([^,\]]+)\s*,\s*([^\]]+)\s*\]/);
-    if (!match) return -1;
-    const x = Number(match[1]);
-    const y = Number(match[2]);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return -1;
-    return Math.abs(x) + Math.abs(y);
-  };
-  const getXyErrorSeverity = (score: number): { label: string; className: string } => {
-    if (score < 0) return { label: "N/A", className: "bg-muted/40 text-muted-foreground" };
-    if (score > 0.01) return { label: "High", className: "bg-red-500/20 text-red-300" };
-    if (score > 0.005) return { label: "Med", className: "bg-amber-500/20 text-amber-300" };
-    return { label: "Low", className: "bg-emerald-500/20 text-emerald-300" };
-  };
+  const displayMatchCsvRows = useMemo<MatchCsvRow[]>(() => normaliseMatchCsvRows(matchCsvRows), [matchCsvRows]);
+  const shouldAutoLoadCsv = !!lastRunAt && matchCsvRows.length === 0 && !isLoadingMatchCsv;
+  useEffect(() => {
+    if (shouldAutoLoadCsv) {
+      onLoadMatchCsv();
+    }
+  }, [onLoadMatchCsv, shouldAutoLoadCsv]);
   const filteredDisplayMatchCsvRows = useMemo(() => {
     if (filterMode === "all") return displayMatchCsvRows;
     if (filterMode === "matched") {
@@ -309,6 +164,11 @@ export function CutTypologyMatchingPanel({
       matchedRate: total > 0 ? ((matched / total) * 100).toFixed(1) : "0.0",
     };
   }, [displayMatchCsvRows]);
+  const perBossSummary = useMemo(() => buildPerBossTypologySummary(displayMatchCsvRows), [displayMatchCsvRows]);
+  const maxSummaryDetailCount = useMemo(
+    () => Math.max(...(perBossSummary?.details.map(([, count]) => count) || [1])),
+    [perBossSummary]
+  );
   const getSortIndicator = (column: string) => {
     if (sortConfig.column !== column) return "↕";
     return sortConfig.direction === "asc" ? "↑" : "↓";
@@ -378,87 +238,148 @@ export function CutTypologyMatchingPanel({
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium">
-            {headingPrefix ? `${headingPrefix} Run & Review` : "Run & Review"}
+            {headingPrefix ? `${headingPrefix} Cut-Typology Match` : "Cut-Typology Match"}
           </CardTitle>
-          <CardDescription className="text-xs">
-            Run matching, get a single recommendation, then compare equivalent alternatives if needed.
-          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="rounded-md border border-border px-2.5 py-2 space-y-1">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-muted-foreground">Points status</span>
-              <Badge variant="outline">Save points in table</Badge>
-            </div>
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-muted-foreground">Matching status</span>
-              <Badge variant={lastRunAt ? "secondary" : "outline"}>
-                {lastRunAt ? "Run completed" : "Not run yet"}
-              </Badge>
-            </div>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            <Badge variant={lastRunAt ? "secondary" : "outline"}>{matchingStatusLabel}</Badge>
+            {formattedLastRunAt ? <span>Last run: {formattedLastRunAt}</span> : <span>Run matching to produce a recommendation.</span>}
           </div>
 
-          <Button
-            onClick={onRunMatching}
-            disabled={isLoadingState || isRunningMatching}
-            className="w-full gap-2"
-          >
-            {isRunningMatching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            Run Matching
-          </Button>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full h-8 gap-1.5"
-            onClick={() => {
-              setIsMatchCsvOpen(true);
-              onLoadMatchCsv();
-            }}
-            disabled={isRunningMatching || !lastRunAt}
-          >
-            {isLoadingMatchCsv ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-            View cut_typology_match
-          </Button>
-
-          {recommendedVariant && (
-            <div className="rounded-md border border-primary/40 bg-primary/5 p-2.5 space-y-1.5">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Recommended</p>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium truncate">{variantLabelToTitle(recommendedVariant)}</p>
-                <Badge variant="secondary">best</Badge>
+          {perBossSummary ? (
+            <div className="rounded-md border border-border bg-card/40 p-4 space-y-3">
+              <div className="space-y-1.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Node typology summary</p>
+                    <p className="text-2xl font-semibold leading-none truncate">{perBossSummary.dominantFamily}</p>
+                    <p className="text-sm text-muted-foreground">Largest matching group among the saved nodes</p>
+                  </div>
+                  <div className="shrink-0 rounded-md border border-border/80 bg-background/40 px-2.5 py-1.5 text-right">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Coverage</p>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {perBossSummary.matchedRows}/{perBossSummary.totalRows}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Fit {recommendedVariant.matchedCount}/{recommendedBossTotal} matched ({(recommendedVariant.coverage * 100).toFixed(1)}%)
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">
+                  {perBossSummary.matchedRows}/{perBossSummary.totalRows} nodes matched
+                </Badge>
+                {perBossSummary.unmatchedRows > 0 ? (
+                  <Badge variant="outline">{perBossSummary.unmatchedRows} unmatched</Badge>
+                ) : null}
+              </div>
+              {perBossSummary.details.length > 0 ? (
+                <div className="space-y-2 border-t border-border/70 pt-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Distribution</p>
+                  <div className="space-y-2">
+                    {perBossSummary.details.map(([detail, count]) => (
+                      <div key={`${detail}-${count}`} className="grid grid-cols-[minmax(0,1fr)_44px] items-center gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-3 text-xs">
+                            <span className="truncate font-medium text-foreground">{detail}</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-background/70 ring-1 ring-border/60">
+                            <div
+                              className="h-full rounded-full bg-[linear-gradient(90deg,#f7a600_0%,#ffd166_100%)]"
+                              style={{ width: `${Math.max((count / maxSummaryDetailCount) * 100, 10)}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div className="text-right text-sm font-semibold tabular-nums text-foreground">{count}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : lastRunAt ? (
+            <div className="rounded-md border border-dashed border-border px-2.5 py-2">
+              <p className="text-sm font-medium">Per-boss summary loading</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Loading the match CSV to build the typology summary from boss-by-boss evidence.
               </p>
-              <p className="text-[11px] text-muted-foreground">{recommendationReason}</p>
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-border px-2.5 py-2">
+              <p className="text-sm font-medium">No typology summary yet</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Run matching to assess the saved reference points against the available cut families.
+              </p>
             </div>
           )}
 
-          {equivalentFits.length > 0 && (
-            <details className="rounded-md border border-border px-2.5 py-2">
-              <summary className="cursor-pointer text-xs text-muted-foreground">
-                Equivalent fits ({equivalentFits.length})
-              </summary>
-              <div className="mt-2 space-y-1.5">
-                {equivalentFits.slice(0, 8).map((variant) => (
-                  <div key={variant.variantLabel} className="flex items-center justify-between text-xs">
-                    <span className="truncate">{variantLabelToTitle(variant)}</span>
-                    <span className="text-muted-foreground">{variant.matchedCount} matched</span>
-                  </div>
-                ))}
+          {perBossSummary && perBossSummary.unmatchedRows > 0 && (
+            <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-medium text-amber-200">
+                    {perBossSummary.unmatchedRows} node{perBossSummary.unmatchedRows === 1 ? "" : "s"} did not find a match
+                  </p>
+                  <p className="text-[11px] text-amber-100/80">
+                    These nodes are highlighted in the preview. Return to 4B to adjust their locations, then run matching again.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={onGoToNodes}>
+                  Back to 4B
+                </Button>
               </div>
-            </details>
+            </div>
           )}
+
+          <div className="space-y-2">
+            <Button
+              onClick={onRunMatching}
+              disabled={isLoadingState || isRunningMatching}
+              className="h-12 w-full gap-2"
+            >
+              {isRunningMatching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {lastRunAt ? "Run matching again" : "Run matching"}
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-12 w-full items-center justify-between rounded-md border-border/80 bg-card/50 px-3 text-left hover:bg-card/70"
+              onClick={() => {
+                setIsMatchCsvOpen(true);
+                onLoadMatchCsv();
+              }}
+              disabled={isRunningMatching || !lastRunAt}
+            >
+              <span className="flex min-w-0 items-center gap-2 pr-2">
+                {isLoadingMatchCsv ? <RefreshCw className="h-4 w-4 shrink-0 animate-spin" /> : <FileText className="h-4 w-4 shrink-0" />}
+                <span className="min-w-0 text-left">
+                  <span className="block whitespace-normal text-sm font-medium leading-tight">Open match table</span>
+                  <span className="block text-[11px] text-muted-foreground">Node-by-node evidence</span>
+                </span>
+              </span>
+              <span className="shrink-0 rounded-full border border-border/70 bg-background/50 px-2 py-0.5 text-[11px] text-muted-foreground">
+                {matchSummary.matched}/{matchSummary.total}
+              </span>
+            </Button>
+          </div>
 
           <details
             open={isTemplateOverlayOpen}
             onToggle={(event) => setIsTemplateOverlayOpen((event.currentTarget as HTMLDetailsElement).open)}
-            className="rounded-md border border-primary/45 bg-primary/5 px-2.5 py-2"
+            className="rounded-md border border-amber-400/30 bg-amber-500/[0.04] px-3 py-2"
           >
-            <summary className="cursor-pointer text-sm font-medium text-foreground">Cut-Typology Overlay</summary>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Important: compare template grids here to verify the recommendation visually.
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium text-foreground">
+              <span className="inline-flex items-center gap-2">
+                <span>Cut-Typology Overlay</span>
+                {selectedOverlayLabels.length > 0 ? (
+                  <span className="rounded-full border border-amber-300/35 bg-background/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-100/90">
+                    {selectedOverlayLabels.length} shown
+                  </span>
+                ) : null}
+              </span>
+              {isTemplateOverlayOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+            </summary>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Compare the cuts associated with the current per-boss typology reading.
             </p>
             <div className="mt-2 space-y-2.5">
               <div className="grid grid-cols-2 gap-2">
@@ -470,11 +391,11 @@ export function CutTypologyMatchingPanel({
                   size="sm"
                   variant="outline"
                   className="h-8 gap-1.5"
-                  onClick={onShowBestOverlay}
-                  disabled={!bestVariantLabel}
+                  onClick={onShowPrimaryOverlays}
+                  disabled={!perBossSummary || perBossSummary.overlayLabels.length === 0}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
-                  Show best
+                  Show summary cuts
                 </Button>
               </div>
 
@@ -493,7 +414,9 @@ export function CutTypologyMatchingPanel({
                             />
                             <span className="text-xs font-medium">{variantLabelToTitle(variant)}</span>
                           </div>
-                          {variant.variantLabel === bestVariantLabel && <Badge variant="secondary">best</Badge>}
+                          {perBossSummary?.overlayLabels.includes(variant.variantLabel) && (
+                            <Badge variant="secondary">summary</Badge>
+                          )}
                         </div>
                         {result && (
                           <p className="text-[11px] text-muted-foreground">
@@ -511,10 +434,26 @@ export function CutTypologyMatchingPanel({
             </div>
           </details>
 
-          {lastRunAt && <p className="text-[11px] text-muted-foreground">Last run: {new Date(lastRunAt).toLocaleString()}</p>}
-          <details>
-            <summary className="text-xs cursor-pointer text-muted-foreground">Advanced parameters</summary>
+          <details
+            open={isAdvancedParamsOpen}
+            onToggle={(event) => setIsAdvancedParamsOpen((event.currentTarget as HTMLDetailsElement).open)}
+            className="rounded-md border border-border bg-card/40 px-3 py-2"
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium text-foreground">
+              <span>Advanced parameters</span>
+              {isAdvancedParamsOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+            </summary>
             <div className="mt-3 space-y-2.5">
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => onParamChange(RESET_TEMPLATE_PARAMS)}
+                >
+                  Reset defaults
+                </Button>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <p className="text-[11px] text-muted-foreground mb-1">Starcut min n</p>
@@ -595,10 +534,10 @@ export function CutTypologyMatchingPanel({
         <DialogContent className="flex w-[82vw] max-w-[1200px] max-h-[88vh] flex-col overflow-hidden border-border/40 bg-background/60 p-0 backdrop-blur-md">
           <DialogHeader className="px-5 pt-5 pb-1">
             <div className="flex items-center justify-between gap-2">
-              <DialogTitle className="text-base">cut_typology_match</DialogTitle>
+              <DialogTitle className="text-base">Match table</DialogTitle>
             </div>
             <DialogDescription className="text-xs">
-              Review match rows, sort columns, and download the CSV file.
+              Review boss-by-boss evidence, sort columns, and download the CSV file.
             </DialogDescription>
           </DialogHeader>
           <div className="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-3 px-5 pb-5">

@@ -16,11 +16,6 @@ interface RoiBayProportionPanelProps {
   autoCorrectRoi: boolean;
   onAutoCorrectRoiChange: (checked: boolean) => void;
   correctionApplied?: boolean;
-  showOriginalRoi: boolean;
-  onShowOriginalRoiChange: (checked: boolean) => void;
-  showUpdatedRoi: boolean;
-  onShowUpdatedRoiChange: (checked: boolean) => void;
-  canShowUpdatedRoi: boolean;
 }
 
 function prettifyRatioLabel(label: string): string {
@@ -32,12 +27,24 @@ function prettifyRatioLabel(label: string): string {
 
 function ratioQuality(err: number): { label: string; className: string } {
   if (err < 0.005) {
-    return { label: "Excellent", className: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200" };
+    return { label: "Close fit", className: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200" };
   }
   if (err < 0.015) {
-    return { label: "Good", className: "border-amber-400/40 bg-amber-500/10 text-amber-200" };
+    return { label: "Plausible fit", className: "border-amber-400/40 bg-amber-500/10 text-amber-200" };
   }
   return { label: "Weak", className: "border-slate-500/40 bg-slate-500/10 text-slate-300" };
+}
+
+function interpretBestRatio(bestSuggestion: { label: string; err: number } | undefined): string | null {
+  if (!bestSuggestion) return null;
+  const ratio = prettifyRatioLabel(bestSuggestion.label);
+  if (bestSuggestion.err < 0.005) {
+    return `Saved ROI closely fits ${ratio}.`;
+  }
+  if (bestSuggestion.err < 0.015) {
+    return `Saved ROI is plausibly close to ${ratio}; check against ribs and bosses.`;
+  }
+  return `No strong canonical ratio fit. Recheck the ROI before continuing.`;
 }
 
 export function RoiBayProportionPanel({
@@ -51,17 +58,13 @@ export function RoiBayProportionPanel({
   autoCorrectRoi,
   onAutoCorrectRoiChange,
   correctionApplied,
-  showOriginalRoi,
-  onShowOriginalRoiChange,
-  showUpdatedRoi,
-  onShowUpdatedRoiChange,
-  canShowUpdatedRoi,
 }: RoiBayProportionPanelProps) {
   const sortedSuggestions = [...vaultRatioSuggestions].sort((a, b) => a.err - b.err);
   const bestSuggestion = sortedSuggestions[0];
   const quality = bestSuggestion ? ratioQuality(bestSuggestion.err) : null;
+  const interpretation = interpretBestRatio(bestSuggestion);
   const correctionStatus =
-    correctionApplied === undefined ? "Not run yet" : correctionApplied ? "Applied" : autoCorrectRoi ? "Skipped" : "Disabled";
+    correctionApplied === undefined ? "Not run yet" : correctionApplied ? "Suggested ROI ready" : autoCorrectRoi ? "No better ROI found" : "Off";
   const correctionStatusClass =
     correctionApplied === undefined
       ? "border-slate-500/40 bg-slate-500/10 text-slate-300"
@@ -74,57 +77,47 @@ export function RoiBayProportionPanel({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-medium">ROI & Bay Proportion</CardTitle>
+        <CardTitle className="text-base font-medium">2. Review Bay Proportion</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 pt-1 px-5 pb-5">
         <div className="rounded-md border border-border p-3.5 space-y-3">
-          <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-            <div className="space-y-1">
-              <p className="text-xs font-medium">Auto-correct ROI (beta)</p>
-              <span className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-medium ${correctionStatusClass}`}>
-                {correctionStatus}
-              </span>
+          {/* <p className="text-xs leading-5 text-muted-foreground">
+            Analyse the saved ROI (bay frame), then compare the measured bay proportion with canonical planning ratios.
+          </p> */}
+
+          <div className="rounded-md border border-border px-3 py-3 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-xs font-medium">Suggested ROI (beta)</p>
+                {/* <p className="text-[11px] text-muted-foreground">Uses the default balanced search in the backend.</p> */}
+              </div>
+              <Checkbox checked={autoCorrectRoi} onCheckedChange={(checked) => onAutoCorrectRoiChange(checked === true)} />
             </div>
-            <Checkbox checked={autoCorrectRoi} onCheckedChange={(checked) => onAutoCorrectRoiChange(checked === true)} />
+            <span className={`inline-flex w-fit rounded border px-2 py-0.5 text-[10px] font-medium ${correctionStatusClass}`}>
+              {correctionStatus}
+            </span>
           </div>
 
           <Button onClick={onAnalyse} disabled={isAnalysing || !hasSegmentations} className="w-full gap-2">
             {isAnalysing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            Run ROI Analyse
+            Run Proportion Analysis
           </Button>
 
           {!hasSegmentations && (
-            <p className="text-xs text-muted-foreground text-center">Run segmentation first to enable analysis</p>
+            <p className="text-xs text-muted-foreground text-center">Run segmentation first to enable analysis.</p>
           )}
-
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium">Show Original ROI</p>
-            </div>
-            <Checkbox checked={showOriginalRoi} onCheckedChange={(checked) => onShowOriginalRoiChange(checked === true)} />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium">Show Updated ROI</p>
-            </div>
-            <Checkbox
-              checked={showUpdatedRoi}
-              onCheckedChange={(checked) => onShowUpdatedRoiChange(checked === true)}
-              disabled={!canShowUpdatedRoi}
-            />
-          </div>
         </div>
 
         {vaultRatio !== undefined && (
           <div className="rounded-md border border-border p-3.5 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs text-muted-foreground">Vault proportion</p>
+                <p className="text-xs text-muted-foreground">Measured bay proportion (W/H)</p>
                 <p className="text-2xl font-semibold leading-none mt-1">{vaultRatio.toFixed(4)}</p>
               </div>
               {bossCount !== undefined && (
                 <span className="text-xs px-2 py-1 rounded bg-muted text-muted-foreground">
-                  {bossCount} bosses
+                  {bossCount} bosses used
                 </span>
               )}
             </div>
@@ -132,12 +125,12 @@ export function RoiBayProportionPanel({
             {bestSuggestion && (
               <div className="space-y-3 border-t border-border/80 pt-3">
                 <div>
-                  <p className="text-xs text-muted-foreground">Closest canonical ratio</p>
+                  <p className="text-xs text-muted-foreground">Closest planning ratio</p>
                   <p className="mt-1 text-xl font-semibold text-amber-100">{prettifyRatioLabel(bestSuggestion.label)}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="inline-flex rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                    Error {bestSuggestion.err.toFixed(4)}
+                    Deviation {bestSuggestion.err.toFixed(4)}
                   </span>
                   {quality && (
                     <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${quality.className}`}>
@@ -145,12 +138,17 @@ export function RoiBayProportionPanel({
                     </span>
                   )}
                 </div>
+                {interpretation && (
+                  <p className="rounded-md border border-border/70 bg-muted/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                    {interpretation}
+                  </p>
+                )}
               </div>
             )}
 
             {sortedSuggestions.length > 1 && (
               <details className="text-xs">
-                <summary className="cursor-pointer text-muted-foreground">More ratio candidates</summary>
+                <summary className="cursor-pointer text-muted-foreground">Other planning ratios</summary>
                 <div className="mt-2 space-y-1.5 max-h-28 overflow-y-auto pr-1">
                   {sortedSuggestions.slice(0, 6).map((s, i) => (
                     <div key={`${s.label}-${i}`} className="flex items-center justify-between">
@@ -164,7 +162,7 @@ export function RoiBayProportionPanel({
 
             {analysedAt && (
               <p className="text-xs text-muted-foreground border-t border-border/80 pt-3">
-                Updated {new Date(analysedAt).toLocaleString()}
+                Last analysed {new Date(analysedAt).toLocaleString()}
               </p>
             )}
           </div>

@@ -11,12 +11,13 @@ import {
   getNodeState,
   getCutTypologyCsv,
   getBayPlanState,
+  saveBayPlanManualEdges,
   saveNodes,
   runBayPlanReconstruction,
   runCutTypologyMatching,
-  getEvidenceReportState,
-  generateEvidenceReport,
   type Geometry2DAutoCorrectConfig,
+  type Geometry2DBayPlanRunParams,
+  type Geometry2DBayPlanEdge as Geometry2DReconstructEdge,
   type Geometry2DRoiParams,
   type Geometry2DNodePoint as Geometry2DTemplateBossPoint,
   type Geometry2DCutTypologyBossMatch as Geometry2DTemplateBossMatch,
@@ -26,13 +27,25 @@ import {
   type Geometry2DBayPlanRunResult as Geometry2DReconstructRunResult,
   type Geometry2DCutTypologyParams as Geometry2DTemplateStateParams,
   type Geometry2DCutTypologyVariantResult as Geometry2DTemplateVariantResult,
-  type Geometry2DEvidenceReportStateResult,
-  type Geometry2DEvidenceReportGenerateResult,
 } from "@/lib/api";
 import { useProjectStore, Segmentation } from "@/lib/store";
 import { ROIState, useRoiInteraction } from "@/hooks/useRoiInteraction";
-import { GeometryResult, Geometry2DWorkflowSection, GroupVisibilityInfo } from "@/components/geometry2d/types";
+import {
+  DEFAULT_RECONSTRUCT_LAYERS,
+  GeometryResult,
+  Geometry2DReconstructLayers,
+  Geometry2DReconstructOverlayKey,
+  Geometry2DSegmentationLayerOption,
+  Geometry2DWorkflowSection,
+  GroupVisibilityInfo,
+} from "@/components/geometry2d/types";
 import { toast } from "@/components/ui/use-toast";
+import {
+  buildPerBossTypologySummary,
+  collectPrimaryReadingOverlayLabelsFromPerBoss,
+  normaliseMatchCsvRows,
+  type MatchCsvRow,
+} from "@/components/geometry2d/stages/template/cutTypologyMatchingUtils";
 
 export type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
 
@@ -58,6 +71,8 @@ interface Step4Geometry2DState {
   ui?: {
     activeSection?: Geometry2DWorkflowSection;
     showAdvancedLayers?: boolean;
+    showReconstructLayers?: boolean;
+    showBaseImage?: boolean;
   };
   prep?: {
     bossCount?: number;
@@ -87,10 +102,9 @@ interface Step4Geometry2DState {
     lastRunAt?: string;
     statePath?: string;
     resultPath?: string;
-  };
-  report?: {
-    state?: Geometry2DEvidenceReportStateResult;
-    generated?: Geometry2DEvidenceReportGenerateResult;
+    params?: Record<string, unknown>;
+    defaults?: Record<string, unknown>;
+    layers?: Geometry2DReconstructLayers;
   };
   analysis?: GeometryResult | null;
   roiStats?: { insideCount: number; outsideCount: number };
@@ -113,26 +127,22 @@ const DEFAULT_TEMPLATE_PARAMS: Geometry2DTemplateStateParams = {
   includeInner: true,
   includeOuter: true,
   allowCrossTemplate: true,
-  tolerance: 0.01,
+  tolerance: 0.02,
 };
 
 const ROI_INSIDE_MARGIN_UV = 0.02;
 
 const DEFAULT_AUTO_CORRECT_CONFIG: Geometry2DAutoCorrectConfig = {
   preset: "balanced",
-  tolerance: 0.008,
-  xy_step: 2.0,
-  xy_range: 16.0,
-  n_range: [2, 6],
-  include_scale: true,
-  scale_step: 0.005,
-  scale_range: 0.015,
-  include_rotation: true,
-  rotation_step: 0.25,
-  rotation_range: 1.0,
-  regularisation_weight: 0.05,
-  improvement_margin: 0.002,
 };
+
+function normalizeAutoCorrectConfig(
+  config: Geometry2DAutoCorrectConfig | undefined
+): Geometry2DAutoCorrectConfig {
+  return {
+    preset: config?.preset || DEFAULT_AUTO_CORRECT_CONFIG.preset,
+  };
+}
 
 function isSameRoi(a: ROIState | undefined, b: ROIState | undefined): boolean {
   if (!a || !b) return false;
@@ -253,6 +263,29 @@ function formatTemplateLabel(raw?: string | null): string | null {
   return raw;
 }
 
+function parseOptionalMatchCsvValue(raw?: string | null): string | null {
+  if (!raw) return null;
+  const value = String(raw).trim();
+  if (!value || value.toLowerCase() === "none") return null;
+  return value;
+}
+
+function parseMatchCsvPixelPair(raw?: string | null): [number, number] | null {
+  const value = parseOptionalMatchCsvValue(raw);
+  if (!value) return null;
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed) || parsed.length < 2) return null;
+    const x = Number(parsed[0]);
+    const y = Number(parsed[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return [x, y];
+  } catch {
+    return null;
+  }
+}
+
 function withMatchedTemplateCoordinates(
   points: Geometry2DTemplateBossPoint[],
   perBoss: Geometry2DTemplateBossResult[],
@@ -288,6 +321,48 @@ function withMatchedTemplateCoordinates(
       matchedYTemplateLabel: yTemplateLabel,
     };
   });
+}
+
+function withMatchedTemplateCoordinatesFromCsv(
+  points: Geometry2DTemplateBossPoint[],
+  rows: MatchCsvRow[]
+): Geometry2DTemplateBossPoint[] {
+  const rowsByBossId = new Map<number, MatchCsvRow>();
+  for (const row of rows) {
+    const bossId = Number(row.boss_id);
+    if (Number.isFinite(bossId) && !rowsByBossId.has(bossId)) {
+      rowsByBossId.set(bossId, row);
+    }
+  }
+
+  return points.map((point) => {
+    const row = rowsByBossId.get(point.id);
+    const matched = String(row?.matched || "").toLowerCase() === "true";
+    const templatePixel = matched ? parseMatchCsvPixelPair(row?.template_xy) : null;
+    return {
+      ...point,
+      matchedTemplateX: templatePixel ? Math.round(templatePixel[0]) : null,
+      matchedTemplateY: templatePixel ? Math.round(templatePixel[1]) : null,
+      matchedVariantLabel: matched ? parseOptionalMatchCsvValue(row?.variant_label) : null,
+      matchedXTemplateLabel: matched ? formatTemplateLabel(parseOptionalMatchCsvValue(row?.x_cut)) : null,
+      matchedYTemplateLabel: matched ? formatTemplateLabel(parseOptionalMatchCsvValue(row?.y_cut)) : null,
+    };
+  });
+}
+
+function templatePointMatchDecorationSignature(points: Geometry2DTemplateBossPoint[]): string {
+  return JSON.stringify(
+    points
+      .map((point) => ({
+        id: point.id,
+        matchedTemplateX: point.matchedTemplateX ?? null,
+        matchedTemplateY: point.matchedTemplateY ?? null,
+        matchedVariantLabel: point.matchedVariantLabel ?? null,
+        matchedXTemplateLabel: point.matchedXTemplateLabel ?? null,
+        matchedYTemplateLabel: point.matchedYTemplateLabel ?? null,
+      }))
+      .sort((a, b) => a.id - b.id)
+  );
 }
 
 export function useStep4Geometry2DController() {
@@ -338,16 +413,16 @@ export function useStep4Geometry2DController() {
   const [reconstructLastRunAt, setReconstructLastRunAt] = useState<string | undefined>(undefined);
   const [reconstructStatePath, setReconstructStatePath] = useState<string | undefined>(undefined);
   const [reconstructResultPath, setReconstructResultPath] = useState<string | undefined>(undefined);
-  const [showReconstructionOverlay, setShowReconstructionOverlay] = useState(true);
+  const [reconstructParams, setReconstructParams] = useState<Geometry2DBayPlanRunParams>({});
+  const [reconstructDefaults, setReconstructDefaults] = useState<Record<string, unknown>>({});
+  const [reconstructLayers, setReconstructLayers] = useState<Geometry2DReconstructLayers>(DEFAULT_RECONSTRUCT_LAYERS);
   const [isLoadingReconstructionState, setIsLoadingReconstructionState] = useState(false);
   const [isRunningReconstruction, setIsRunningReconstruction] = useState(false);
-  const [evidenceReportState, setEvidenceReportState] = useState<Geometry2DEvidenceReportStateResult | null>(null);
-  const [evidenceReportResult, setEvidenceReportResult] = useState<Geometry2DEvidenceReportGenerateResult | null>(null);
-  const [isLoadingEvidenceReportState, setIsLoadingEvidenceReportState] = useState(false);
-  const [isGeneratingEvidenceReport, setIsGeneratingEvidenceReport] = useState(false);
+  const [isSavingReconstructionManualEdges, setIsSavingReconstructionManualEdges] = useState(false);
 
   const [roi, setRoi] = useState<ROIState>(DEFAULT_ROI);
   const [showROI, setShowROI] = useState(true);
+  const [showBaseImage, setShowBaseImage] = useState(true);
   const [isSavingROI, setIsSavingROI] = useState(false);
   const [roiSaveResult, setRoiSaveResult] = useState<{ inside: number; outside: number } | null>(null);
 
@@ -355,6 +430,7 @@ export function useStep4Geometry2DController() {
   const [showIntrados, setShowIntrados] = useState(true);
   const [activeSection, setActiveSection] = useState<Geometry2DWorkflowSection>("roi");
   const [showAdvancedLayers, setShowAdvancedLayers] = useState(true);
+  const [showReconstructLayers, setShowReconstructLayers] = useState(false);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const templatePointsRef = useRef<Geometry2DTemplateBossPoint[]>([]);
@@ -364,6 +440,13 @@ export function useStep4Geometry2DController() {
   const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   const [overlayOpacity, setOverlayOpacity] = useState(0.6);
   const [showMaskOverlay, setShowMaskOverlay] = useState(false);
+
+  const handleReconstructParamChange = useCallback((patch: Partial<Geometry2DBayPlanRunParams>) => {
+    setReconstructParams((prev) => ({
+      ...prev,
+      ...patch,
+    }));
+  }, []);
 
   const getLatestStep4Geometry2D = useCallback((): {
     step4Data: Record<string, unknown>;
@@ -444,12 +527,41 @@ export function useStep4Geometry2DController() {
     return visibility;
   }, [groupedSegmentations]);
 
+  const reconstructionSegmentationLayers = useMemo<Geometry2DSegmentationLayerOption[]>(() => {
+    if (currentProject?.segmentationGroups && currentProject.segmentationGroups.length > 0) {
+      return currentProject.segmentationGroups.map((group) => ({
+        groupId: group.groupId,
+        label: group.label,
+        color: group.color || "#888888",
+      }));
+    }
+
+    return Object.entries(groupedSegmentations).map(([label, segs]) => ({
+      groupId: segs[0]?.groupId || label.toLowerCase().replace(/\s+/g, "_"),
+      label,
+      color: segs[0]?.color || "#888888",
+    }));
+  }, [currentProject?.segmentationGroups, groupedSegmentations]);
+
   const selectedTemplateOverlays = useMemo(() => {
     const byLabel = new Map(templateOverlayVariants.map((variant) => [variant.variantLabel, variant]));
     return selectedTemplateOverlayLabels
       .map((label) => byLabel.get(label))
       .filter((value): value is Geometry2DTemplateOverlayVariant => !!value);
   }, [templateOverlayVariants, selectedTemplateOverlayLabels]);
+  const matchingEvidenceLoaded = templateMatchCsvRows.length > 0;
+  const normalisedTemplateMatchCsvRows = useMemo(
+    () => normaliseMatchCsvRows(templateMatchCsvRows),
+    [templateMatchCsvRows]
+  );
+  const matchingUnmatchedNodeIds = useMemo(
+    () =>
+      templateMatchCsvRows
+        .filter((row) => String(row.matched || "").toLowerCase() !== "true")
+        .map((row) => Number(row.boss_id))
+        .filter((value) => Number.isFinite(value)),
+    [templateMatchCsvRows]
+  );
 
   const filteredTemplatePoints = useMemo(() => {
     if (templatePointFilter === "inside") {
@@ -477,6 +589,17 @@ export function useStep4Geometry2DController() {
   useEffect(() => {
     selectedTemplateOverlayLabelsRef.current = selectedTemplateOverlayLabels;
   }, [selectedTemplateOverlayLabels]);
+
+  useEffect(() => {
+    if (!templateLastRunAt || normalisedTemplateMatchCsvRows.length === 0 || templatePoints.length === 0) return;
+
+    const currentSignature = templatePointMatchDecorationSignature(templatePoints);
+    const nextPoints = withMatchedTemplateCoordinatesFromCsv(templatePoints, normalisedTemplateMatchCsvRows);
+    const nextSignature = templatePointMatchDecorationSignature(nextPoints);
+    if (currentSignature !== nextSignature) {
+      setTemplatePoints(nextPoints);
+    }
+  }, [normalisedTemplateMatchCsvRows, templateLastRunAt, templatePoints]);
 
   const resetTemplatePointHistory = useCallback((points: Geometry2DTemplateBossPoint[]) => {
     setTemplatePointHistoryState({
@@ -542,6 +665,11 @@ export function useStep4Geometry2DController() {
   };
 
   const visibleMasks = segmentations.filter(s => s.visible);
+  const reconstructionVisibleMasks = useMemo(() => {
+    if (reconstructLayers.visibleSegmentationGroups.length === 0) return [];
+    const visibleGroupIds = new Set(reconstructLayers.visibleSegmentationGroups);
+    return segmentations.filter((seg) => !!seg.groupId && visibleGroupIds.has(seg.groupId));
+  }, [reconstructLayers.visibleSegmentationGroups, segmentations]);
 
   const decorateTemplatePoint = useCallback((point: Geometry2DTemplateBossPoint): Geometry2DTemplateBossPoint => {
     const resolution = selectedProjection?.settings?.resolution || 2048;
@@ -596,6 +724,19 @@ export function useStep4Geometry2DController() {
     });
   };
 
+  const handleAutoCorrectPresetChange = (preset: NonNullable<Geometry2DAutoCorrectConfig["preset"]>) => {
+    const nextConfig = normalizeAutoCorrectConfig({ preset });
+    setAutoCorrectConfig(nextConfig);
+
+    const prep = getLatestStep4Geometry2D().geometry2d.prep || {};
+    updateStep4Geometry2D({
+      prep: {
+        ...prep,
+        autoCorrectConfig: nextConfig,
+      },
+    });
+  };
+
   const handleWorkflowSectionChange = (section: Geometry2DWorkflowSection) => {
     if (section === activeSection) return;
     setActiveSection(section);
@@ -624,6 +765,28 @@ export function useStep4Geometry2DController() {
       ui: {
         ...ui,
         showAdvancedLayers: checked,
+      },
+    });
+  };
+
+  const handleShowBaseImageChange = (checked: boolean) => {
+    setShowBaseImage(checked);
+    const ui = getLatestStep4Geometry2D().geometry2d.ui || {};
+    updateStep4Geometry2D({
+      ui: {
+        ...ui,
+        showBaseImage: checked,
+      },
+    });
+  };
+
+  const handleReconstructLayersExpandedChange = (checked: boolean) => {
+    setShowReconstructLayers(checked);
+    const ui = getLatestStep4Geometry2D().geometry2d.ui || {};
+    updateStep4Geometry2D({
+      ui: {
+        ...ui,
+        showReconstructLayers: checked,
       },
     });
   };
@@ -757,27 +920,86 @@ export function useStep4Geometry2DController() {
     persistMatchingPatch({ selectedOverlayLabels: [] });
   };
 
-  const handleTemplateShowBestOverlay = () => {
-    if (!templateBestVariantLabel) return;
-    const next = [templateBestVariantLabel];
+  const handleTemplateShowPrimaryOverlays = () => {
+    const next = buildPerBossTypologySummary(normaliseMatchCsvRows(templateMatchCsvRows))?.overlayLabels || [];
+    if (next.length === 0) return;
     setSelectedTemplateOverlayLabels(next);
     persistMatchingPatch({ selectedOverlayLabels: next });
   };
 
-  const handleShowReconstructionOverlayChange = (checked: boolean) => {
-    setShowReconstructionOverlay(checked);
-    updateStep4Geometry2D({
-      reconstruct: {
-        ...(getLatestStep4Geometry2D().geometry2d.reconstruct || {}),
-        result: reconstructResult || undefined,
-        previewBosses: reconstructPreviewBosses,
-        showOverlay: checked,
-        lastRunAt: reconstructLastRunAt,
-        statePath: reconstructStatePath,
-        resultPath: reconstructResultPath,
-      },
-    });
-  };
+  const handleReconstructOverlayLayerChange = useCallback(
+    (key: Geometry2DReconstructOverlayKey, checked: boolean) => {
+      const nextLayers = {
+        ...reconstructLayers,
+        [key]: checked,
+      };
+      setReconstructLayers(nextLayers);
+      updateStep4Geometry2D({
+        reconstruct: {
+          ...(getLatestStep4Geometry2D().geometry2d.reconstruct || {}),
+          result: reconstructResult || undefined,
+          previewBosses: reconstructPreviewBosses,
+          showOverlay: nextLayers.showReconstructedRibs,
+          lastRunAt: reconstructLastRunAt,
+          statePath: reconstructStatePath,
+          resultPath: reconstructResultPath,
+          params: reconstructParams as Record<string, unknown>,
+          defaults: reconstructDefaults,
+          layers: nextLayers,
+        },
+      });
+    },
+    [
+      getLatestStep4Geometry2D,
+      reconstructDefaults,
+      reconstructLastRunAt,
+      reconstructLayers,
+      reconstructParams,
+      reconstructPreviewBosses,
+      reconstructResult,
+      reconstructResultPath,
+      reconstructStatePath,
+      updateStep4Geometry2D,
+    ]
+  );
+
+  const handleReconstructSegmentationLayerChange = useCallback(
+    (groupId: string, checked: boolean) => {
+      const nextLayers = {
+        ...reconstructLayers,
+        visibleSegmentationGroups: checked
+          ? Array.from(new Set([...reconstructLayers.visibleSegmentationGroups, groupId]))
+          : reconstructLayers.visibleSegmentationGroups.filter((value) => value !== groupId),
+      };
+      setReconstructLayers(nextLayers);
+      updateStep4Geometry2D({
+        reconstruct: {
+          ...(getLatestStep4Geometry2D().geometry2d.reconstruct || {}),
+          result: reconstructResult || undefined,
+          previewBosses: reconstructPreviewBosses,
+          showOverlay: nextLayers.showReconstructedRibs,
+          lastRunAt: reconstructLastRunAt,
+          statePath: reconstructStatePath,
+          resultPath: reconstructResultPath,
+          params: reconstructParams as Record<string, unknown>,
+          defaults: reconstructDefaults,
+          layers: nextLayers,
+        },
+      });
+    },
+    [
+      getLatestStep4Geometry2D,
+      reconstructDefaults,
+      reconstructLastRunAt,
+      reconstructLayers,
+      reconstructParams,
+      reconstructPreviewBosses,
+      reconstructResult,
+      reconstructResultPath,
+      reconstructStatePath,
+      updateStep4Geometry2D,
+    ]
+  );
 
   const handleSaveTemplatePoints = async () => {
     if (!currentProject?.id) return false;
@@ -925,15 +1147,32 @@ export function useStep4Geometry2DController() {
       setReconstructStatePath(response.data.statePath);
       setReconstructResultPath(response.data.resultPath);
       setReconstructLastRunAt(response.data.lastRunSummary?.ranAt);
+      setReconstructResult(response.data.latestResult || null);
+      setReconstructParams((response.data.params || {}) as Geometry2DBayPlanRunParams);
+      setReconstructDefaults(response.data.defaults || {});
       const nextPreviewBosses = response.data.previewBosses || [];
       setReconstructPreviewBosses(nextPreviewBosses);
+      const existingLayers = getLatestStep4Geometry2D().geometry2d.reconstruct?.layers;
+      const nextLayers = {
+        ...DEFAULT_RECONSTRUCT_LAYERS,
+        ...(existingLayers || {}),
+      };
+      if (!existingLayers && response.data.lastRunSummary?.ranAt) {
+        nextLayers.showROI = false;
+        nextLayers.showReconstructedRibs = true;
+      }
+      setReconstructLayers(nextLayers);
       updateStep4Geometry2D({
         reconstruct: {
           ...(getLatestStep4Geometry2D().geometry2d.reconstruct || {}),
+          result: response.data.latestResult || getLatestStep4Geometry2D().geometry2d.reconstruct?.result,
           previewBosses: nextPreviewBosses,
           lastRunAt: response.data.lastRunSummary?.ranAt,
           statePath: response.data.statePath,
           resultPath: response.data.resultPath,
+          params: response.data.params || {},
+          defaults: response.data.defaults || {},
+          layers: nextLayers,
         },
       });
     } catch (error) {
@@ -947,7 +1186,7 @@ export function useStep4Geometry2DController() {
     if (!currentProject?.id) return;
     setIsRunningReconstruction(true);
     try {
-      const response = await runBayPlanReconstruction(currentProject.id);
+      const response = await runBayPlanReconstruction(currentProject.id, reconstructParams);
       if (!response.success || !response.data) {
         throw new Error(response.error || "Pattern reconstruction failed.");
       }
@@ -956,15 +1195,22 @@ export function useStep4Geometry2DController() {
       setReconstructPreviewBosses(nextPreviewBosses);
       setReconstructLastRunAt(response.data.ranAt);
       setReconstructResultPath(response.data.outputImagePath);
-      setShowReconstructionOverlay(true);
+      setReconstructParams((response.data.params || {}) as Geometry2DBayPlanRunParams);
+      const nextLayers = {
+        ...DEFAULT_RECONSTRUCT_LAYERS,
+      };
+      setReconstructLayers(nextLayers);
       updateStep4Geometry2D({
         reconstruct: {
           result: response.data,
           previewBosses: nextPreviewBosses,
-          showOverlay: true,
+          showOverlay: nextLayers.showReconstructedRibs,
           lastRunAt: response.data.ranAt,
           statePath: reconstructStatePath,
           resultPath: response.data.outputImagePath,
+          params: response.data.params || {},
+          defaults: reconstructDefaults,
+          layers: nextLayers,
         },
       });
     } catch (error) {
@@ -973,98 +1219,57 @@ export function useStep4Geometry2DController() {
     } finally {
       setIsRunningReconstruction(false);
     }
-  }, [currentProject?.id, reconstructStatePath, updateStep4Geometry2D]);
+  }, [currentProject?.id, reconstructDefaults, reconstructParams, reconstructStatePath, updateStep4Geometry2D]);
 
-  const loadEvidenceState = useCallback(async () => {
+  const handleSaveManualReconstructionEdges = useCallback(async (edges: Geometry2DReconstructEdge[]) => {
     if (!currentProject?.id) return;
-    setIsLoadingEvidenceReportState(true);
+    setIsSavingReconstructionManualEdges(true);
     try {
-      const response = await getEvidenceReportState(currentProject.id);
+      const response = await saveBayPlanManualEdges(currentProject.id, edges);
       if (!response.success || !response.data) {
-        throw new Error(response.error || "Failed to load evidence report state.");
+        throw new Error(response.error || "Failed to save reconstructed ribs.");
       }
-      setEvidenceReportState(response.data);
+
+      setReconstructResult(response.data);
+      const nextPreviewBosses = response.data.usedBosses || [];
+      setReconstructPreviewBosses(nextPreviewBosses);
+      setReconstructParams((response.data.params || {}) as Geometry2DBayPlanRunParams);
+
       updateStep4Geometry2D({
-        report: {
-          ...(getLatestStep4Geometry2D().geometry2d.report || {}),
-          state: response.data,
+        reconstruct: {
+          ...(getLatestStep4Geometry2D().geometry2d.reconstruct || {}),
+          result: response.data,
+          previewBosses: nextPreviewBosses,
+          showOverlay: reconstructLayers.showReconstructedRibs,
+          lastRunAt: reconstructLastRunAt,
+          statePath: reconstructStatePath,
+          resultPath: reconstructResultPath,
+          params: response.data.params || {},
+          defaults: reconstructDefaults,
+          layers: reconstructLayers,
         },
       });
-    } catch (error) {
-      console.error("Failed to load evidence report state:", error);
-    } finally {
-      setIsLoadingEvidenceReportState(false);
-    }
-  }, [currentProject?.id, getLatestStep4Geometry2D, updateStep4Geometry2D]);
 
-  const handleGenerateEvidenceReport = useCallback(async () => {
-    if (!currentProject?.id) return;
-    setIsGeneratingEvidenceReport(true);
-    try {
-      const response = await generateEvidenceReport(currentProject.id);
-      if (!response.success || !response.data) {
-        throw new Error(response.error || "Failed to generate evidence report.");
-      }
-      setEvidenceReportResult(response.data);
-      setEvidenceReportState({
-        projectDir: response.data.projectDir,
-        outputDir: response.data.outputDir,
-        statePath: response.data.statePath,
-        reportJsonPath: response.data.reportJsonPath,
-        reportHtmlPath: response.data.reportHtmlPath,
-        lastGeneratedAt: response.data.ranAt,
-        summary: response.data.summary,
-      });
-      updateStep4Geometry2D({
-        report: {
-          state: {
-            projectDir: response.data.projectDir,
-            outputDir: response.data.outputDir,
-            statePath: response.data.statePath,
-            reportJsonPath: response.data.reportJsonPath,
-            reportHtmlPath: response.data.reportHtmlPath,
-            lastGeneratedAt: response.data.ranAt,
-            summary: response.data.summary,
-          },
-          generated: response.data,
-        },
+      toast({
+        title: "Reconstructed ribs saved",
+        description: `${response.data.edgeCount} ribs persisted to the current bay plan.`,
       });
     } catch (error) {
-      console.error("Evidence report generation error:", error);
-      alert(error instanceof Error ? error.message : "Failed to generate evidence report.");
+      console.error("Manual rib save error:", error);
+      alert(error instanceof Error ? error.message : "Failed to save reconstructed ribs.");
     } finally {
-      setIsGeneratingEvidenceReport(false);
+      setIsSavingReconstructionManualEdges(false);
     }
-  }, [currentProject?.id, updateStep4Geometry2D]);
-
-  const handleDownloadEvidenceHtml = useCallback(() => {
-    const html = evidenceReportResult?.reportHtml;
-    if (!html) return;
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "step-4-evidence-report.html";
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }, [evidenceReportResult?.reportHtml]);
-
-  const handleExportEvidencePdf = useCallback(() => {
-    const html = evidenceReportResult?.reportHtml;
-    if (!html) return;
-    const reportWindow = window.open("", "_blank", "noopener,noreferrer");
-    if (!reportWindow) {
-      alert("Unable to open print window.");
-      return;
-    }
-    reportWindow.document.open();
-    reportWindow.document.write(html);
-    reportWindow.document.close();
-    reportWindow.focus();
-    setTimeout(() => {
-      reportWindow.print();
-    }, 250);
-  }, [evidenceReportResult?.reportHtml]);
+  }, [
+    currentProject?.id,
+    getLatestStep4Geometry2D,
+    reconstructDefaults,
+    reconstructLastRunAt,
+    reconstructLayers,
+    reconstructResultPath,
+    reconstructStatePath,
+    updateStep4Geometry2D,
+  ]);
 
   const handleRunTemplateMatching = async () => {
     if (!currentProject?.id) return;
@@ -1121,8 +1326,7 @@ export function useStep4Geometry2DController() {
       setTemplateLastRunAt(payload.ranAt);
 
       const allowed = new Set(variantsForOverlay.map((variant) => variant.variantLabel));
-      const nextLabels =
-        nextBestVariantLabel && allowed.has(nextBestVariantLabel) ? [nextBestVariantLabel] : [];
+      const nextLabels = collectPrimaryReadingOverlayLabelsFromPerBoss(payload.perBoss || []).filter((label) => allowed.has(label));
       setSelectedTemplateOverlayLabels(nextLabels);
       persistNodesPatch({
         points: nextPointsWithMatches,
@@ -1137,6 +1341,17 @@ export function useStep4Geometry2DController() {
         matchCsvPath: payload.matchCsvPath,
         lastRunAt: payload.ranAt,
       });
+
+      const csvResponse = await getCutTypologyCsv(currentProject.id);
+      if (csvResponse.success && csvResponse.data) {
+        setTemplateMatchCsvColumns(csvResponse.data.columns || []);
+        setTemplateMatchCsvRows(csvResponse.data.rows || []);
+        setTemplateMatchCsvPath(csvResponse.data.csvPath);
+        persistMatchingPatch({ matchCsvPath: csvResponse.data.csvPath });
+      } else {
+        setTemplateMatchCsvColumns([]);
+        setTemplateMatchCsvRows([]);
+      }
     } catch (error) {
       console.error("Template matching error:", error);
       alert(error instanceof Error ? error.message : "Template matching failed.");
@@ -1270,16 +1485,19 @@ export function useStep4Geometry2DController() {
       setCorrectedRoiPreview(prepData.correctedRoi);
       setShowOriginalOverlay(prepData.showOriginalOverlay ?? true);
       setShowUpdatedOverlay(prepData.showUpdatedOverlay ?? true);
-      setAutoCorrectConfig({
-        ...DEFAULT_AUTO_CORRECT_CONFIG,
-        ...(prepData.autoCorrectConfig || {}),
-      });
+      setAutoCorrectConfig(normalizeAutoCorrectConfig(prepData.autoCorrectConfig));
     }
     if (geometry2dData?.ui) {
-      const nextSection = geometry2dData.ui.activeSection || "roi";
+      const rawSection = geometry2dData.ui.activeSection;
+      const nextSection: Geometry2DWorkflowSection =
+        rawSection === "report" ? "reconstruct" : rawSection || "roi";
       const nextAdvancedLayers = geometry2dData.ui.showAdvancedLayers ?? true;
+      const nextReconstructLayers = geometry2dData.ui.showReconstructLayers ?? false;
+      const nextShowBaseImage = geometry2dData.ui.showBaseImage ?? true;
       setActiveSection((prev) => (prev === nextSection ? prev : nextSection));
       setShowAdvancedLayers((prev) => (prev === nextAdvancedLayers ? prev : nextAdvancedLayers));
+      setShowReconstructLayers((prev) => (prev === nextReconstructLayers ? prev : nextReconstructLayers));
+      setShowBaseImage((prev) => (prev === nextShowBaseImage ? prev : nextShowBaseImage));
     }
     if (geometry2dData?.analysis) {
       setResult(geometry2dData.analysis);
@@ -1324,16 +1542,20 @@ export function useStep4Geometry2DController() {
     if (reconstructData) {
       setReconstructResult(reconstructData.result || null);
       setReconstructPreviewBosses(reconstructData.previewBosses || []);
-      setShowReconstructionOverlay(reconstructData.showOverlay ?? true);
       setReconstructLastRunAt(reconstructData.lastRunAt);
       setReconstructStatePath(reconstructData.statePath);
       setReconstructResultPath(reconstructData.resultPath);
-    }
-
-    const reportData = geometry2dData?.report;
-    if (reportData) {
-      setEvidenceReportState(reportData.state || null);
-      setEvidenceReportResult(reportData.generated || null);
+      setReconstructParams((reconstructData.params || {}) as Geometry2DBayPlanRunParams);
+      setReconstructDefaults(reconstructData.defaults || {});
+      const savedLayers = (reconstructData.layers || {}) as Partial<Geometry2DReconstructLayers>;
+      setReconstructLayers({
+        ...DEFAULT_RECONSTRUCT_LAYERS,
+        showReconstructedRibs: reconstructData.showOverlay ?? true,
+        ...savedLayers,
+        visibleSegmentationGroups: Array.isArray(savedLayers.visibleSegmentationGroups)
+          ? savedLayers.visibleSegmentationGroups
+          : [],
+      });
     }
 
     const step4Roi = geometry2dData?.roi;
@@ -1367,8 +1589,7 @@ export function useStep4Geometry2DController() {
     if (!currentProject?.id) return;
     loadTemplateState();
     loadReconstructionState();
-    loadEvidenceState();
-  }, [currentProject?.id, loadEvidenceState, loadReconstructionState, loadTemplateState]);
+  }, [currentProject?.id, loadReconstructionState, loadTemplateState]);
 
   useEffect(() => {
     const prev = prevActiveSectionRef.current;
@@ -1378,11 +1599,6 @@ export function useStep4Geometry2DController() {
     setShowMaskOverlay(false);
     setShowROI(true);
 
-    // Clear overlays only when entering matching stage from another stage.
-    if (activeSection === "matching" && prev && prev !== "matching" && selectedTemplateOverlayLabelsRef.current.length > 0) {
-      setSelectedTemplateOverlayLabels([]);
-      persistMatchingPatch({ selectedOverlayLabels: [] });
-    }
   }, [activeSection, persistMatchingPatch]);
 
   const handleAnalyse = async () => {
@@ -1402,7 +1618,7 @@ export function useStep4Geometry2DController() {
         projectId: currentProject.id,
         projectionId: selectedProjection.id,
         autoCorrectRoi,
-        autoCorrectConfig,
+        autoCorrectConfig: normalizeAutoCorrectConfig(autoCorrectConfig),
       });
 
       if (!prepResponse.success || !prepResponse.data) {
@@ -1432,7 +1648,7 @@ export function useStep4Geometry2DController() {
           vaultRatio: prepResponse.data.vaultRatio,
           vaultRatioSuggestions: prepResponse.data.vaultRatioSuggestions || [],
           autoCorrectRoi,
-          autoCorrectConfig,
+          autoCorrectConfig: normalizeAutoCorrectConfig(autoCorrectConfig),
           correctionApplied: prepResponse.data.correctionApplied,
           autoCorrection: prepResponse.data.autoCorrection,
           originalRoi: originalFromBackend,
@@ -1448,7 +1664,7 @@ export function useStep4Geometry2DController() {
       setVaultRatioSuggestions(prepResponse.data.vaultRatioSuggestions || []);
       setBossCount(prepResponse.data.bossCount);
       setAnalysedAt(new Date().toISOString());
-      setShowROI(false);
+      setShowROI(true);
 
       setGeometryResult({
         classification: null,
@@ -1477,6 +1693,12 @@ export function useStep4Geometry2DController() {
       setIsAnalysing(false);
     }
   };
+
+  const hasSavedRoi = useMemo(() => {
+    const step4Data = currentProject?.steps?.[4]?.data as { geometry2d?: Step4Geometry2DState } | undefined;
+    const savedRoiStats = step4Data?.geometry2d?.roiStats;
+    return !!roiSaveResult || !!savedRoiStats;
+  }, [currentProject?.steps, roiSaveResult]);
 
   const handleExportCSV = () => {
     if (!result) return;
@@ -1521,14 +1743,13 @@ export function useStep4Geometry2DController() {
       reconstruct: {
         result: reconstructResult || undefined,
         previewBosses: reconstructPreviewBosses,
-        showOverlay: showReconstructionOverlay,
+        showOverlay: reconstructLayers.showReconstructedRibs,
         lastRunAt: reconstructLastRunAt,
         statePath: reconstructStatePath,
         resultPath: reconstructResultPath,
-      },
-      report: {
-        state: evidenceReportState || undefined,
-        generated: evidenceReportResult || undefined,
+        params: reconstructParams as Record<string, unknown>,
+        defaults: reconstructDefaults,
+        layers: reconstructLayers,
       },
     });
   };
@@ -1549,6 +1770,7 @@ export function useStep4Geometry2DController() {
     bossCount,
     analysedAt,
     autoCorrectRoi,
+    autoCorrectConfig,
     correctionApplied,
     originalRoiPreview,
     correctedRoiPreview,
@@ -1559,8 +1781,11 @@ export function useStep4Geometry2DController() {
     setRoi,
     showROI,
     setShowROI,
+    showBaseImage,
+    setShowBaseImage,
     isSavingROI,
     roiSaveResult,
+    hasSavedRoi,
 
     templatePoints,
     templateDetectedPoints,
@@ -1574,6 +1799,8 @@ export function useStep4Geometry2DController() {
     templateOverlayVariants,
     selectedTemplateOverlayLabels,
     selectedTemplateOverlays,
+    matchingEvidenceLoaded,
+    matchingUnmatchedNodeIds,
     templateVariantResults,
     templateBestVariantLabel,
     templateOutputDir,
@@ -1590,19 +1817,22 @@ export function useStep4Geometry2DController() {
     reconstructLastRunAt,
     reconstructStatePath,
     reconstructResultPath,
-    showReconstructionOverlay,
+    reconstructParams,
+    reconstructDefaults,
+    reconstructLayers,
+    reconstructionSegmentationLayers,
+    reconstructionVisibleMasks,
+    handleReconstructParamChange,
     isLoadingReconstructionState,
     isRunningReconstruction,
-    evidenceReportState,
-    evidenceReportResult,
-    isLoadingEvidenceReportState,
-    isGeneratingEvidenceReport,
+    isSavingReconstructionManualEdges,
 
     intradosLines,
     showIntrados,
     setShowIntrados,
     activeSection,
     showAdvancedLayers,
+    showReconstructLayers,
 
     selectedImageType,
     setSelectedImageType,
@@ -1616,8 +1846,11 @@ export function useStep4Geometry2DController() {
     handleMouseUp,
 
     handleAutoCorrectToggle,
+    handleAutoCorrectPresetChange,
     handleWorkflowSectionChange,
     handleAdvancedLayersChange,
+    handleShowBaseImageChange,
+    handleReconstructLayersExpandedChange,
     handleShowOriginalOverlayChange,
     handleShowUpdatedOverlayChange,
     handleSaveROI,
@@ -1636,19 +1869,17 @@ export function useStep4Geometry2DController() {
     handleTemplateParamChange,
     handleTemplateOverlayToggle,
     handleTemplateHideAllOverlays,
-    handleTemplateShowBestOverlay,
+    handleTemplateShowPrimaryOverlays,
     handleSaveTemplatePoints,
     handleResetTemplatePoints,
     handleRunTemplateMatching,
     handleLoadTemplateMatchCsv,
     loadTemplateState,
     handleRunReconstruction,
+    handleSaveManualReconstructionEdges,
     loadReconstructionState,
-    handleShowReconstructionOverlayChange,
-    loadEvidenceState,
-    handleGenerateEvidenceReport,
-    handleDownloadEvidenceHtml,
-    handleExportEvidencePdf,
+    handleReconstructOverlayLayerChange,
+    handleReconstructSegmentationLayerChange,
 
     toggleGroupVisibility,
     toggleAllVisibility,
