@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence
+from typing import Dict, Optional, Sequence
 
 from services.geometry2d.prepare_bosses import prepare_bosses_for_geometry2d
 from services.geometry2d.roi_correction import auto_correct_roi_params, resolve_auto_correct_options
@@ -23,7 +23,7 @@ class RoiBayProportionService:
         manual_bosses: Optional[Sequence[Dict[str, float]]] = None,
         min_boss_area: int = 10,
         auto_correct_roi: bool = True,
-        auto_correct_config: Optional[Dict[str, Any]] = None,
+        auto_correct_config: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
@@ -44,7 +44,7 @@ class RoiBayProportionService:
         manual_bosses: Optional[Sequence[Dict[str, float]]],
         min_boss_area: int,
         auto_correct_roi: bool,
-        auto_correct_config: Optional[Dict[str, Any]],
+        auto_correct_config: Optional[Dict[str, str]],
     ) -> Dict[str, Any]:
         project_dir = get_project_dir(project_id)
 

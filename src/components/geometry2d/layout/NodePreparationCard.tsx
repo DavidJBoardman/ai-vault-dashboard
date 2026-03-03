@@ -22,13 +22,14 @@ interface NodePreparationCardProps {
   hasUnsavedChanges: boolean;
   isLoadingState: boolean;
   isSavingPoints: boolean;
-  onFilterChange: (filter: TemplatePointFilter) => void;
+  onFilterChange: (filter: NodePointFilter) => void;
   onSelectPoint: (pointId: number) => void;
   onPointChange: (pointId: number, patch: { x?: number; y?: number }) => void;
   onAddPoint: () => void;
   onRemovePoint: (pointId: number) => void;
   onSavePoints: () => void;
   onResetToDetected: () => void;
+  onGoToRoi?: () => void;
 }
 
 export function NodePreparationCard({
@@ -48,6 +49,7 @@ export function NodePreparationCard({
   onRemovePoint,
   onSavePoints,
   onResetToDetected,
+  onGoToRoi,
 }: NodePreparationCardProps) {
   const [draftInputs, setDraftInputs] = useState<Record<string, string>>({});
 
@@ -80,16 +82,23 @@ export function NodePreparationCard({
     <Card>
       <CardHeader className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base font-medium">{titlePrefix ? `${titlePrefix} Nodes` : "Nodes"}</CardTitle>
+          <CardTitle className="text-base font-medium">{titlePrefix ? `${titlePrefix} Reference Points` : "Reference Points"}</CardTitle>
           {hasUnsavedChanges ? <Badge variant="secondary">Unsaved</Badge> : <Badge variant="outline">Saved</Badge>}
         </div>
         <CardDescription className="text-xs">
-          Edit indexed nodes used for cut-typology matching and bay plan reconstruction
+          Edit reference points used to recover the bay plan.
         </CardDescription>
+        {onGoToRoi && (
+          <Button variant="link" size="sm" className="h-auto w-fit p-0 text-xs text-muted-foreground" onClick={onGoToRoi}>
+            Need to change the ROI? Return to A ROI & Bay Proportion
+          </Button>
+        )}
       </CardHeader>
 
       <CardContent className="px-4 pb-4 pt-0 space-y-2">
-        <p className="text-[10px] text-muted-foreground">Drag on preview or type pixel coordinates.</p>
+        <p className="text-[10px] text-muted-foreground">
+          Place each reference point on a stable geometric mark used to recover the bay plan.
+        </p>
 
         <div className="grid grid-cols-3 gap-1">
           <Button
@@ -121,27 +130,27 @@ export function NodePreparationCard({
         <div className="flex items-center gap-1.5">
           <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2.5" onClick={onAddPoint}>
             <Plus className="h-3.5 w-3.5" />
-            Add
+            Add Point
           </Button>
           <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2.5" onClick={onResetToDetected}>
             <RotateCcw className="h-3.5 w-3.5" />
-            Reset
+            Reset to Detected
           </Button>
         </div>
 
         <ScrollArea className="h-[22.5rem] rounded-md border border-border">
           <div className="p-1.5 space-y-1.5">
-            <div className="sticky top-0 z-10 bg-background/95 backdrop-blur grid grid-cols-[2.75rem_minmax(0,1fr)_minmax(0,1fr)_4.25rem_1.75rem] gap-1.5 px-1.5 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <div>ID</div>
+            <div className="sticky top-0 z-10 bg-background/95 backdrop-blur grid grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5.1rem_1.75rem] gap-1.5 px-1.5 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <div>Point</div>
               <div className="whitespace-nowrap">X px</div>
               <div className="whitespace-nowrap">Y px</div>
-              <div className="text-center whitespace-nowrap">Src / ROI</div>
+              <div className="text-center whitespace-nowrap">Source / ROI</div>
               <div />
             </div>
             {points.map((point) => (
               <div
                 key={point.id}
-                className={`grid grid-cols-[2.75rem_minmax(0,1fr)_minmax(0,1fr)_4.25rem_1.75rem] gap-1.5 items-center rounded border px-1.5 py-1.5 cursor-pointer ${
+                className={`grid grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5.1rem_1.75rem] gap-1.5 items-center rounded border px-1.5 py-1.5 cursor-pointer ${
                   selectedPointId === point.id
                     ? "border-primary/70 bg-primary/10"
                     : "border-border/70"
@@ -239,7 +248,7 @@ export function NodePreparationCard({
           className="w-full gap-2"
         >
           {isSavingPoints ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Save Nodes
+          Save Reference Points
         </Button>
       </CardContent>
     </Card>

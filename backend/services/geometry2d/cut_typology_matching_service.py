@@ -25,7 +25,7 @@ DEFAULT_TEMPLATE_PARAMS: Dict[str, Any] = {
     "includeInner": True,
     "includeOuter": True,
     "allowCrossTemplate": True,
-    "tolerance": 0.01,
+    "tolerance": 0.02,
 }
 ROI_INSIDE_MARGIN_UV = 0.02
 

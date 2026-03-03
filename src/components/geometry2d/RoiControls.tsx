@@ -41,10 +41,10 @@ export function RoiControls({
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-medium flex items-center gap-2">
           <Square className="w-4 h-4" />
-          Region of Interest
+          1. ROI (Bay Frame)
         </CardTitle>
         <CardDescription className="text-xs">
-          Drag to move, corners to resize, top handle to rotate
+          Adjust the ROI before running any proportion analysis.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -56,7 +56,7 @@ export function RoiControls({
         <div className="space-y-1.5">
           <Label className="text-sm flex items-center gap-2">
             <RotateCw className="w-3 h-3" />
-            Rotation: {Math.round(roi.rotation)}°
+            ROI rotation: {Math.round(roi.rotation)}°
           </Label>
           <Slider
             value={[roi.rotation]}
@@ -69,8 +69,8 @@ export function RoiControls({
         </div>
 
         <div className="text-xs text-muted-foreground space-y-1">
-          <p>Size: {Math.round(roi.width * 100)}% × {Math.round(roi.height * 100)}%</p>
-          <p>Center: ({Math.round(roi.x * 100)}%, {Math.round(roi.y * 100)}%)</p>
+          {/* <p>Check that the ROI follows the outer bay limits and the main boss positions.</p> */}
+          <p>Save this ROI before running the proportion analysis.</p>
         </div>
 
         <Button
@@ -87,7 +87,7 @@ export function RoiControls({
           <div className="p-2 rounded-md bg-primary/10 border border-primary/20">
             <p className="text-xs font-medium text-primary">ROI Saved</p>
             <div className="flex gap-3 mt-1 text-xs">
-              <span className="text-green-600">✓ {roiSaveResult.inside} inside</span>
+              <span className="text-green-600">✓ {roiSaveResult.inside} bosses inside</span>
               <span className="text-muted-foreground">{roiSaveResult.outside} outside</span>
             </div>
           </div>
@@ -96,4 +96,3 @@ export function RoiControls({
     </Card>
   );
 }
-
