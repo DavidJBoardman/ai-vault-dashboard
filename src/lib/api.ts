@@ -383,14 +383,16 @@ export interface ImpostLineRequest {
     id: string;
     points: Array<[number, number, number]>;
   }>;
+  impostHeight?: number;
 }
 
 export async function calculateImpostLine(
-  params: ImpostLineRequest
+  params: ImpostLineRequest,
+  impostHeight?: number
 ): Promise<ApiResponse<ImpostLineResult>> {
   return apiRequest<ImpostLineResult>("/api/geometry/measurements/impost-line", {
     method: "POST",
-    body: JSON.stringify(params),
+    body: JSON.stringify({ ...params, impostHeight }),
   });
 }
 

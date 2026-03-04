@@ -356,7 +356,7 @@ export default function Step5ReprojectionPage() {
   
   const handleContinue = () => {
     setReprojectionSelections(selectedGroups);
-    completeStep(5, { selectedGroups, showUnmaskedPoints });
+    completeStep(5, { selectedGroups, showUnmaskedPoints, floorPlaneZ });
     router.push("/workflow/step-6-traces");
   };
 

@@ -212,6 +212,7 @@ class ImpostLineResponse(BaseModel):
 class ImpostLineRequest(BaseModel):
     """Request for impost line calculation with multiple rib traces."""
     ribs: List[dict]  # [{id: str, points: [[x, y, z], ...]}, ...]
+    impostHeight: Optional[float] = None  # User-defined impost height (e.g., floor plane Z)
 
 
 @router.post("/measurements/impost-line", response_model=ImpostLineResponse)
@@ -235,7 +236,9 @@ async def calculate_impost_line_endpoint(request: ImpostLineRequest):
         if not service.traces:
             return ImpostLineResponse(success=False, error="No valid rib traces provided")
         
-        result = await service._async_calculate_impost_line()
+        result = await service._async_calculate_impost_line(
+            impost_height=request.impostHeight
+        )
         
         return ImpostLineResponse(
             success=True,
