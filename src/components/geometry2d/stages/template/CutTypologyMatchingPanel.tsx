@@ -34,7 +34,7 @@ const RESET_TEMPLATE_PARAMS: Geometry2DCutTypologyParams = {
   includeInner: true,
   includeOuter: true,
   allowCrossTemplate: true,
-  tolerance: 0.02,
+  tolerance: 0.01,
 };
 
 interface CutTypologyMatchingPanelProps {
@@ -330,38 +330,6 @@ export function CutTypologyMatchingPanel({
             </div>
           )}
 
-          <div className="space-y-2">
-            <Button
-              onClick={onRunMatching}
-              disabled={isLoadingState || isRunningMatching}
-              className="h-12 w-full gap-2"
-            >
-              {isRunningMatching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {lastRunAt ? "Run matching again" : "Run matching"}
-            </Button>
-
-            <Button
-              variant="outline"
-              className="h-12 w-full items-center justify-between rounded-md border-border/80 bg-card/50 px-3 text-left hover:bg-card/70"
-              onClick={() => {
-                setIsMatchCsvOpen(true);
-                onLoadMatchCsv();
-              }}
-              disabled={isRunningMatching || !lastRunAt}
-            >
-              <span className="flex min-w-0 items-center gap-2 pr-2">
-                {isLoadingMatchCsv ? <RefreshCw className="h-4 w-4 shrink-0 animate-spin" /> : <FileText className="h-4 w-4 shrink-0" />}
-                <span className="min-w-0 text-left">
-                  <span className="block whitespace-normal text-sm font-medium leading-tight">Open match table</span>
-                  <span className="block text-[11px] text-muted-foreground">Node-by-node evidence</span>
-                </span>
-              </span>
-              <span className="shrink-0 rounded-full border border-border/70 bg-background/50 px-2 py-0.5 text-[11px] text-muted-foreground">
-                {matchSummary.matched}/{matchSummary.total}
-              </span>
-            </Button>
-          </div>
-
           <details
             open={isTemplateOverlayOpen}
             onToggle={(event) => setIsTemplateOverlayOpen((event.currentTarget as HTMLDetailsElement).open)}
@@ -472,7 +440,6 @@ export function CutTypologyMatchingPanel({
                   <Input
                     type="number"
                     min={2}
-                    max={12}
                     step={1}
                     value={params.starcutMax}
                     onChange={(event) => onParamChange({ starcutMax: Number(event.target.value) })}
@@ -527,6 +494,38 @@ export function CutTypologyMatchingPanel({
               </div>
             </div>
           </details>
+
+          <div className="space-y-2">
+            <Button
+              onClick={onRunMatching}
+              disabled={isLoadingState || isRunningMatching}
+              className="h-12 w-full gap-2"
+            >
+              {isRunningMatching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {lastRunAt ? "Run matching again" : "Run matching"}
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-12 w-full items-center justify-between rounded-md border-border/80 bg-card/50 px-3 text-left hover:bg-card/70"
+              onClick={() => {
+                setIsMatchCsvOpen(true);
+                onLoadMatchCsv();
+              }}
+              disabled={isRunningMatching || !lastRunAt}
+            >
+              <span className="flex min-w-0 items-center gap-2 pr-2">
+                {isLoadingMatchCsv ? <RefreshCw className="h-4 w-4 shrink-0 animate-spin" /> : <FileText className="h-4 w-4 shrink-0" />}
+                <span className="min-w-0 text-left">
+                  <span className="block whitespace-normal text-sm font-medium leading-tight">Open match table</span>
+                  <span className="block text-[11px] text-muted-foreground">Node-by-node evidence</span>
+                </span>
+              </span>
+              <span className="shrink-0 rounded-full border border-border/70 bg-background/50 px-2 py-0.5 text-[11px] text-muted-foreground">
+                {matchSummary.matched}/{matchSummary.total}
+              </span>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
