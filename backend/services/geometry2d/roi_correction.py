@@ -34,11 +34,11 @@ AUTO_CORRECT_PRESETS: Dict[str, Dict[str, Any]] = {
         "n_range": (2, 6),
         "include_scale": True,
         "scale_step": 0.005,
-        "scale_range": 0.02,
+        "scale_range": 0.015,
         "include_rotation": True,
         "rotation_step": 0.25,
         "rotation_range": 1.25,
-        "regularisation_weight": 0.05,
+        "regularisation_weight": 0.04,
         "improvement_margin": 0.002,
     },
     "precise": {

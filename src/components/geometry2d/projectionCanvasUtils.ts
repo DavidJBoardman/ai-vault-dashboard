@@ -15,6 +15,9 @@ export function getReconstructionBossStyle(source: string): ReconstructionBossSt
   if (source === "ideal") {
     return { fill: "#ffffff", stroke: "#0ea5e9", label: "Ideal match" };
   }
+  if (source === "anchor") {
+    return { fill: "#f472b6", stroke: "#ffffff", label: "Corner anchor" };
+  }
   if (source === "manual") {
     return { fill: "#facc15", stroke: "#78350f", label: "Manual node" };
   }

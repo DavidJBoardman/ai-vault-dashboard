@@ -120,6 +120,7 @@ class NodePoint(BaseModel):
     x: float
     y: float
     source: str
+    pointType: str = "boss"
     u: float
     v: float
     outOfBounds: bool
@@ -172,9 +173,11 @@ class NodesStateResponse(BaseModel):
 
 class SaveNodePoint(BaseModel):
     id: int
+    label: Optional[str] = None
     x: float
     y: float
     source: str = "manual"
+    pointType: str = "boss"
 
 
 class SaveNodesRequest(BaseModel):
@@ -460,6 +463,7 @@ class BayPlanRunResult(BaseModel):
     constraintEdgeCount: int
     idealBossUsedCount: int
     bossCount: int
+    cornerAnchorCount: int = 0
     acceptedRibCount: int = 0
     rejectedRibCount: int = 0
     enabledConstraintFamilies: List[str] = Field(default_factory=list)

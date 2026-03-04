@@ -41,6 +41,16 @@ export default function Step4Geometry2DPage() {
   const hasMatchingResult = !!controller.templateLastRunAt;
   const hasReconstructionResult = !!controller.reconstructLastRunAt;
   const hasVisibleReferenceSegmentationLayers = Object.values(controller.groupVisibility).some((info) => info.visible > 0);
+  const isStep4Busy =
+    controller.isAnalysing ||
+    controller.isSavingROI ||
+    controller.isLoadingTemplateState ||
+    controller.isSavingTemplatePoints ||
+    controller.isRunningTemplateMatching ||
+    controller.isLoadingTemplateMatchCsv ||
+    controller.isLoadingReconstructionState ||
+    controller.isRunningReconstruction ||
+    controller.isSavingReconstructionManualEdges;
 
   const workflowSections = useMemo<WorkflowStepperItem[]>(
     () => [
@@ -154,6 +164,15 @@ export default function Step4Geometry2DPage() {
     }
   };
 
+  const handleResetStep4 = () => {
+    if (!window.confirm("Reset Step 4 and clear ROI analysis, nodes, matching, and reconstruction results?")) {
+      return;
+    }
+    setSelectedReconstructionEdgeKey(null);
+    setStageToolTab("controls");
+    controller.handleResetStep4();
+  };
+
   return (
     <div className="space-y-6">
       <StepHeader
@@ -182,6 +201,8 @@ export default function Step4Geometry2DPage() {
             activeSection={controller.activeSection}
             onSectionChange={controller.handleWorkflowSectionChange}
             sections={workflowSections}
+            onReset={handleResetStep4}
+            resetDisabled={isStep4Busy}
           />
 
           <div className="grid lg:grid-cols-12 gap-6">
@@ -210,7 +231,7 @@ export default function Step4Geometry2DPage() {
               {stageToolTab === "controls" && isRoiStage ? (
                 <RoiControls
                   showROI={controller.showROI}
-                  onShowROIChange={controller.setShowROI}
+                  onShowROIChange={controller.handleShowROIChange}
                   roi={controller.roi}
                   onRotationChange={(rotation) => controller.setRoi((prev) => ({ ...prev, rotation }))}
                   onSaveROI={controller.handleSaveROI}
@@ -232,10 +253,12 @@ export default function Step4Geometry2DPage() {
                   totalPointsCount={controller.templatePoints.length}
                   selectedPointId={controller.selectedTemplatePointId}
                   filter={controller.templatePointFilter}
+                  includeRoiCornerPoints={controller.includeRoiCornerPoints}
                   hasUnsavedChanges={controller.hasTemplatePointChanges}
                   isLoadingState={controller.isLoadingTemplateState}
                   isSavingPoints={controller.isSavingTemplatePoints}
                   onFilterChange={controller.setTemplatePointFilter}
+                  onIncludeRoiCornerPointsChange={controller.handleIncludeRoiCornerPointsChange}
                   onSelectPoint={controller.handleSelectTemplatePoint}
                   onPointChange={controller.handleTemplatePointChange}
                   onAddPoint={controller.handleAddTemplatePoint}
@@ -297,6 +320,7 @@ export default function Step4Geometry2DPage() {
                   groupVisibility={controller.groupVisibility}
                   showBaseImage={controller.showBaseImage}
                   onShowBaseImageChange={controller.handleShowBaseImageChange}
+                  editRoiEnabled={controller.showROI}
                   showOriginalRoi={controller.showOriginalOverlay}
                   onShowOriginalRoiChange={controller.handleShowOriginalOverlayChange}
                   canShowOriginalRoi={!!controller.originalRoiPreview}
@@ -314,9 +338,13 @@ export default function Step4Geometry2DPage() {
                   groupVisibility={controller.groupVisibility}
                   showBaseImage={controller.showBaseImage}
                   onShowBaseImageChange={controller.handleShowBaseImageChange}
-                  roiLabel={controller.correctedRoiPreview ? "Updated ROI" : "ROI"}
+                  roiLabel={controller.correctedRoiPreview ? "Suggested ROI" : "ROI"}
                   showRoi={controller.showROI}
                   onShowRoiChange={controller.setShowROI}
+                  showRoiCornerGuides={controller.includeRoiCornerPoints ? false : controller.showRoiCornerGuides}
+                  onShowRoiCornerGuidesChange={
+                    controller.includeRoiCornerPoints ? undefined : controller.handleShowRoiCornerGuidesChange
+                  }
                   onToggleGroup={controller.toggleGroupVisibility}
                   expanded
                   showToggle={false}
@@ -326,7 +354,7 @@ export default function Step4Geometry2DPage() {
                   groupVisibility={controller.groupVisibility}
                   showBaseImage={controller.showBaseImage}
                   onShowBaseImageChange={controller.handleShowBaseImageChange}
-                  roiLabel={controller.correctedRoiPreview ? "Updated ROI" : "ROI"}
+                  roiLabel={controller.correctedRoiPreview ? "Suggested ROI" : "ROI"}
                   showRoi={controller.showROI}
                   onShowRoiChange={controller.setShowROI}
                   onToggleGroup={controller.toggleGroupVisibility}
@@ -428,8 +456,22 @@ export default function Step4Geometry2DPage() {
                   roi={controller.roi}
                   originalRoi={controller.originalRoiPreview}
                   correctedRoi={controller.correctedRoiPreview}
-                  showOriginalOverlay={controller.activeSection === "nodes" || controller.activeSection === "matching" || controller.activeSection === "reconstruct" ? false : controller.showOriginalOverlay}
-                  showUpdatedOverlay={controller.activeSection === "nodes" || controller.activeSection === "matching" || controller.activeSection === "reconstruct" ? false : controller.showUpdatedOverlay}
+                  showOriginalOverlay={
+                    controller.activeSection === "nodes" ||
+                    controller.activeSection === "matching" ||
+                    controller.activeSection === "reconstruct" ||
+                    (controller.activeSection === "roi" && controller.showROI)
+                      ? false
+                      : controller.showOriginalOverlay
+                  }
+                  showUpdatedOverlay={
+                    controller.activeSection === "nodes" ||
+                    controller.activeSection === "matching" ||
+                    controller.activeSection === "reconstruct" ||
+                    (controller.activeSection === "roi" && controller.showROI)
+                      ? false
+                      : controller.showUpdatedOverlay
+                  }
                   showIntrados={controller.showIntrados}
                   intradosLines={controller.intradosLines}
                   isAnalysing={controller.isAnalysing}
@@ -438,6 +480,11 @@ export default function Step4Geometry2DPage() {
                   selectedTemplateOverlays={controller.activeSection === "matching" ? controller.selectedTemplateOverlays : []}
                   matchingEvidenceLoaded={controller.activeSection === "matching" ? controller.matchingEvidenceLoaded : false}
                   matchingUnmatchedNodeIds={controller.activeSection === "matching" ? controller.matchingUnmatchedNodeIds : []}
+                  showRoiCornerGuides={
+                    controller.activeSection === "nodes" && !controller.includeRoiCornerPoints
+                      ? controller.showRoiCornerGuides
+                      : false
+                  }
                   showReconstructionOverlay={controller.activeSection === "reconstruct" ? controller.reconstructLayers.showReconstructedRibs : false}
                   showReconstructionNodes={controller.activeSection === "reconstruct" ? controller.reconstructLayers.showNodes : false}
                   reconstructionResult={controller.activeSection === "reconstruct" ? controller.reconstructResult : null}

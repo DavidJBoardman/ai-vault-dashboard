@@ -20,6 +20,7 @@ from services.geometry2d.utils.bay_candidate_io import (
     debug_image_path,
     load_base_image,
     load_boss_rows,
+    load_reference_rows,
     load_grouped_rib_mask,
     load_json_object,
     load_roi_params,
@@ -100,13 +101,13 @@ class BayPlanCandidateService:
         project_dir = get_project_dir(project_id)
         params = resolve_params(project_dir, DEFAULT_CANDIDATE_PARAMS)
         roi = load_roi_params(project_dir)
-        boss_rows = load_boss_rows(project_dir)
+        reference_rows = load_reference_rows(project_dir)
         preview_bosses = []
-        for row in boss_rows:
+        for row in reference_rows:
             node = collect_boss_nodes(roi=roi, boss_rows=[row])[0]
             preview_bosses.append(
                 {
-                    "id": str(row["id"]),
+                    "id": str(row.get("label", row["id"])),
                     "x": int(node.xy[0]),
                     "y": int(node.xy[1]),
                     "source": str(row.get("source", "raw")),
@@ -142,19 +143,21 @@ class BayPlanCandidateService:
         project_dir = get_project_dir(project_id)
         params = resolve_params(project_dir, DEFAULT_CANDIDATE_PARAMS, params_patch=params_patch)
         roi = load_roi_params(project_dir)
-        boss_rows = load_boss_rows(project_dir)
-        nodes = collect_boss_nodes(roi=roi, boss_rows=boss_rows)
+        reference_rows = load_reference_rows(project_dir)
+        boss_rows = [row for row in reference_rows if str(row.get("pointType", "boss")) == "boss"]
+        corner_rows = [row for row in reference_rows if str(row.get("pointType", "boss")) == "corner"]
+        nodes = collect_boss_nodes(roi=roi, boss_rows=reference_rows)
         with_match = sum(1 for row in boss_rows if str(row.get("source", "raw")) == "ideal")
         reconstruction_mode = str(params.get("reconstructionMode", "current"))
 
         used_bosses = [
             {
-                "id": str(row["id"]),
+                "id": str(row.get("label", row["id"])),
                 "x": int(node.xy[0]),
                 "y": int(node.xy[1]),
                 "source": str(row.get("source", "raw")),
             }
-            for row, node in zip(boss_rows, nodes)
+            for row, node in zip(reference_rows, nodes)
         ]
 
         if reconstruction_mode == "delaunay":
@@ -162,7 +165,7 @@ class BayPlanCandidateService:
                 {
                     "id": node.node_id,
                     "bossId": node.boss_id,
-                    "source": "boss",
+                    "source": str(node.source),
                     "u": float(node.uv[0]),
                     "v": float(node.uv[1]),
                     "x": int(node.xy[0]),
@@ -194,6 +197,7 @@ class BayPlanCandidateService:
                 ),
                 "idealBossUsedCount": int(with_match),
                 "bossCount": len(boss_rows),
+                "cornerAnchorCount": len(corner_rows),
                 "acceptedRibCount": 0,
                 "rejectedRibCount": 0,
                 "enabledConstraintFamilies": list(delaunay.get("constraintFamilies", [])),
@@ -219,7 +223,7 @@ class BayPlanCandidateService:
                 ],
                 "usedBosses": used_bosses,
                 "idealBosses": [row for row in used_bosses if row["source"] == "ideal"],
-                "extractedBosses": [row for row in used_bosses if row["source"] != "ideal"],
+                "extractedBosses": [row for row in used_bosses if row["source"] not in ("ideal", "anchor")],
             }
             write_state(project_dir, params, result=payload)
             write_result(project_dir, payload)
@@ -289,6 +293,7 @@ class BayPlanCandidateService:
             "constraintEdgeCount": int(sum(1 for edge in selected_edges if bool(edge.get("isBoundaryForced", False)))),
             "idealBossUsedCount": int(with_match),
             "bossCount": len(boss_rows),
+            "cornerAnchorCount": len(corner_rows),
             "acceptedRibCount": int(sum(len(spokes) for spokes in boss_spokes.values())),
             "rejectedRibCount": 0,
             "enabledConstraintFamilies": [],
@@ -300,7 +305,7 @@ class BayPlanCandidateService:
                 {
                     "id": node.node_id,
                     "bossId": node.boss_id,
-                    "source": "boss",
+                    "source": str(node.source),
                     "u": float(node.uv[0]),
                     "v": float(node.uv[1]),
                     "x": int(node.xy[0]),
@@ -328,7 +333,7 @@ class BayPlanCandidateService:
             "optimisationDiagnostics": optimisation_diagnostics,
             "usedBosses": used_bosses,
             "idealBosses": [row for row in used_bosses if row["source"] == "ideal"],
-            "extractedBosses": [row for row in used_bosses if row["source"] != "ideal"],
+            "extractedBosses": [row for row in used_bosses if row["source"] not in ("ideal", "anchor")],
         }
         payload.update(
             score_selected_graph(

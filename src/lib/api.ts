@@ -20,10 +20,20 @@ export interface E57Info {
   hasIntensity: boolean;
 }
 
-export async function uploadE57(filePath: string): Promise<ApiResponse<E57Info>> {
+export async function uploadE57(file: string | File): Promise<ApiResponse<E57Info>> {
+  if (typeof file === "string") {
+    return apiRequest<E57Info>("/api/upload/e57", {
+      method: "POST",
+      body: JSON.stringify({ file_path: file }),
+    });
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
   return apiRequest<E57Info>("/api/upload/e57", {
     method: "POST",
-    body: JSON.stringify({ file_path: filePath }),
+    body: formData,
   });
 }
 

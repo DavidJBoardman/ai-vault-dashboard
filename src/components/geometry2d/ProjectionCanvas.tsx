@@ -70,6 +70,7 @@ interface ProjectionCanvasProps {
   selectedTemplateOverlays?: Geometry2DCutTypologyOverlayVariant[];
   matchingEvidenceLoaded?: boolean;
   matchingUnmatchedNodeIds?: number[];
+  showRoiCornerGuides?: boolean;
   showReconstructionOverlay?: boolean;
   showReconstructionNodes?: boolean;
   reconstructionResult?: Geometry2DBayPlanRunResult | null;
@@ -117,6 +118,7 @@ export function ProjectionCanvas({
   selectedTemplateOverlays = [],
   matchingEvidenceLoaded = false,
   matchingUnmatchedNodeIds = [],
+  showRoiCornerGuides = false,
   showReconstructionOverlay = false,
   showReconstructionNodes = false,
   reconstructionResult = null,
@@ -128,6 +130,7 @@ export function ProjectionCanvas({
 }: ProjectionCanvasProps) {
   const ROI_AQUA = "#00ffd5";
   const ROI_AMBER = "#ffcf33";
+  const ROI_EDIT = "#00e5ff";
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 3;
   const ZOOM_STEP = 0.25;
@@ -189,6 +192,7 @@ export function ProjectionCanvas({
     hasStableMatchingEvidence &&
     templateBossPoints.some((point) => isTemplatePointUnmatched(point));
   const showTemplateOverlayLegend = selectedTemplateOverlays.length > 0;
+  const showCornerGuideLegend = showRoiCornerGuides && showROI && bossHoverInfoMode === "nodes";
   const showAnyRoiLayer = showROI || showOriginalComparison || showUpdatedComparison;
   const projectionResolution = selectedProjection?.settings?.resolution || 2048;
   const reconstructionNodes = reconstructionResult?.nodes || [];
@@ -296,6 +300,18 @@ export function ProjectionCanvas({
     const y = roiState.y + (Math.sin(angle) * xLocal) + (Math.cos(angle) * yLocal);
     return { x, y };
   };
+
+  const roiCornerGuides = [
+    { dx: -roi.width / 2, dy: -roi.height / 2, label: "NW" },
+    { dx: roi.width / 2, dy: -roi.height / 2, label: "NE" },
+    { dx: roi.width / 2, dy: roi.height / 2, label: "SE" },
+    { dx: -roi.width / 2, dy: roi.height / 2, label: "SW" },
+  ].map((corner) => {
+    const angle = (roi.rotation * Math.PI) / 180;
+    const x = roi.x + (Math.cos(angle) * corner.dx) - (Math.sin(angle) * corner.dy);
+    const y = roi.y + (Math.sin(angle) * corner.dx) + (Math.cos(angle) * corner.dy);
+    return { x, y, label: corner.label };
+  });
 
   const reconstructionEdgePalette = ["#ff7a18", "#22c55e", "#38bdf8", "#f43f5e", "#facc15", "#a78bfa", "#14b8a6", "#fb7185"];
   const getTemplateOverlayStyle = (variant: Geometry2DCutTypologyOverlayVariant) => {
@@ -739,7 +755,7 @@ export function ProjectionCanvas({
     }
     if (showROI) {
       if (roiInteractive) {
-        drawRoiRect(roi, "#22c55e", 1.25, [5, 3]);
+        drawRoiRect(roi, ROI_EDIT, 1.5, [5, 3]);
       } else {
         drawRoiRect(roi, ROI_AQUA, 2.2, [6, 3]);
         drawRoiRect(roi, "#00151a", 3, [], undefined, 0.45);
@@ -782,12 +798,30 @@ export function ProjectionCanvas({
         const x = projectToCanvasX(point.x);
         const y = projectToCanvasY(point.y);
         const isManual = point.source === "manual";
+        const isCorner = point.pointType === "corner";
         const isOutside = point.outOfBounds;
         const isSelected = selectedBossPointId === point.id;
         const isUnmatched = isTemplatePointUnmatched(point);
-        const fill = isOutside ? "#ef4444" : isUnmatched ? "#ef4444" : isManual ? "#facc15" : "#ffffff";
-        const stroke = isOutside ? "#7f1d1d" : isUnmatched ? "#ffffff" : isManual ? "#78350f" : "#0ea5e9";
-        const radius = isSelected ? 6 : isManual ? 5.2 : 4.4;
+        const fill = isOutside
+          ? "#ef4444"
+          : isUnmatched
+            ? "#ef4444"
+            : isCorner
+              ? "#67e8f9"
+              : isManual
+                ? "#facc15"
+                : "#ffffff";
+        const stroke = isOutside
+          ? "#7f1d1d"
+          : isUnmatched
+            ? "#ffffff"
+            : isCorner
+              ? "#155e75"
+              : isManual
+                ? "#78350f"
+                : "#0ea5e9";
+        const radius = isSelected ? 6 : isCorner ? 5.4 : isManual ? 5.2 : 4.4;
+        const pointLabel = isCorner ? point.label : String(point.id);
 
         if (isSelected) {
           context.save();
@@ -829,13 +863,13 @@ export function ProjectionCanvas({
           context.stroke();
         }
 
-        context.font = "bold 12px sans-serif";
+        context.font = isCorner ? "bold 11px sans-serif" : "bold 12px sans-serif";
         context.fillStyle = "#000000";
         context.globalAlpha = 0.9;
-        context.fillText(String(point.id), x + 7, y - 8);
+        context.fillText(pointLabel, x + 7, y - 8);
         context.fillStyle = "#ffffff";
         context.globalAlpha = 1;
-        context.fillText(String(point.id), x + 6, y - 9);
+        context.fillText(pointLabel, x + 6, y - 9);
         context.restore();
       });
     }
@@ -937,14 +971,27 @@ export function ProjectionCanvas({
       usedBosses.forEach((boss) => {
         const x = projectToCanvasX(boss.x);
         const y = projectToCanvasY(boss.y);
+        const style = getReconstructionBossStyle(boss.source);
+        const isAnchor = boss.source === "anchor";
         context.save();
-        context.fillStyle = "#ffffff";
-        context.strokeStyle = "#0ea5e9";
+        context.fillStyle = style.fill;
+        context.strokeStyle = style.stroke;
         context.lineWidth = 1.5;
-        context.beginPath();
-        context.arc(x, y, 4.4, 0, Math.PI * 2);
-        context.fill();
-        context.stroke();
+        if (isAnchor) {
+          context.translate(x, y);
+          context.rotate(Math.PI / 4);
+          context.beginPath();
+          context.rect(-4.2, -4.2, 8.4, 8.4);
+          context.fill();
+          context.stroke();
+          context.rotate(-Math.PI / 4);
+          context.translate(-x, -y);
+        } else {
+          context.beginPath();
+          context.arc(x, y, 4.4, 0, Math.PI * 2);
+          context.fill();
+          context.stroke();
+        }
 
         context.font = "bold 12px sans-serif";
         context.fillStyle = "#000000";
@@ -1174,16 +1221,22 @@ export function ProjectionCanvas({
                         className="h-0 w-4 border-t-2"
                         style={{ borderColor: ROI_AMBER, borderStyle: "dashed" }}
                       />
-                      Original ROI
+                      Saved ROI
                     </span>
                   )}
                   {showUpdatedComparison && (
                     <span className="inline-flex items-center gap-1.5 rounded border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-white/80">
                       <span className="h-0 w-4 border-t-2" style={{ borderColor: ROI_AQUA }} />
-                      Updated ROI
+                      Suggested ROI
                     </span>
                   )}
                 </>
+              )}
+              {showCornerGuideLegend && (
+                <span className="inline-flex items-center gap-1.5 rounded border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-white/80">
+                  <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] border border-white" style={{ backgroundColor: "#ff4fd8" }} />
+                  ROI corner guides
+                </span>
               )}
               {showNodeLegend && (
                 <>
@@ -1294,6 +1347,7 @@ export function ProjectionCanvas({
             >
               <div
                 ref={viewportRef}
+                data-roi-viewport="true"
                 className="absolute left-1/2 top-1/2"
                 style={{
                   width: `${zoom * 100}%`,
@@ -1346,8 +1400,8 @@ export function ProjectionCanvas({
                         width={roi.width * 100}
                         height={roi.height * 100}
                         fill="rgba(0,0,0,0.001)"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth="0.3"
+                        stroke={ROI_EDIT}
+                        strokeWidth="0.36"
                         strokeDasharray="1 0.5"
                         className="pointer-events-auto cursor-move"
                         pointerEvents="all"
@@ -1357,8 +1411,8 @@ export function ProjectionCanvas({
                         y1={(roi.y - roi.height / 2) * 100}
                         x2={roi.x * 100}
                         y2={(roi.y + roi.height / 2) * 100}
-                        stroke="hsl(var(--primary))"
-                        strokeWidth="0.16"
+                        stroke={ROI_EDIT}
+                        strokeWidth="0.24"
                         strokeDasharray="0.8 0.8"
                         opacity="0.55"
                         pointerEvents="none"
@@ -1368,8 +1422,8 @@ export function ProjectionCanvas({
                         y1={roi.y * 100}
                         x2={(roi.x + roi.width / 2) * 100}
                         y2={roi.y * 100}
-                        stroke="hsl(var(--primary))"
-                        strokeWidth="0.16"
+                        stroke={ROI_EDIT}
+                        strokeWidth="0.24"
                         strokeDasharray="0.8 0.8"
                         opacity="0.55"
                         pointerEvents="none"
@@ -1386,7 +1440,7 @@ export function ProjectionCanvas({
                           cx={(x as number) * 100}
                           cy={(y as number) * 100}
                           r="1.2"
-                          fill="hsl(var(--primary))"
+                          fill={ROI_EDIT}
                           stroke="white"
                           strokeWidth="0.3"
                           className="pointer-events-auto cursor-nwse-resize"
@@ -1398,14 +1452,14 @@ export function ProjectionCanvas({
                         y1={(roi.y - roi.height / 2) * 100}
                         x2={roi.x * 100}
                         y2={(roi.y - roi.height / 2 - 0.05) * 100}
-                        stroke="hsl(var(--primary))"
+                        stroke={ROI_EDIT}
                         strokeWidth="0.2"
                       />
                       <circle
                         cx={roi.x * 100}
                         cy={(roi.y - roi.height / 2 - 0.05) * 100}
                         r="1"
-                        fill="hsl(var(--accent))"
+                        fill={ROI_EDIT}
                         stroke="white"
                         strokeWidth="0.3"
                         className="pointer-events-auto cursor-grab"
@@ -1416,8 +1470,8 @@ export function ProjectionCanvas({
                         cy={roi.y * 100}
                         r="0.95"
                         fill="rgba(0,0,0,0.001)"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth="0.28"
+                        stroke={ROI_EDIT}
+                        strokeWidth="0.34"
                         className="pointer-events-auto cursor-move"
                         pointerEvents="all"
                       />
@@ -1582,6 +1636,50 @@ export function ProjectionCanvas({
                     })()}
                   </g>
                 ))}
+
+                {showRoiCornerGuides && showROI && bossHoverInfoMode === "nodes" && (
+                  <g>
+                    {roiCornerGuides.map((corner) => {
+                      const cx = corner.x * 100;
+                      const cy = corner.y * 100;
+                      return (
+                        <g key={`roi-corner-guide-${corner.label}`}>
+                          <rect
+                            x={cx - 0.62}
+                            y={cy - 0.62}
+                            width="1.24"
+                            height="1.24"
+                            rx="0.08"
+                            fill="#ff4fd8"
+                            stroke="#ffffff"
+                            strokeWidth="0.24"
+                            transform={`rotate(45 ${cx} ${cy})`}
+                            opacity="0.95"
+                          />
+                          <text
+                            x={cx + 1.2}
+                            y={cy - 1}
+                            fill="#120016"
+                            opacity="0.88"
+                            fontSize="1.55"
+                            fontWeight="700"
+                          >
+                            {corner.label}
+                          </text>
+                          <text
+                            x={cx + 1.12}
+                            y={cy - 1.08}
+                            fill="#ffd7f7"
+                            fontSize="1.48"
+                            fontWeight="700"
+                          >
+                            {corner.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </g>
+                )}
                 </svg>
               )}
 

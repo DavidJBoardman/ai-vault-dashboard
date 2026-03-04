@@ -17,6 +17,8 @@ interface ReferencePointLayersCardProps {
   roiLabel: string;
   showRoi: boolean;
   onShowRoiChange: (checked: boolean) => void;
+  showRoiCornerGuides?: boolean;
+  onShowRoiCornerGuidesChange?: (checked: boolean) => void;
   onToggleGroup: (groupLabel: string) => void;
   collapsedDescription?: string;
   expandedDescription?: string;
@@ -32,6 +34,8 @@ export function ReferencePointLayersCard({
   roiLabel,
   showRoi,
   onShowRoiChange,
+  showRoiCornerGuides = false,
+  onShowRoiCornerGuidesChange,
   onToggleGroup,
   collapsedDescription = "Optional overlays for placing the reference points.",
   expandedDescription = "Show the ROI and any segmented classes needed to place the reference points.",
@@ -86,6 +90,19 @@ export function ReferencePointLayersCard({
             <span className="text-sm font-medium">{roiLabel}</span>
             <Checkbox checked={showRoi} onCheckedChange={(checked) => onShowRoiChange(checked === true)} />
           </Label>
+
+          {onShowRoiCornerGuidesChange ? (
+            <Label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+              <div className="space-y-0.5">
+                <span className="text-sm font-medium">ROI Corner Guides</span>
+                <p className="text-[11px] text-muted-foreground">Show the four ROI corners as helper markers.</p>
+              </div>
+              <Checkbox
+                checked={showRoiCornerGuides}
+                onCheckedChange={(checked) => onShowRoiCornerGuidesChange(checked === true)}
+              />
+            </Label>
+          ) : null}
 
           <div className="space-y-1.5 border-t border-border/70 pt-3">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Step 3 Segmented Classes</p>

@@ -6,7 +6,9 @@ import { Geometry2DNodePoint } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
 
@@ -19,10 +21,12 @@ interface NodePreparationCardProps {
   totalPointsCount: number;
   selectedPointId?: number;
   filter: NodePointFilter;
+  includeRoiCornerPoints: boolean;
   hasUnsavedChanges: boolean;
   isLoadingState: boolean;
   isSavingPoints: boolean;
   onFilterChange: (filter: NodePointFilter) => void;
+  onIncludeRoiCornerPointsChange: (checked: boolean) => void;
   onSelectPoint: (pointId: number) => void;
   onPointChange: (pointId: number, patch: { x?: number; y?: number }) => void;
   onAddPoint: () => void;
@@ -39,10 +43,12 @@ export function NodePreparationCard({
   totalPointsCount,
   selectedPointId,
   filter,
+  includeRoiCornerPoints,
   hasUnsavedChanges,
   isLoadingState,
   isSavingPoints,
   onFilterChange,
+  onIncludeRoiCornerPointsChange,
   onSelectPoint,
   onPointChange,
   onAddPoint,
@@ -100,6 +106,17 @@ export function NodePreparationCard({
           Place each reference point on a stable geometric mark used to recover the bay plan.
         </p>
 
+        <Label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+          <div className="space-y-0.5">
+            <span className="text-sm font-medium">Include ROI corners</span>
+            <p className="text-[11px] text-muted-foreground">Add the four ROI corners as corner reference points.</p>
+          </div>
+          <Checkbox
+            checked={includeRoiCornerPoints}
+            onCheckedChange={(checked) => onIncludeRoiCornerPointsChange(checked === true)}
+          />
+        </Label>
+
         <div className="grid grid-cols-3 gap-1">
           <Button
             size="sm"
@@ -144,7 +161,7 @@ export function NodePreparationCard({
               <div>Point</div>
               <div className="whitespace-nowrap">X px</div>
               <div className="whitespace-nowrap">Y px</div>
-              <div className="text-center whitespace-nowrap">Source / ROI</div>
+              <div className="text-center whitespace-nowrap">Type / ROI</div>
               <div />
             </div>
             {points.map((point) => (
@@ -157,7 +174,12 @@ export function NodePreparationCard({
                 }`}
                 onClick={() => onSelectPoint(point.id)}
               >
-                <div className="text-xs font-medium">#{point.id}</div>
+                <div className="space-y-0.5">
+                  <div className="text-xs font-medium">#{point.id}</div>
+                  {point.pointType === "corner" ? (
+                    <div className="text-[10px] uppercase tracking-wide text-cyan-300">{point.label}</div>
+                  ) : null}
+                </div>
                 <Input
                   type="text"
                   inputMode="decimal"
@@ -209,6 +231,9 @@ export function NodePreparationCard({
                   }}
                 />
                 <div className="flex items-center justify-center gap-1">
+                  <span className="rounded border border-border px-1 py-0.5 text-[10px] uppercase text-muted-foreground">
+                    {point.pointType === "corner" ? "C" : "B"}
+                  </span>
                   <span className="rounded border border-border px-1 py-0.5 text-[10px] uppercase text-muted-foreground">
                     {point.source === "manual" ? "M" : "A"}
                   </span>

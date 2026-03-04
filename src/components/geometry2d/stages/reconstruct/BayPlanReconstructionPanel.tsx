@@ -328,6 +328,9 @@ export function BayPlanReconstructionPanel({
   const reconstructionStatusLabel = isRunning ? "Running" : result ? "Result ready" : "Awaiting run";
   const formattedLastRunAt = lastRunAt ? new Date(lastRunAt).toLocaleString("en-GB") : null;
   const resultReconstructionMode = result?.params?.reconstructionMode === "delaunay" ? "delaunay" : "current";
+  const idealReferenceSummary = result
+    ? `${result.idealBossUsedCount}/${result.bossCount} boss references used ideal matched positions from Step 4C, plus ${result.cornerAnchorCount} ROI corner anchor${result.cornerAnchorCount === 1 ? "" : "s"}.`
+    : "Reconstruction uses the ideal matched boss references from Step 4C when they are available, plus ROI corner anchors.";
   const overallScoreLabel =
     typeof result?.overallScore === "number" && Number.isFinite(result.overallScore)
       ? result.overallScore.toFixed(3)
@@ -454,6 +457,13 @@ export function BayPlanReconstructionPanel({
               Run the reconstruction to review the retained nodes and rib graph.
             </div>
           )}
+
+          <div className="rounded-md border border-sky-500/30 bg-sky-500/8 px-3 py-2.5 text-xs text-sky-50/90">
+            <p className="font-medium text-sky-100">Reconstruction reference source</p>
+            <p className="mt-1 leading-relaxed text-sky-50/80">
+              {idealReferenceSummary}
+            </p>
+          </div>
 
           {result && resultReconstructionMode === "current" ? (
             <div className="rounded-md border border-border/70 bg-muted/10 px-3 py-2.5">

@@ -216,7 +216,7 @@ interface ProjectStore {
   setSegmentations: (segmentations: Segmentation[]) => void;
   updateSegmentation: (id: string, updates: Partial<Segmentation>) => void;
   setIntradosLines: (lines: IntradosLine[]) => void;
-  setGeometryResult: (result: GeometryResult) => void;
+  setGeometryResult: (result: GeometryResult | null) => void;
   setReprojectionSelections: (selections: string[]) => void;
   addTrace3D: (trace: Project["traces3D"][0]) => void;
   addMeasurement: (measurement: Measurement) => void;

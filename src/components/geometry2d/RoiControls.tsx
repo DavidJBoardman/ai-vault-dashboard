@@ -44,12 +44,12 @@ export function RoiControls({
           1. ROI (Bay Frame)
         </CardTitle>
         <CardDescription className="text-xs">
-          Adjust the ROI before running any proportion analysis.
+          Edit and save the working ROI before running the analysis.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex items-center justify-between">
-          <Label className="text-sm">Show ROI</Label>
+          <Label className="text-sm">Edit ROI</Label>
           <Checkbox checked={showROI} onCheckedChange={(checked) => onShowROIChange(!!checked)} />
         </div>
 
@@ -69,8 +69,7 @@ export function RoiControls({
         </div>
 
         <div className="text-xs text-muted-foreground space-y-1">
-          {/* <p>Check that the ROI follows the outer bay limits and the main boss positions.</p> */}
-          <p>Save this ROI before running the proportion analysis.</p>
+          <p>Turn this off after analysis to review the saved and suggested ROI overlays.</p>
         </div>
 
         <Button
@@ -86,10 +85,6 @@ export function RoiControls({
         {roiSaveResult && (
           <div className="p-2 rounded-md bg-primary/10 border border-primary/20">
             <p className="text-xs font-medium text-primary">ROI Saved</p>
-            <div className="flex gap-3 mt-1 text-xs">
-              <span className="text-green-600">✓ {roiSaveResult.inside} bosses inside</span>
-              <span className="text-muted-foreground">{roiSaveResult.outside} outside</span>
-            </div>
           </div>
         )}
       </CardContent>

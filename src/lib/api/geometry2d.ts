@@ -55,6 +55,7 @@ export interface Geometry2DNodePoint {
   x: number;
   y: number;
   source: string;
+  pointType: "boss" | "corner";
   u: number;
   v: number;
   outOfBounds: boolean;
@@ -167,7 +168,7 @@ export async function getNodeState(
 
 export async function saveNodes(params: {
   projectId: string;
-  points: Array<{ id: number; x: number; y: number; source?: string }>;
+  points: Array<{ id: number; label?: string; x: number; y: number; source?: string; pointType?: "boss" | "corner" }>;
 }): Promise<ApiResponse<{
   projectDir: string;
   savedCount: number;
@@ -192,7 +193,7 @@ export async function getCutTypologyState(
 export async function runCutTypologyMatching(params: {
   projectId: string;
   params?: Partial<Geometry2DCutTypologyParams>;
-  points?: Array<{ id: number; x: number; y: number; source?: string }>;
+  points?: Array<{ id: number; label?: string; x: number; y: number; source?: string; pointType?: "boss" | "corner" }>;
 }): Promise<ApiResponse<Geometry2DCutTypologyRunResult>> {
   return apiRequest<Geometry2DCutTypologyRunResult>("/api/geometry2d/cut-typology/run", {
     method: "POST",
@@ -322,6 +323,7 @@ export interface Geometry2DBayPlanRunResult {
   constraintEdgeCount: number;
   idealBossUsedCount: number;
   bossCount: number;
+  cornerAnchorCount: number;
   acceptedRibCount: number;
   rejectedRibCount: number;
   enabledConstraintFamilies: string[];
