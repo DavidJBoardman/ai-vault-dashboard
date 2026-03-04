@@ -45,7 +45,7 @@ function isInsideROI(pos: { x: number; y: number }, r: ROIState): boolean {
 
 function getResizeHandle(pos: { x: number; y: number }, r: ROIState): string | null {
   const corners = getROICorners(r);
-  const threshold = 0.03;
+  const threshold = 0.04;
   const handleNames = ["nw", "ne", "se", "sw"];
   for (let i = 0; i < corners.length; i++) {
     const dist = Math.hypot(pos.x - corners[i][0], pos.y - corners[i][1]);
@@ -68,7 +68,8 @@ export function useRoiInteraction({ canvasRef, showROI, roi, setRoi }: UseRoiInt
 
   const getMousePosition = (e: React.MouseEvent<HTMLDivElement>): { x: number; y: number } | null => {
     if (!canvasRef.current) return null;
-    const rect = canvasRef.current.getBoundingClientRect();
+    const viewport = canvasRef.current.querySelector<HTMLElement>("[data-roi-viewport='true']");
+    const rect = viewport?.getBoundingClientRect() || canvasRef.current.getBoundingClientRect();
     return {
       x: (e.clientX - rect.left) / rect.width,
       y: (e.clientY - rect.top) / rect.height,
@@ -148,4 +149,3 @@ export function useRoiInteraction({ canvasRef, showROI, roi, setRoi }: UseRoiInt
     getROICorners,
   };
 }
-

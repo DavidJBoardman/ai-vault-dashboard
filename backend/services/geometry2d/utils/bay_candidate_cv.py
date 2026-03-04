@@ -39,7 +39,7 @@ def collect_boss_nodes(
                 uv=uv,
                 xy=(int(round(px)), int(round(py))),
                 source=str(row.get("source", "raw")),
-                boss_id=str(row["id"]),
+                boss_id=str(row.get("label", row["id"])),
             )
         )
     return nodes
