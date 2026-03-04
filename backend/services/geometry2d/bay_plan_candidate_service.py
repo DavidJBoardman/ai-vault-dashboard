@@ -89,6 +89,10 @@ class BayPlanCandidateService:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_state_sync, project_id)
 
+    async def reset_state(self, project_id: str) -> Dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._reset_state_sync, project_id)
+
     async def run_reconstruction(self, project_id: str, params_patch: Dict[str, Any] | None = None) -> Dict[str, Any]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._run_sync, project_id, params_patch)
@@ -350,6 +354,13 @@ class BayPlanCandidateService:
         write_state(project_dir, params, result=payload)
         write_result(project_dir, payload)
         return payload
+
+    def _reset_state_sync(self, project_id: str) -> Dict[str, Any]:
+        project_dir = get_project_dir(project_id)
+        for path in (state_path(project_dir), result_path(project_dir), debug_image_path(project_dir)):
+            if path.exists():
+                path.unlink()
+        return self._get_state_sync(project_id)
 
     def _save_manual_edges_sync(self, project_id: str, edges: List[Dict[str, Any]]) -> Dict[str, Any]:
         project_dir = get_project_dir(project_id)

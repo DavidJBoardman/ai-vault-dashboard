@@ -25,7 +25,7 @@ DEFAULT_TEMPLATE_PARAMS: Dict[str, Any] = {
     "includeInner": True,
     "includeOuter": True,
     "allowCrossTemplate": True,
-    "tolerance": 0.02,
+    "tolerance": 0.01,
 }
 ROI_INSIDE_MARGIN_UV = 0.02
 CORNER_REFERENCE_SPECS: List[Tuple[str, Tuple[float, float]]] = [
@@ -51,7 +51,6 @@ PARAMETER_SCHEMA: List[Dict[str, Any]] = [
         "label": "Starcut Max n",
         "type": "integer",
         "min": 2,
-        "max": 12,
         "step": 1,
         "default": 6,
         "description": "Upper bound for standardcut grid divisors.",
@@ -120,6 +119,10 @@ class CutTypologyMatchingService:
     async def save_points(self, project_id: str, points: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._save_points_sync, project_id, list(points))
+
+    async def reset_points(self, project_id: str) -> Dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._reset_points_sync, project_id)
 
     async def run_matching(
         self,
@@ -192,6 +195,20 @@ class CutTypologyMatchingService:
             "points": self._attach_uv(normalised, roi),
             "statePath": str(self._node_points_path(project_dir)),
         }
+
+    def _reset_points_sync(self, project_id: str) -> Dict[str, Any]:
+        project_dir = get_project_dir(project_id)
+        base_points = self._load_base_points(project_dir)
+        self._persist_points(project_dir, base_points)
+
+        for path in (
+            self._matching_result_path(project_dir),
+            self._matching_csv_path(project_dir),
+        ):
+            if path.exists():
+                path.unlink()
+
+        return self._get_state_sync(project_id)
 
     def _run_matching_sync(
         self,

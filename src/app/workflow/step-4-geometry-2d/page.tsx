@@ -164,13 +164,13 @@ export default function Step4Geometry2DPage() {
     }
   };
 
-  const handleResetStep4 = () => {
+  const handleResetStep4 = async () => {
     if (!window.confirm("Reset Step 4 and clear ROI analysis, nodes, matching, and reconstruction results?")) {
       return;
     }
     setSelectedReconstructionEdgeKey(null);
     setStageToolTab("controls");
-    controller.handleResetStep4();
+    await controller.handleResetStep4();
   };
 
   return (

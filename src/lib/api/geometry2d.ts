@@ -181,6 +181,15 @@ export async function saveNodes(params: {
   });
 }
 
+export async function resetNodes(
+  projectId: string
+): Promise<ApiResponse<Geometry2DNodesStateResult>> {
+  return apiRequest<Geometry2DNodesStateResult>("/api/geometry2d/nodes/reset", {
+    method: "POST",
+    body: JSON.stringify({ projectId }),
+  });
+}
+
 export async function getCutTypologyState(
   projectId: string
 ): Promise<ApiResponse<Geometry2DCutTypologyStateResult>> {
@@ -348,6 +357,15 @@ export async function getBayPlanState(
   projectId: string
 ): Promise<ApiResponse<Geometry2DBayPlanStateResult>> {
   return apiRequest<Geometry2DBayPlanStateResult>("/api/geometry2d/bay-plan/state", {
+    method: "POST",
+    body: JSON.stringify({ projectId }),
+  });
+}
+
+export async function resetBayPlanState(
+  projectId: string
+): Promise<ApiResponse<Geometry2DBayPlanStateResult>> {
+  return apiRequest<Geometry2DBayPlanStateResult>("/api/geometry2d/bay-plan/reset", {
     method: "POST",
     body: JSON.stringify({ projectId }),
   });
