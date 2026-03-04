@@ -357,9 +357,12 @@ export default function Step7MeasurementsPage() {
           points: line.points3d,
         }));
         
+        // Get floorPlaneZ from project store (saved in step 5)
+        const floorPlaneZ = (currentProject?.stepData?.[5] as any)?.floorPlaneZ;
+        
         const response = await calculateImpostLine({
           ribs: ribsData,
-        });
+        }, floorPlaneZ);
         
         if (response.success && response.data) {
           setImpostLineData(response.data);

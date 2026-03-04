@@ -88,11 +88,18 @@ class MeasurementService:
         self,
         boundary_margin: float = 0.5,
         min_rise: float = 1.0,
+        impost_height: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Calculate impost line and per-rib impost distance.
 
-        impost_distance = springing_z - global_impost_height
+        impost_distance = arc_center_z - global_impost_height
+        
+        Args:
+            boundary_margin: Margin from vault boundary to identify springing ribs
+            min_rise: Minimum rise (Z range) to consider a rib
+            impost_height: User-defined impost line height (e.g., floor plane Z). 
+                          If None, calculated as median of arc centers.
         """
 
         if not self.traces:
@@ -135,10 +142,15 @@ class MeasurementService:
             if not near_boundary:
                 continue
 
-            candidate_z.append(z_min)
+            # Fit arc to get the arc center
+            arc_params = self._fit_arc(points)
+            arc_center_z = float(arc_params["center"]["z"])
+            
+            candidate_z.append(arc_center_z)
 
             rib_data[rib_id] = {
-                "springing_z": z_min,
+                "arc_center_z": arc_center_z,
+                "arc_center": arc_params["center"],
                 "springing_point": {
                     "x": float(points[min_idx][0]),
                     "y": float(points[min_idx][1]),
@@ -149,12 +161,16 @@ class MeasurementService:
         if not candidate_z:
             raise ValueError("No ribs identified as springing ribs.")
 
-        impost_height = float(np.median(candidate_z))
+        # Use provided impost_height or calculate from median arc centers
+        if impost_height is None:
+            impost_height = float(np.median(candidate_z))
+        else:
+            impost_height = float(impost_height)
 
         # Compute impost distance per rib
         for rib_id in rib_data:
-            spring_z = rib_data[rib_id]["springing_z"]
-            rib_data[rib_id]["impost_distance"] = float(spring_z - impost_height)
+            arc_center_z = rib_data[rib_id]["arc_center_z"]
+            rib_data[rib_id]["impost_distance"] = float(arc_center_z - impost_height)
 
         return {
             "impost_height": impost_height,
@@ -166,6 +182,7 @@ class MeasurementService:
         self,
         boundary_margin: float = 0.5,
         min_rise: float = 1.0,
+        impost_height: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Async wrapper for impost line calculation."""
         loop = asyncio.get_event_loop()
@@ -174,6 +191,7 @@ class MeasurementService:
             self.calculate_impost_line,
             boundary_margin,
             min_rise,
+            impost_height,
         )
         return result
     
