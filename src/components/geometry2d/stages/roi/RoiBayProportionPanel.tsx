@@ -77,7 +77,7 @@ export function RoiBayProportionPanel({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-medium">2. Review Bay Proportion</CardTitle>
+        <CardTitle className="text-base font-medium">2. Analyse Bay Proportion</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 pt-1 px-5 pb-5">
         <div className="rounded-md border border-border p-3.5 space-y-3">
@@ -88,8 +88,8 @@ export function RoiBayProportionPanel({
           <div className="rounded-md border border-border px-3 py-3 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-xs font-medium">Suggested ROI (beta)</p>
-                {/* <p className="text-[11px] text-muted-foreground">Uses the default balanced search in the backend.</p> */}
+                <p className="text-xs font-medium">Use Suggested ROI</p>
+                <p className="text-[11px] text-muted-foreground">Optional. Runs a backend suggestion and enables ROI comparison after analysis.</p>
               </div>
               <Checkbox checked={autoCorrectRoi} onCheckedChange={(checked) => onAutoCorrectRoiChange(checked === true)} />
             </div>

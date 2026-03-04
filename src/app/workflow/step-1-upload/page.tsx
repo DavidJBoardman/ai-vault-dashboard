@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
 import { PointCloudViewer, generateDemoPointCloud } from "@/components/point-cloud/point-cloud-viewer";
@@ -46,11 +46,11 @@ const POINT_COUNT_PRESETS = [
 export default function Step1UploadPage() {
   const router = useRouter();
   const { 
-    currentProject, 
     setE57Path, 
     setPointCloudStats, 
     completeStep,
   } = useProjectStore();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -102,7 +102,8 @@ export default function Step1UploadPage() {
     const e57File = files.find(f => f.name.endsWith('.e57'));
     
     if (e57File) {
-      await processFile((e57File as any).path || e57File.name);
+      const nativePath = (e57File as File & { path?: string }).path;
+      await processFile(nativePath || e57File);
     } else {
       setUploadError("Please upload an E57 file");
     }
@@ -118,16 +119,17 @@ export default function Step1UploadPage() {
         await processFile(result.filePaths[0]);
       }
     } else {
-      // Web fallback - use demo mode
-      loadDemoData();
+      fileInputRef.current?.click();
     }
   };
   
-  const processFile = async (filePath: string) => {
+  const processFile = async (file: string | File) => {
     setIsUploading(true);
     setUploadProgress(0);
     setUploadError(null);
     setDemoMode(false);
+
+    const fileLabel = typeof file === "string" ? file : file.name;
     
     // Simulate upload progress
     const progressInterval = setInterval(() => {
@@ -135,10 +137,10 @@ export default function Step1UploadPage() {
     }, 200);
     
     try {
-      const response = await uploadE57(filePath);
+      const response = await uploadE57(file);
       
       if (response.success && response.data) {
-        setE57Path(filePath);
+        setE57Path(fileLabel);
         setPointCloudStats({
           pointCount: response.data.pointCount,
           boundingBox: response.data.boundingBox,
@@ -156,12 +158,26 @@ export default function Step1UploadPage() {
         throw new Error(response.error || "Failed to process file");
       }
     } catch (error) {
-      console.warn("Backend error, using demo mode:", error);
-      loadDemoData();
+      setUploadError(error instanceof Error ? error.message : "Failed to process file");
+      setUploadProgress(0);
     } finally {
       clearInterval(progressInterval);
       setIsUploading(false);
     }
+  };
+
+  const handleBrowserFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".e57")) {
+      setUploadError("Please upload an E57 file");
+      return;
+    }
+
+    await processFile(file);
   };
   
   const fetchPointCloudData = async (maxPoints: number) => {
@@ -271,6 +287,13 @@ export default function Step1UploadPage() {
 
   return (
     <div className="space-y-6">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".e57"
+        className="hidden"
+        onChange={handleBrowserFileChange}
+      />
       <StepHeader 
         title="Upload E57 Scan"
         description="Import your 3D point cloud scan to begin the analysis workflow"

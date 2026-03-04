@@ -28,6 +28,12 @@ DEFAULT_TEMPLATE_PARAMS: Dict[str, Any] = {
     "tolerance": 0.02,
 }
 ROI_INSIDE_MARGIN_UV = 0.02
+CORNER_REFERENCE_SPECS: List[Tuple[str, Tuple[float, float]]] = [
+    ("NW", (0.0, 0.0)),
+    ("NE", (1.0, 0.0)),
+    ("SE", (1.0, 1.0)),
+    ("SW", (0.0, 1.0)),
+]
 
 PARAMETER_SCHEMA: List[Dict[str, Any]] = [
     {
@@ -207,7 +213,14 @@ class CutTypologyMatchingService:
         if not points_with_uv:
             raise ValueError("No node points available for cut-typology matching")
 
-        bosses_uv = np.array([[float(p["u"]), float(p["v"])] for p in points_with_uv], dtype=float).reshape(-1, 2)
+        boss_points_with_uv = [point for point in points_with_uv if str(point.get("pointType", "boss")) != "corner"]
+        corner_points_with_uv = [point for point in points_with_uv if str(point.get("pointType", "boss")) == "corner"]
+
+        bosses_uv = (
+            np.array([[float(p["u"]), float(p["v"])] for p in boss_points_with_uv], dtype=float).reshape(-1, 2)
+            if boss_points_with_uv
+            else np.empty((0, 2), dtype=float)
+        )
         variants = self._build_variants(roi, resolved_params)
         tolerance = float(resolved_params["tolerance"])
 
@@ -240,7 +253,7 @@ class CutTypologyMatchingService:
 
             per_variant_matches[variant.variant_label] = matched
             matched_indices = [idx for idx, info in matched.items() if bool(info.get("matched"))]
-            matched_ids = [int(points_with_uv[idx]["id"]) for idx in matched_indices]
+            matched_ids = [int(boss_points_with_uv[idx]["id"]) for idx in matched_indices]
             variant_summaries.append(
                 {
                     "variantLabel": variant.variant_label,
@@ -251,7 +264,7 @@ class CutTypologyMatchingService:
                     "xTemplate": variant.x_source_label,
                     "yTemplate": variant.y_source_label,
                     "matchedCount": len(matched_indices),
-                    "coverage": float(len(matched_indices) / len(points_with_uv)),
+                    "coverage": float(len(matched_indices) / len(boss_points_with_uv)) if boss_points_with_uv else 0.0,
                     "matchedBossIds": matched_ids,
                     "overlay": {
                         "linesUv": variant.overlay_lines_uv,
@@ -261,7 +274,8 @@ class CutTypologyMatchingService:
             )
 
         per_boss_rows: List[Dict[str, Any]] = []
-        for idx, point in enumerate(points_with_uv):
+        boss_matches_by_id: Dict[int, List[Dict[str, Any]]] = {}
+        for idx, point in enumerate(boss_points_with_uv):
             boss_matches: List[Dict[str, Any]] = []
             for summary in variant_summaries:
                 variant_label = str(summary["variantLabel"])
@@ -283,13 +297,27 @@ class CutTypologyMatchingService:
                         "yRatioIndex": info.get("y_ratio_idx"),
                     }
                 )
+            boss_matches_by_id[int(point["id"])] = boss_matches
 
+        for point in points_with_uv:
+            point_type = str(point.get("pointType", "boss"))
+            if point_type == "corner":
+                corner_match = self._build_corner_match(point)
+                per_boss_rows.append(
+                    {
+                        **point,
+                        "matchedAny": corner_match is not None,
+                        "matchedCount": 1 if corner_match is not None else 0,
+                        "matches": [corner_match] if corner_match is not None else [],
+                    }
+                )
+                continue
             per_boss_rows.append(
                 {
                     **point,
-                    "matchedAny": len(boss_matches) > 0,
-                    "matchedCount": len(boss_matches),
-                    "matches": boss_matches,
+                    "matchedAny": len(boss_matches_by_id.get(int(point["id"]), [])) > 0,
+                    "matchedCount": len(boss_matches_by_id.get(int(point["id"]), [])),
+                    "matches": boss_matches_by_id.get(int(point["id"]), []),
                 }
             )
 
@@ -445,6 +473,7 @@ class CutTypologyMatchingService:
         csv_path = cls._matching_csv_path(project_dir)
         fieldnames = [
             "boss_id",
+            "point_type",
             "variant_label",
             "template_type",
             "x_cut",
@@ -468,6 +497,7 @@ class CutTypologyMatchingService:
                 rows.append(
                     {
                         "boss_id": boss_id,
+                        "point_type": str(point.get("pointType", "boss")),
                         "variant_label": "None",
                         "template_type": "None",
                         "x_cut": "None",
@@ -502,6 +532,7 @@ class CutTypologyMatchingService:
             rows.append(
                 {
                     "boss_id": boss_id,
+                    "point_type": str(point.get("pointType", "boss")),
                     "variant_label": variant_label,
                     "template_type": str(match.get("templateType") or "None"),
                     "x_cut": x_cut,
@@ -551,6 +582,7 @@ class CutTypologyMatchingService:
             raise FileNotFoundError(f"Boss report not found: {boss_path}. Run ROI analysis first.")
 
         payload = self._load_json_object(boss_path)
+        roi = self._load_roi_params(project_dir)
         bosses = payload.get("bosses")
         if not isinstance(bosses, list):
             raise ValueError("boss_report.json missing bosses")
@@ -572,6 +604,21 @@ class CutTypologyMatchingService:
                     "x": float(centroid["x"]),
                     "y": float(centroid["y"]),
                     "source": "auto",
+                    "pointType": "boss",
+                }
+            )
+
+        next_corner_id = (max((int(point["id"]) for point in points), default=0)) + 1
+        for offset, (label, uv) in enumerate(CORNER_REFERENCE_SPECS):
+            x, y = unit_to_image(uv, roi)
+            points.append(
+                {
+                    "id": next_corner_id + offset,
+                    "label": label,
+                    "x": float(x),
+                    "y": float(y),
+                    "source": "auto",
+                    "pointType": "corner",
                 }
             )
 
@@ -612,10 +659,11 @@ class CutTypologyMatchingService:
             normalised.append(
                 {
                     "id": point_id,
-                    "label": str(point_id),
+                    "label": str(row.get("label") or point_id),
                     "x": float(row["x"]),
                     "y": float(row["y"]),
                     "source": str(row.get("source", "manual")),
+                    "pointType": "corner" if str(row.get("pointType", "boss")) == "corner" else "boss",
                 }
             )
 
@@ -641,6 +689,35 @@ class CutTypologyMatchingService:
                 }
             )
         return out
+
+    @staticmethod
+    def _corner_uv_by_label(label: str) -> Optional[Tuple[float, float]]:
+        for corner_label, uv in CORNER_REFERENCE_SPECS:
+            if corner_label == label:
+                return uv
+        return None
+
+    @classmethod
+    def _build_corner_match(cls, point: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        label = str(point.get("label") or "").upper()
+        corner_uv = cls._corner_uv_by_label(label)
+        if corner_uv is None:
+            return None
+
+        x_ratio, y_ratio = corner_uv
+        return {
+            "variantLabel": "roi_corner",
+            "templateType": "corner",
+            "isCrossTemplate": False,
+            "xTemplate": label,
+            "yTemplate": label,
+            "xRatio": float(x_ratio),
+            "yRatio": float(y_ratio),
+            "xError": abs(float(point.get("u", 0.0)) - float(x_ratio)),
+            "yError": abs(float(point.get("v", 0.0)) - float(y_ratio)),
+            "xRatioIndex": None,
+            "yRatioIndex": None,
+        }
 
     @staticmethod
     def _resolve_params(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:

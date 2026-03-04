@@ -73,6 +73,8 @@ interface Step4Geometry2DState {
     showAdvancedLayers?: boolean;
     showReconstructLayers?: boolean;
     showBaseImage?: boolean;
+    showRoiCornerGuides?: boolean;
+    includeRoiCornerPoints?: boolean;
   };
   prep?: {
     bossCount?: number;
@@ -190,9 +192,11 @@ function pointSignature(points: Geometry2DTemplateBossPoint[]): string {
     [...points]
       .map((point) => ({
         id: point.id,
+        label: point.label,
         x: Number(point.x.toFixed(3)),
         y: Number(point.y.toFixed(3)),
         source: point.source,
+        pointType: point.pointType || "boss",
       }))
       .sort((a, b) => a.id - b.id)
   );
@@ -218,6 +222,121 @@ function coercePointsToPixelCoordinates(
       y: y * resolution,
     };
   });
+}
+
+function getPointType(point: Pick<Geometry2DTemplateBossPoint, "pointType">): "boss" | "corner" {
+  return point.pointType === "corner" ? "corner" : "boss";
+}
+
+function cloneAndSortTemplatePoints(points: Geometry2DTemplateBossPoint[]): Geometry2DTemplateBossPoint[] {
+  return points.map((point) => ({ ...point, pointType: getPointType(point) })).sort((a, b) => a.id - b.id);
+}
+
+function allocateNextPointId(usedIds: Set<number>): number {
+  let nextId = Math.max(0, ...usedIds) + 1;
+  while (usedIds.has(nextId)) {
+    nextId += 1;
+  }
+  usedIds.add(nextId);
+  return nextId;
+}
+
+function distanceBetweenPoints(a: Pick<Geometry2DTemplateBossPoint, "x" | "y">, b: Pick<Geometry2DTemplateBossPoint, "x" | "y">) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.hypot(dx, dy);
+}
+
+function reconcileLegacyCornerReferencePoints(
+  points: Geometry2DTemplateBossPoint[],
+  detectedPoints: Geometry2DTemplateBossPoint[]
+): Geometry2DTemplateBossPoint[] {
+  const detectedCorners = detectedPoints.filter((point) => getPointType(point) === "corner");
+  if (detectedCorners.length === 0) return cloneAndSortTemplatePoints(points);
+
+  const nextPoints = cloneAndSortTemplatePoints(points);
+  const usedPointIds = new Set<number>();
+  const CORNER_MATCH_TOLERANCE_PX = 18;
+
+  detectedCorners.forEach((cornerPoint) => {
+    let matchIndex = nextPoints.findIndex(
+      (point) => getPointType(point) === "corner" && point.label === cornerPoint.label
+    );
+
+    if (matchIndex < 0) {
+      matchIndex = nextPoints.findIndex((point) => point.id === cornerPoint.id);
+    }
+
+    if (matchIndex < 0) {
+      let bestIndex = -1;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      nextPoints.forEach((point, index) => {
+        if (usedPointIds.has(point.id)) return;
+        const distance = distanceBetweenPoints(point, cornerPoint);
+        if (distance <= CORNER_MATCH_TOLERANCE_PX && distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = index;
+        }
+      });
+      matchIndex = bestIndex;
+    }
+
+    if (matchIndex >= 0) {
+      usedPointIds.add(nextPoints[matchIndex].id);
+      nextPoints[matchIndex] = {
+        ...nextPoints[matchIndex],
+        label: cornerPoint.label,
+        pointType: "corner",
+      };
+    }
+  });
+
+  return cloneAndSortTemplatePoints(nextPoints);
+}
+
+function mergeCornerReferencePoints(
+  points: Geometry2DTemplateBossPoint[],
+  detectedPoints: Geometry2DTemplateBossPoint[]
+): Geometry2DTemplateBossPoint[] {
+  const cornersByLabel = new Map(
+    detectedPoints
+      .filter((point) => getPointType(point) === "corner")
+      .map((point) => [point.label, { ...point, pointType: "corner" as const }])
+  );
+  const merged = cloneAndSortTemplatePoints(points);
+  const usedIds = new Set(merged.map((point) => point.id));
+  const existingCornerLabels = new Set(
+    merged.filter((point) => getPointType(point) === "corner").map((point) => point.label)
+  );
+  cornersByLabel.forEach((point, label) => {
+    if (!existingCornerLabels.has(label)) {
+      const nextPoint = usedIds.has(point.id)
+        ? { ...point, id: allocateNextPointId(usedIds) }
+        : point;
+      usedIds.add(nextPoint.id);
+      merged.push(nextPoint);
+    }
+  });
+  return cloneAndSortTemplatePoints(merged);
+}
+
+function applyCornerPointPreference(
+  points: Geometry2DTemplateBossPoint[],
+  detectedPoints: Geometry2DTemplateBossPoint[],
+  includeCorners: boolean
+): Geometry2DTemplateBossPoint[] {
+  if (includeCorners) {
+    return mergeCornerReferencePoints(reconcileLegacyCornerReferencePoints(points, detectedPoints), detectedPoints);
+  }
+  return cloneAndSortTemplatePoints(points.filter((point) => getPointType(point) !== "corner"));
+}
+
+function normaliseReferencePointsForDisplay(
+  points: Geometry2DTemplateBossPoint[],
+  detectedPoints: Geometry2DTemplateBossPoint[],
+  includeCorners: boolean
+): Geometry2DTemplateBossPoint[] {
+  return applyCornerPointPreference(cloneAndSortTemplatePoints(points), detectedPoints, includeCorners);
 }
 
 function variantPriority(variantLabel: string): [number, number] {
@@ -374,7 +493,7 @@ export function useStep4Geometry2DController() {
   const [vaultRatioSuggestions, setVaultRatioSuggestions] = useState<Array<{ label: string; err: number }>>([]);
   const [bossCount, setBossCount] = useState<number | undefined>(undefined);
   const [analysedAt, setAnalysedAt] = useState<string | undefined>(undefined);
-  const [autoCorrectRoi, setAutoCorrectRoi] = useState(true);
+  const [autoCorrectRoi, setAutoCorrectRoi] = useState(false);
   const [correctionApplied, setCorrectionApplied] = useState<boolean | undefined>(undefined);
   const [originalRoiPreview, setOriginalRoiPreview] = useState<ROIState | undefined>(undefined);
   const [correctedRoiPreview, setCorrectedRoiPreview] = useState<ROIState | undefined>(undefined);
@@ -423,6 +542,8 @@ export function useStep4Geometry2DController() {
   const [roi, setRoi] = useState<ROIState>(DEFAULT_ROI);
   const [showROI, setShowROI] = useState(true);
   const [showBaseImage, setShowBaseImage] = useState(true);
+  const [showRoiCornerGuides, setShowRoiCornerGuides] = useState(true);
+  const [includeRoiCornerPoints, setIncludeRoiCornerPoints] = useState(true);
   const [isSavingROI, setIsSavingROI] = useState(false);
   const [roiSaveResult, setRoiSaveResult] = useState<{ inside: number; outside: number } | null>(null);
 
@@ -434,8 +555,12 @@ export function useStep4Geometry2DController() {
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const templatePointsRef = useRef<Geometry2DTemplateBossPoint[]>([]);
+  const templateDetectedPointsRef = useRef<Geometry2DTemplateBossPoint[]>([]);
   const selectedTemplateOverlayLabelsRef = useRef<string[]>([]);
   const prevActiveSectionRef = useRef<Geometry2DWorkflowSection | null>(null);
+  const autoLoadProjectIdRef = useRef<string | null>(null);
+  const templateStateRequestIdRef = useRef(0);
+  const reconstructionStateRequestIdRef = useRef(0);
 
   const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   const [overlayOpacity, setOverlayOpacity] = useState(0.6);
@@ -557,6 +682,7 @@ export function useStep4Geometry2DController() {
   const matchingUnmatchedNodeIds = useMemo(
     () =>
       templateMatchCsvRows
+        .filter((row) => String(row.point_type || "boss").toLowerCase() === "boss")
         .filter((row) => String(row.matched || "").toLowerCase() !== "true")
         .map((row) => Number(row.boss_id))
         .filter((value) => Number.isFinite(value)),
@@ -585,6 +711,10 @@ export function useStep4Geometry2DController() {
   useEffect(() => {
     templatePointsRef.current = templatePoints;
   }, [templatePoints]);
+
+  useEffect(() => {
+    templateDetectedPointsRef.current = templateDetectedPoints;
+  }, [templateDetectedPoints]);
 
   useEffect(() => {
     selectedTemplateOverlayLabelsRef.current = selectedTemplateOverlayLabels;
@@ -780,6 +910,36 @@ export function useStep4Geometry2DController() {
     });
   };
 
+  const handleShowRoiCornerGuidesChange = (checked: boolean) => {
+    setShowRoiCornerGuides(checked);
+    const ui = getLatestStep4Geometry2D().geometry2d.ui || {};
+    updateStep4Geometry2D({
+      ui: {
+        ...ui,
+        showRoiCornerGuides: checked,
+      },
+    });
+  };
+
+  const handleIncludeRoiCornerPointsChange = (checked: boolean) => {
+    setIncludeRoiCornerPoints(checked);
+    const nextPoints = normaliseReferencePointsForDisplay(templatePointsRef.current, templateDetectedPoints, checked);
+    setTemplatePoints(nextPoints);
+    persistNodesPatch({ points: nextPoints });
+    pushTemplatePointHistory(nextPoints);
+    setSelectedTemplatePointId((current) =>
+      current && nextPoints.some((point) => point.id === current) ? current : nextPoints[0]?.id
+    );
+
+    const ui = getLatestStep4Geometry2D().geometry2d.ui || {};
+    updateStep4Geometry2D({
+      ui: {
+        ...ui,
+        includeRoiCornerPoints: checked,
+      },
+    });
+  };
+
   const handleReconstructLayersExpandedChange = (checked: boolean) => {
     setShowReconstructLayers(checked);
     const ui = getLatestStep4Geometry2D().geometry2d.ui || {};
@@ -812,6 +972,112 @@ export function useStep4Geometry2DController() {
       },
     });
   };
+
+  const handleShowROIChange = (checked: boolean) => {
+    setShowROI(checked);
+    if (checked) {
+      setShowOriginalOverlay(false);
+      setShowUpdatedOverlay(false);
+    }
+
+    const prep = getLatestStep4Geometry2D().geometry2d.prep || {};
+    updateStep4Geometry2D({
+      prep: {
+        ...prep,
+        showOriginalOverlay: checked ? false : showOriginalOverlay,
+        showUpdatedOverlay: checked ? false : showUpdatedOverlay,
+      },
+    });
+  };
+
+  const handleResetStep4 = useCallback(() => {
+    templateStateRequestIdRef.current += 1;
+    reconstructionStateRequestIdRef.current += 1;
+
+    const step3Roi = currentProject?.steps?.[3]?.data?.roi as ROIState | undefined;
+    const nextRoi = step3Roi && step3Roi.x !== undefined
+      ? {
+          x: step3Roi.x,
+          y: step3Roi.y,
+          width: step3Roi.width,
+          height: step3Roi.height,
+          rotation: step3Roi.rotation || 0,
+        }
+      : DEFAULT_ROI;
+
+    setGeometryResult(null);
+    setResult(null);
+    setVaultRatio(undefined);
+    setVaultRatioSuggestions([]);
+    setBossCount(undefined);
+    setAnalysedAt(undefined);
+    setAutoCorrectRoi(false);
+    setCorrectionApplied(undefined);
+    setOriginalRoiPreview(undefined);
+    setCorrectedRoiPreview(undefined);
+    setShowOriginalOverlay(false);
+    setShowUpdatedOverlay(false);
+    setAutoCorrectConfig(DEFAULT_AUTO_CORRECT_CONFIG);
+
+    setTemplatePoints([]);
+    setTemplateDetectedPoints([]);
+    setTemplateParams(DEFAULT_TEMPLATE_PARAMS);
+    setTemplateOverlayVariants([]);
+    setSelectedTemplateOverlayLabels([]);
+    setTemplateVariantResults([]);
+    setTemplateBestVariantLabel(undefined);
+    setTemplateOutputDir(undefined);
+    setTemplateMatchCsvPath(undefined);
+    setTemplateMatchCsvColumns([]);
+    setTemplateMatchCsvRows([]);
+    setTemplateLastRunAt(undefined);
+    setTemplatePointFilter("all");
+    setSelectedTemplatePointId(undefined);
+    setTemplateSavedPointsSignature(pointSignature([]));
+    setTemplatePointHistoryState({ stack: [], index: -1 });
+
+    setReconstructResult(null);
+    setReconstructPreviewBosses([]);
+    setReconstructLastRunAt(undefined);
+    setReconstructStatePath(undefined);
+    setReconstructResultPath(undefined);
+    setReconstructParams({});
+    setReconstructDefaults({});
+    setReconstructLayers(DEFAULT_RECONSTRUCT_LAYERS);
+
+    setRoi(nextRoi);
+    setShowROI(true);
+    setShowBaseImage(true);
+    setShowRoiCornerGuides(true);
+    setIncludeRoiCornerPoints(true);
+    setRoiSaveResult(null);
+    setShowIntrados(true);
+    setActiveSection("roi");
+    setShowAdvancedLayers(true);
+    setShowReconstructLayers(false);
+    setSelectedImageType("colour");
+    setOverlayOpacity(0.6);
+    setShowMaskOverlay(false);
+
+    completeStep(4, {
+      geometry2d: {
+        roi: nextRoi,
+        ui: {
+          activeSection: "roi",
+          showAdvancedLayers: true,
+          showReconstructLayers: false,
+          showBaseImage: true,
+          showRoiCornerGuides: true,
+          includeRoiCornerPoints: true,
+        },
+      },
+    });
+
+    toast({
+      title: "Step 4 reset",
+      description: "Step 4 results and status were cleared. You can start this step again from a clean state.",
+    });
+  }, [completeStep, currentProject?.steps, setGeometryResult]);
 
   const handleTemplatePointChange = (pointId: number, patch: Partial<Pick<Geometry2DTemplateBossPoint, "x" | "y">>) => {
     setSelectedTemplatePointId(pointId);
@@ -846,7 +1112,12 @@ export function useStep4Geometry2DController() {
 
   const handleAddTemplatePoint = () => {
     const resolution = selectedProjection?.settings?.resolution || 2048;
-    const nextId = templatePoints.reduce((maxId, point) => Math.max(maxId, point.id), 0) + 1;
+    const nextId =
+      Math.max(
+        0,
+        ...templatePoints.map((point) => point.id),
+        ...templateDetectedPoints.map((point) => point.id)
+      ) + 1;
     const offsets: Array<[number, number]> = [
       [-0.22, -0.22],
       [0.22, -0.22],
@@ -872,6 +1143,7 @@ export function useStep4Geometry2DController() {
       x: nextX,
       y: nextY,
       source: "manual",
+      pointType: "boss",
       u: 0.5,
       v: 0.5,
       outOfBounds: false,
@@ -1010,9 +1282,11 @@ export function useStep4Geometry2DController() {
         projectId: currentProject.id,
         points: templatePoints.map((point) => ({
           id: point.id,
+          label: point.label,
           x: point.x,
           y: point.y,
           source: point.source,
+          pointType: point.pointType,
         })),
       });
 
@@ -1021,7 +1295,11 @@ export function useStep4Geometry2DController() {
       }
 
       const resolution = selectedProjection?.settings?.resolution || 2048;
-      const nextPoints = coercePointsToPixelCoordinates(response.data.points || [], resolution);
+      const nextPoints = normaliseReferencePointsForDisplay(
+        coercePointsToPixelCoordinates(response.data.points || [], resolution),
+        templateDetectedPointsRef.current,
+        includeRoiCornerPoints
+      );
       setTemplatePoints(nextPoints);
       setTemplateSavedPointsSignature(pointSignature(nextPoints));
       resetTemplatePointHistory(nextPoints);
@@ -1044,7 +1322,7 @@ export function useStep4Geometry2DController() {
     if (!currentProject?.id) return;
     if (templateDetectedPoints.length === 0) return;
 
-    const resetPoints = templateDetectedPoints.map((point) => ({
+    const resetPoints = applyCornerPointPreference(templateDetectedPoints, templateDetectedPoints, includeRoiCornerPoints).map((point) => ({
       ...point,
       source: "auto",
     }));
@@ -1059,16 +1337,22 @@ export function useStep4Geometry2DController() {
         projectId: currentProject.id,
         points: resetPoints.map((point) => ({
           id: point.id,
+          label: point.label,
           x: point.x,
           y: point.y,
           source: point.source,
+          pointType: point.pointType,
         })),
       });
       if (!response.success || !response.data) {
         throw new Error(response.error || "Failed to reset template points.");
       }
       const resolution = selectedProjection?.settings?.resolution || 2048;
-      const nextPoints = coercePointsToPixelCoordinates(response.data.points || [], resolution);
+      const nextPoints = normaliseReferencePointsForDisplay(
+        coercePointsToPixelCoordinates(response.data.points || [], resolution),
+        templateDetectedPoints,
+        includeRoiCornerPoints
+      );
       setTemplatePoints(nextPoints);
       setTemplateSavedPointsSignature(pointSignature(nextPoints));
       resetTemplatePointHistory(nextPoints);
@@ -1081,20 +1365,29 @@ export function useStep4Geometry2DController() {
     }
   };
 
-  const loadTemplateState = useCallback(async () => {
+  const loadTemplateState = useCallback(async (includeCornerPoints = includeRoiCornerPoints) => {
     if (!currentProject?.id) return;
 
+    const requestId = templateStateRequestIdRef.current + 1;
+    templateStateRequestIdRef.current = requestId;
     setIsLoadingTemplateState(true);
     try {
       const response = await getNodeState(currentProject.id);
+      if (templateStateRequestIdRef.current !== requestId) return;
       if (!response.success || !response.data) {
         throw new Error(response.error || "Failed to load template matching state.");
       }
 
       const nextParams = sanitizeTemplateParams(response.data.params);
       const resolution = selectedProjection?.settings?.resolution || 2048;
-      const nextPoints = coercePointsToPixelCoordinates(response.data.points || [], resolution);
-      const nextDetectedPoints = coercePointsToPixelCoordinates(response.data.detectedPoints || [], resolution);
+      const nextDetectedPoints = cloneAndSortTemplatePoints(
+        coercePointsToPixelCoordinates(response.data.detectedPoints || [], resolution)
+      );
+      const nextPoints = normaliseReferencePointsForDisplay(
+        coercePointsToPixelCoordinates(response.data.points || [], resolution),
+        nextDetectedPoints,
+        includeCornerPoints
+      );
       const nextVariants = response.data.overlayVariants || [];
 
       setTemplatePoints(nextPoints);
@@ -1123,12 +1416,16 @@ export function useStep4Geometry2DController() {
         selectedOverlayLabels: nextLabels,
       });
     } catch (error) {
+      if (templateStateRequestIdRef.current !== requestId) return;
       console.error("Failed to load template state:", error);
     } finally {
-      setIsLoadingTemplateState(false);
+      if (templateStateRequestIdRef.current === requestId) {
+        setIsLoadingTemplateState(false);
+      }
     }
   }, [
     currentProject?.id,
+    includeRoiCornerPoints,
     persistMatchingPatch,
     persistNodesPatch,
     resetTemplatePointHistory,
@@ -1138,9 +1435,12 @@ export function useStep4Geometry2DController() {
   const loadReconstructionState = useCallback(async () => {
     if (!currentProject?.id) return;
 
+    const requestId = reconstructionStateRequestIdRef.current + 1;
+    reconstructionStateRequestIdRef.current = requestId;
     setIsLoadingReconstructionState(true);
     try {
       const response = await getBayPlanState(currentProject.id);
+      if (reconstructionStateRequestIdRef.current !== requestId) return;
       if (!response.success || !response.data) {
         throw new Error(response.error || "Failed to load reconstruction state.");
       }
@@ -1176,9 +1476,12 @@ export function useStep4Geometry2DController() {
         },
       });
     } catch (error) {
+      if (reconstructionStateRequestIdRef.current !== requestId) return;
       console.error("Failed to load reconstruction state:", error);
     } finally {
-      setIsLoadingReconstructionState(false);
+      if (reconstructionStateRequestIdRef.current === requestId) {
+        setIsLoadingReconstructionState(false);
+      }
     }
   }, [currentProject?.id, getLatestStep4Geometry2D, updateStep4Geometry2D]);
 
@@ -1281,9 +1584,11 @@ export function useStep4Geometry2DController() {
         params: templateParams,
         points: templatePoints.map((point) => ({
           id: point.id,
+          label: point.label,
           x: point.x,
           y: point.y,
           source: point.source,
+          pointType: point.pointType,
         })),
       });
 
@@ -1292,7 +1597,11 @@ export function useStep4Geometry2DController() {
       }
       const payload = response.data;
       const resolution = selectedProjection?.settings?.resolution || 2048;
-      const nextPoints = coercePointsToPixelCoordinates(payload.points || [], resolution);
+      const nextPoints = normaliseReferencePointsForDisplay(
+        coercePointsToPixelCoordinates(payload.points || [], resolution),
+        templateDetectedPointsRef.current,
+        includeRoiCornerPoints
+      );
       const nextPointsWithMatches = withMatchedTemplateCoordinates(
         nextPoints,
         payload.perBoss || [],
@@ -1479,7 +1788,7 @@ export function useStep4Geometry2DController() {
       setVaultRatioSuggestions(prepData.vaultRatioSuggestions || []);
       setBossCount(prepData.bossCount);
       setAnalysedAt(prepData.analysedAt);
-      setAutoCorrectRoi(prepData.autoCorrectRoi ?? true);
+      setAutoCorrectRoi(prepData.autoCorrectRoi ?? false);
       setCorrectionApplied(prepData.correctionApplied);
       setOriginalRoiPreview(prepData.originalRoi);
       setCorrectedRoiPreview(prepData.correctedRoi);
@@ -1494,10 +1803,14 @@ export function useStep4Geometry2DController() {
       const nextAdvancedLayers = geometry2dData.ui.showAdvancedLayers ?? true;
       const nextReconstructLayers = geometry2dData.ui.showReconstructLayers ?? false;
       const nextShowBaseImage = geometry2dData.ui.showBaseImage ?? true;
+      const nextShowRoiCornerGuides = geometry2dData.ui.showRoiCornerGuides ?? true;
+      const nextIncludeRoiCornerPoints = geometry2dData.ui.includeRoiCornerPoints ?? true;
       setActiveSection((prev) => (prev === nextSection ? prev : nextSection));
       setShowAdvancedLayers((prev) => (prev === nextAdvancedLayers ? prev : nextAdvancedLayers));
       setShowReconstructLayers((prev) => (prev === nextReconstructLayers ? prev : nextReconstructLayers));
       setShowBaseImage((prev) => (prev === nextShowBaseImage ? prev : nextShowBaseImage));
+      setShowRoiCornerGuides((prev) => (prev === nextShowRoiCornerGuides ? prev : nextShowRoiCornerGuides));
+      setIncludeRoiCornerPoints((prev) => (prev === nextIncludeRoiCornerPoints ? prev : nextIncludeRoiCornerPoints));
     }
     if (geometry2dData?.analysis) {
       setResult(geometry2dData.analysis);
@@ -1507,8 +1820,16 @@ export function useStep4Geometry2DController() {
     const matchingData = geometry2dData?.matching || geometry2dData?.template;
     if (nodeData || matchingData) {
       const resolution = selectedProjection?.settings?.resolution || 2048;
+      const persistedIncludeRoiCornerPoints = geometry2dData?.ui?.includeRoiCornerPoints ?? true;
+      const nextDetectedPoints = nodeData?.detectedPoints
+        ? cloneAndSortTemplatePoints(coercePointsToPixelCoordinates(nodeData.detectedPoints, resolution))
+        : templateDetectedPointsRef.current;
       if (nodeData?.points) {
-        const nextPoints = coercePointsToPixelCoordinates(nodeData.points, resolution);
+        const nextPoints = normaliseReferencePointsForDisplay(
+          coercePointsToPixelCoordinates(nodeData.points, resolution),
+          nextDetectedPoints,
+          persistedIncludeRoiCornerPoints
+        );
         const nextSignature = pointSignature(nextPoints);
         const currentSignature = pointSignature(templatePointsRef.current);
         setTemplatePoints(nextPoints);
@@ -1518,7 +1839,9 @@ export function useStep4Geometry2DController() {
         }
       }
       if (nodeData?.detectedPoints) {
-        setTemplateDetectedPoints(coercePointsToPixelCoordinates(nodeData.detectedPoints, resolution));
+        setTemplateDetectedPoints((prev) =>
+          pointSignature(prev) === pointSignature(nextDetectedPoints) ? prev : nextDetectedPoints
+        );
       }
       if (matchingData?.params) {
         setTemplateParams(sanitizeTemplateParams(matchingData.params));
@@ -1583,13 +1906,41 @@ export function useStep4Geometry2DController() {
       };
       setRoi((prev) => (isSameRoi(prev, nextRoi) ? prev : nextRoi));
     }
-  }, [currentProject?.steps, resetTemplatePointHistory, selectedProjection?.settings?.resolution, updateStep4Geometry2D]);
+  }, [
+    currentProject?.steps,
+    resetTemplatePointHistory,
+    selectedProjection?.settings?.resolution,
+    updateStep4Geometry2D,
+  ]);
 
   useEffect(() => {
     if (!currentProject?.id) return;
-    loadTemplateState();
+    if (autoLoadProjectIdRef.current === currentProject.id) return;
+    autoLoadProjectIdRef.current = currentProject.id;
+
+    const step4Data = currentProject.steps?.[4]?.data as
+      | {
+          geometry2d?: Step4Geometry2DState;
+        }
+      | undefined;
+    const geometry2dData = step4Data?.geometry2d;
+    const hasPersistedTemplateState = !!(geometry2dData?.nodes || geometry2dData?.template || geometry2dData?.matching);
+    const hasPersistedReconstructionState = !!geometry2dData?.reconstruct;
+    const persistedIncludeRoiCornerPoints = geometry2dData?.ui?.includeRoiCornerPoints ?? true;
+
+    if (hasPersistedTemplateState) {
+      loadTemplateState(persistedIncludeRoiCornerPoints);
+    }
+    if (hasPersistedReconstructionState) {
+      loadReconstructionState();
+    }
+  }, [currentProject, loadReconstructionState, loadTemplateState]);
+
+  useEffect(() => {
+    if (!currentProject?.id) return;
+    if (activeSection !== "reconstruct") return;
     loadReconstructionState();
-  }, [currentProject?.id, loadReconstructionState, loadTemplateState]);
+  }, [activeSection, currentProject?.id, loadReconstructionState]);
 
   useEffect(() => {
     const prev = prevActiveSectionRef.current;
@@ -1664,7 +2015,7 @@ export function useStep4Geometry2DController() {
       setVaultRatioSuggestions(prepResponse.data.vaultRatioSuggestions || []);
       setBossCount(prepResponse.data.bossCount);
       setAnalysedAt(new Date().toISOString());
-      setShowROI(true);
+      setShowROI(false);
 
       setGeometryResult({
         classification: null,
@@ -1781,7 +2132,10 @@ export function useStep4Geometry2DController() {
     setRoi,
     showROI,
     setShowROI,
+    handleShowROIChange,
     showBaseImage,
+    showRoiCornerGuides,
+    includeRoiCornerPoints,
     setShowBaseImage,
     isSavingROI,
     roiSaveResult,
@@ -1850,9 +2204,12 @@ export function useStep4Geometry2DController() {
     handleWorkflowSectionChange,
     handleAdvancedLayersChange,
     handleShowBaseImageChange,
+    handleShowRoiCornerGuidesChange,
+    handleIncludeRoiCornerPointsChange,
     handleReconstructLayersExpandedChange,
     handleShowOriginalOverlayChange,
     handleShowUpdatedOverlayChange,
+    handleResetStep4,
     handleSaveROI,
     handleAnalyse,
     handleExportCSV,

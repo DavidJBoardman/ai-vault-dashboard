@@ -15,6 +15,7 @@ interface RoiEvidenceLayersCardProps {
   groupVisibility: Record<string, GroupVisibilityInfo>;
   showBaseImage: boolean;
   onShowBaseImageChange: (checked: boolean) => void;
+  editRoiEnabled: boolean;
   showOriginalRoi: boolean;
   onShowOriginalRoiChange: (checked: boolean) => void;
   canShowOriginalRoi: boolean;
@@ -34,6 +35,7 @@ export function RoiEvidenceLayersCard({
   groupVisibility,
   showBaseImage,
   onShowBaseImageChange,
+  editRoiEnabled,
   showOriginalRoi,
   onShowOriginalRoiChange,
   canShowOriginalRoi,
@@ -87,7 +89,7 @@ export function RoiEvidenceLayersCard({
       {expanded && (
       <CardContent className="space-y-4">
         <CardDescription className="text-xs">
-          Use only the overlays needed to judge the bay frame. 
+          Use these overlays to compare the saved ROI and the suggested ROI after analysis.
         </CardDescription>
         <div className="space-y-2.5">
           <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Preview</p>
@@ -139,33 +141,41 @@ export function RoiEvidenceLayersCard({
         </div>
 
         <div className="space-y-2.5 border-t border-border/70 pt-3">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">ROI Comparisons</p>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">ROI Comparison</p>
 
           <Label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background/40 px-3 py-2">
             <div className="space-y-0.5">
-              <span className="text-sm font-medium">Original ROI</span>
+              <span className="text-sm font-medium">Saved ROI</span>
               <p className="text-[11px] text-muted-foreground">
-                {canShowOriginalRoi ? "Compare the saved ROI." : "Available after analysis."}
+                {editRoiEnabled
+                  ? "Turn off Edit ROI to review comparisons."
+                  : canShowOriginalRoi
+                    ? "Show the ROI you analysed from."
+                    : "Available after analysis."}
               </p>
             </div>
             <Checkbox
               checked={canShowOriginalRoi && showOriginalRoi}
               onCheckedChange={(checked) => onShowOriginalRoiChange(checked === true)}
-              disabled={!canShowOriginalRoi}
+              disabled={!canShowOriginalRoi || editRoiEnabled}
             />
           </Label>
 
           <Label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background/40 px-3 py-2">
             <div className="space-y-0.5">
-              <span className="text-sm font-medium">Updated ROI</span>
+              <span className="text-sm font-medium">Suggested ROI</span>
               <p className="text-[11px] text-muted-foreground">
-                {canShowUpdatedRoi ? "Show the suggested comparison ROI." : "Available after analysis."}
+                {editRoiEnabled
+                  ? "Turn off Edit ROI to review comparisons."
+                  : canShowUpdatedRoi
+                    ? "Show the ROI suggested by the analysis."
+                    : "Available after analysis."}
               </p>
             </div>
             <Checkbox
               checked={canShowUpdatedRoi && showUpdatedRoi}
               onCheckedChange={(checked) => onShowUpdatedRoiChange(checked === true)}
-              disabled={!canShowUpdatedRoi}
+              disabled={!canShowUpdatedRoi || editRoiEnabled}
             />
           </Label>
         </div>

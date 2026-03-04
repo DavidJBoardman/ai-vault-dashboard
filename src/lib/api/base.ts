@@ -18,12 +18,15 @@ export async function apiRequest<T>(
 ): Promise<ApiResponse<T>> {
   try {
     const baseUrl = await getBaseUrl();
+    const headers = new Headers(options.headers);
+
+    if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+
     const response = await fetch(`${baseUrl}${endpoint}`, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
+      headers,
     });
 
     if (!response.ok) {
@@ -49,4 +52,3 @@ export async function apiRequest<T>(
     };
   }
 }
-

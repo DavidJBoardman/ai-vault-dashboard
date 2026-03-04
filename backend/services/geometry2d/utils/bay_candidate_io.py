@@ -128,7 +128,7 @@ def _load_raw_boss_rows(project_dir: Path) -> List[Dict[str, Any]]:
     return _sort_boss_rows(rows)
 
 
-def _load_prepared_node_rows(project_dir: Path) -> Optional[List[Dict[str, Any]]]:
+def _load_prepared_reference_rows(project_dir: Path) -> Optional[List[Dict[str, Any]]]:
     cut_dir = project_dir / "2d_geometry" / "cut_typology_matching"
     legacy_dir = project_dir / "2d_geometry" / "template_matching"
     if legacy_dir.exists() and not cut_dir.exists():
@@ -154,22 +154,26 @@ def _load_prepared_node_rows(project_dir: Path) -> Optional[List[Dict[str, Any]]
             continue
         if "id" not in row or "x" not in row or "y" not in row:
             continue
-        boss_id = str(row["id"])
+        point_type = "corner" if str(row.get("pointType", "boss")) == "corner" else "boss"
+        reference_id = str(row["id"])
+        label = str(row.get("label") or reference_id)
         x = float(row["x"])
         y = float(row["y"])
         rows.append(
             {
-                "id": boss_id,
+                "id": reference_id,
+                "label": label,
                 "uv": image_to_unit((x, y), roi),
-                "source": str(row.get("source", "manual")),
+                "source": "anchor" if point_type == "corner" else str(row.get("source", "manual")),
+                "pointType": point_type,
             }
         )
 
     return _sort_boss_rows(rows) if rows else None
 
 
-def load_boss_rows(project_dir: Path) -> List[Dict[str, Any]]:
-    base_rows = _load_prepared_node_rows(project_dir) or _load_raw_boss_rows(project_dir)
+def load_reference_rows(project_dir: Path) -> List[Dict[str, Any]]:
+    base_rows = _load_prepared_reference_rows(project_dir) or _load_raw_boss_rows(project_dir)
     base_by_id = {str(row["id"]): row for row in base_rows}
 
     old_dir = project_dir / "2d_geometry" / "template_matching"
@@ -191,19 +195,41 @@ def load_boss_rows(project_dir: Path) -> List[Dict[str, Any]]:
             boss_id = str(row.get("boss_id", "")).strip()
             if not boss_id:
                 continue
+            point_type = "corner" if str(row.get("point_type", "boss")).strip().lower() == "corner" else "boss"
             matched = str(row.get("matched", "")).strip().lower() in ("true", "1", "yes")
             ideal_uv = _parse_uv_pair(str(row.get("template_uv", "")))
             raw_uv = _parse_uv_pair(str(row.get("boss_uv", "")))
             base_row = base_by_id.get(boss_id)
 
+            if point_type == "corner":
+                label = str((base_row or {}).get("label", boss_id))
+                if matched and ideal_uv is not None:
+                    resolved[boss_id] = {"id": boss_id, "label": label, "uv": ideal_uv, "source": "anchor", "pointType": "corner"}
+                    continue
+                if raw_uv is not None:
+                    resolved[boss_id] = {"id": boss_id, "label": label, "uv": raw_uv, "source": "anchor", "pointType": "corner"}
+                    continue
+                fallback = base_by_id.get(boss_id)
+                if fallback:
+                    resolved[boss_id] = fallback
+                continue
+
             if matched and ideal_uv is not None:
-                resolved[boss_id] = {"id": boss_id, "uv": ideal_uv, "source": "ideal"}
+                resolved[boss_id] = {
+                    "id": boss_id,
+                    "label": str((base_row or {}).get("label", boss_id)),
+                    "uv": ideal_uv,
+                    "source": "ideal",
+                    "pointType": "boss",
+                }
                 continue
             if raw_uv is not None:
                 resolved[boss_id] = {
                     "id": boss_id,
+                    "label": str((base_row or {}).get("label", boss_id)),
                     "uv": raw_uv,
                     "source": str((base_row or {}).get("source", "raw")),
+                    "pointType": "boss",
                 }
                 continue
             fallback = base_by_id.get(boss_id)
@@ -214,6 +240,10 @@ def load_boss_rows(project_dir: Path) -> List[Dict[str, Any]]:
         if boss_id not in resolved:
             resolved[boss_id] = row
     return _sort_boss_rows(list(resolved.values()))
+
+
+def load_boss_rows(project_dir: Path) -> List[Dict[str, Any]]:
+    return [row for row in load_reference_rows(project_dir) if str(row.get("pointType", "boss")) == "boss"]
 
 
 def _normalise_mask(mask_img: np.ndarray) -> np.ndarray:

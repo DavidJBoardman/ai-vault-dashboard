@@ -47,6 +47,59 @@ def _extract_centroids(mask_path: Path, min_area: int = 10) -> List[Tuple[float,
     return points
 
 
+def _extract_instance_centroid(mask_path: Path, min_area: int = 10) -> Optional[Tuple[float, float, int]]:
+    mask_img = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
+    if mask_img is None:
+        raise ValueError(f"Failed to load boss mask: {mask_path}")
+
+    bw = _normalise_binary(mask_img)
+    ys, xs = np.nonzero(bw > 0)
+    area = int(len(xs))
+    if area < min_area:
+        return None
+
+    cx = float(xs.mean())
+    cy = float(ys.mean())
+    return cx, cy, area
+
+
+def _extract_instance_centroids_from_index(
+    seg_dir: Path,
+    *,
+    min_area: int = 10,
+) -> List[Tuple[float, float, int]]:
+    index_path = seg_dir / "index.json"
+    if not index_path.exists():
+        return []
+
+    with index_path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    raw_segmentations = payload.get("segmentations")
+    if not isinstance(raw_segmentations, list):
+        return []
+
+    points: List[Tuple[float, float, int]] = []
+    for seg in raw_segmentations:
+        if not isinstance(seg, dict):
+            continue
+        group_id = str(seg.get("groupId", "")).strip().lower()
+        if group_id != "boss_stone":
+            continue
+        mask_file = seg.get("maskFile")
+        if not isinstance(mask_file, str) or not mask_file:
+            continue
+        mask_path = seg_dir / mask_file
+        if not mask_path.exists():
+            continue
+        centroid = _extract_instance_centroid(mask_path, min_area=min_area)
+        if centroid is not None:
+            points.append(centroid)
+
+    points.sort(key=lambda p: (p[1], p[0]))
+    return points
+
+
 def _parse_manual_points(points: Optional[Sequence[Dict[str, float]]]) -> Optional[List[Tuple[float, float]]]:
     if not points:
         return None
@@ -75,16 +128,19 @@ def prepare_bosses_for_geometry2d(
 
     seg_dir = project_dir / "segmentations"
     mask_path = seg_dir / "group_boss_stone.png"
-    if not mask_path.exists():
-        raise FileNotFoundError(f"Boss group mask not found: {mask_path}")
 
     manual_points = _parse_manual_points(manual_bosses)
     if manual_points is not None:
         points_xy = [(x, y, 0) for x, y in manual_points]
         detection_mode = "manual"
     else:
-        points_xy = _extract_centroids(mask_path, min_area=min_area)
-        detection_mode = "auto"
+        points_xy = _extract_instance_centroids_from_index(seg_dir, min_area=min_area)
+        detection_mode = "segmentation_instances"
+        if not points_xy:
+            if not mask_path.exists():
+                raise FileNotFoundError(f"Boss group mask not found: {mask_path}")
+            points_xy = _extract_centroids(mask_path, min_area=min_area)
+            detection_mode = "auto_components"
 
     bosses: List[Dict[str, Any]] = []
     boss_ids: List[int] = []

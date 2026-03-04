@@ -137,6 +137,8 @@ export function getMatchColumnClass(column: string): string {
   switch (column) {
     case "boss_id":
       return "w-[64px]";
+    case "point_type":
+      return "w-[92px]";
     case "x_cut":
     case "y_cut":
       return "w-[132px]";
@@ -208,13 +210,14 @@ function detailLabelFromRow(row: MatchCsvRow, family: string): string {
 }
 
 export function buildPerBossTypologySummary(rows: MatchCsvRow[]): PerBossTypologySummary | null {
-  if (rows.length === 0) return null;
+  const bossRows = rows.filter((row) => String(row.point_type || "boss").toLowerCase() === "boss");
+  if (bossRows.length === 0) return null;
 
   const familyCounts = new Map<string, number>();
   const detailCounts = new Map<string, number>();
   let matchedRows = 0;
 
-  rows.forEach((row) => {
+  bossRows.forEach((row) => {
     const matched = String(row.matched || "").toLowerCase() === "true";
     if (!matched) return;
     matchedRows += 1;
@@ -274,9 +277,9 @@ export function buildPerBossTypologySummary(rows: MatchCsvRow[]): PerBossTypolog
   return {
     dominantFamily,
     dominantCount,
-    totalRows: rows.length,
+    totalRows: bossRows.length,
     matchedRows,
-    unmatchedRows: rows.length - matchedRows,
+    unmatchedRows: bossRows.length - matchedRows,
     details: dominantDetails.slice(0, 6),
     hasMixedDetails: dominantDetails.length > 1,
     overlayLabels,
@@ -309,14 +312,16 @@ export function selectSimplestBossMatch(matches: Geometry2DCutTypologyBossMatch[
 }
 
 export function collectPrimaryReadingOverlayLabelsFromPerBoss(rows: Geometry2DCutTypologyBossResult[]): string[] {
-  if (rows.length === 0) return [];
+  const bossRows = rows.filter((row) => row.pointType !== "corner");
+  if (bossRows.length === 0) return [];
 
-  const simplifiedRows: MatchCsvRow[] = rows.map((row) => {
+  const simplifiedRows: MatchCsvRow[] = bossRows.map((row) => {
     const simplest = selectSimplestBossMatch(row.matches || []);
     const variantLabel = simplest?.variantLabel || "None";
     const isCross = !!simplest?.isCrossTemplate;
     return {
       boss_id: String(row.id),
+      point_type: row.pointType,
       variant_label: variantLabel,
       x_cut: isCross ? String(simplest?.xTemplate || "None") : variantLabel,
       y_cut: isCross ? String(simplest?.yTemplate || "None") : variantLabel,
