@@ -355,29 +355,38 @@ export function ProjectionCanvas({
     };
   };
 
-  const overlayLegendItems = selectedTemplateOverlays.map((variant) => {
-    const fromLabel = (label?: string) => {
-      if (!label) return "Unknown";
-      if (label.startsWith("starcut_n=")) {
-        const n = Number(label.split("=", 2)[1]);
-        return Number.isFinite(n) ? `Standardcut n=${n}` : "Standardcut";
-      }
-      if (label === "circlecut_inner") return "Circlecut inner";
-      if (label === "circlecut_outer") return "Circlecut outer";
-      return label;
-    };
+  const overlayLegendItems = (() => {
+    const seen = new Set<string>();
+    return selectedTemplateOverlays.flatMap((variant) => {
+      const fromLabel = (label?: string) => {
+        if (!label) return "Unknown";
+        if (label.startsWith("starcut_n=")) {
+          const n = Number(label.split("=", 2)[1]);
+          return Number.isFinite(n) ? `Standardcut n=${n}` : "Standardcut";
+        }
+        if (label === "circlecut_inner") return "Circlecut inner";
+        if (label === "circlecut_outer") return "Circlecut outer";
+        return label;
+      };
 
-    let label = fromLabel(variant.variantLabel);
-    if (variant.templateType === "cross" || variant.isCrossTemplate) {
-      label = `Cross`;
-    }
-    const style = getTemplateOverlayStyle(variant);
-    return {
-      color: style.color,
-      dash: style.canvasDash.length > 0,
-      label: style.label || label,
-    };
-  });
+      let label = fromLabel(variant.variantLabel);
+      if (variant.templateType === "cross" || variant.isCrossTemplate) {
+        label = "Cross";
+      }
+      const style = getTemplateOverlayStyle(variant);
+      const item = {
+        color: style.color,
+        dash: style.canvasDash.length > 0,
+        label: style.label || label,
+      };
+      const key = `${item.label}-${item.color}-${item.dash ? "dash" : "solid"}`;
+      if (seen.has(key)) {
+        return [];
+      }
+      seen.add(key);
+      return [item];
+    });
+  })();
 
   const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
   const getViewportRect = (event: React.MouseEvent<HTMLDivElement>) =>

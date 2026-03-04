@@ -19,6 +19,10 @@ class NodePreparationService:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._save_nodes_sync, project_id, list(points))
 
+    async def reset_nodes(self, project_id: str) -> Dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._reset_nodes_sync, project_id)
+
     @staticmethod
     def _get_state_sync(project_id: str) -> Dict[str, Any]:
         # Reuse cut-typology shared node loading to avoid duplicated point logic.
@@ -29,3 +33,8 @@ class NodePreparationService:
     def _save_nodes_sync(project_id: str, points: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         service = CutTypologyMatchingService()
         return service._save_points_sync(project_id, points)
+
+    @staticmethod
+    def _reset_nodes_sync(project_id: str) -> Dict[str, Any]:
+        service = CutTypologyMatchingService()
+        return service._reset_points_sync(project_id)

@@ -9,8 +9,10 @@ import {
   IntradosLine,
   prepareRoiBayProportion,
   getNodeState,
+  resetNodes,
   getCutTypologyCsv,
   getBayPlanState,
+  resetBayPlanState,
   saveBayPlanManualEdges,
   saveNodes,
   runBayPlanReconstruction,
@@ -129,7 +131,7 @@ const DEFAULT_TEMPLATE_PARAMS: Geometry2DTemplateStateParams = {
   includeInner: true,
   includeOuter: true,
   allowCrossTemplate: true,
-  tolerance: 0.02,
+  tolerance: 0.01,
 };
 
 const ROI_INSIDE_MARGIN_UV = 0.02;
@@ -990,7 +992,7 @@ export function useStep4Geometry2DController() {
     });
   };
 
-  const handleResetStep4 = useCallback(() => {
+  const handleResetStep4 = useCallback(async () => {
     templateStateRequestIdRef.current += 1;
     reconstructionStateRequestIdRef.current += 1;
 
@@ -1004,6 +1006,40 @@ export function useStep4Geometry2DController() {
           rotation: step3Roi.rotation || 0,
         }
       : DEFAULT_ROI;
+    const resolution = selectedProjection?.settings?.resolution || 2048;
+    let resetPoints: Geometry2DTemplateBossPoint[] = [];
+    let resetDetectedPoints: Geometry2DTemplateBossPoint[] = [];
+    let resetParams = DEFAULT_TEMPLATE_PARAMS;
+    let resetOverlayVariants: Geometry2DTemplateOverlayVariant[] = [];
+
+    if (currentProject?.id) {
+      try {
+        const response = await resetNodes(currentProject.id);
+        if (!response.success || !response.data) {
+          throw new Error(response.error || "Failed to reset reference points.");
+        }
+
+        const bayPlanResponse = await resetBayPlanState(currentProject.id);
+        if (!bayPlanResponse.success) {
+          throw new Error(bayPlanResponse.error || "Failed to clear saved bay-plan results.");
+        }
+
+        resetParams = sanitizeTemplateParams(response.data.params);
+        resetOverlayVariants = response.data.overlayVariants || [];
+        resetDetectedPoints = cloneAndSortTemplatePoints(
+          coercePointsToPixelCoordinates(response.data.detectedPoints || [], resolution)
+        );
+        resetPoints = normaliseReferencePointsForDisplay(
+          coercePointsToPixelCoordinates(response.data.points || [], resolution),
+          resetDetectedPoints,
+          true
+        );
+      } catch (error) {
+        console.error("Failed to reset node state:", error);
+        alert(error instanceof Error ? error.message : "Failed to reset Step 4 reference points.");
+        return;
+      }
+    }
 
     setGeometryResult(null);
     setResult(null);
@@ -1019,10 +1055,10 @@ export function useStep4Geometry2DController() {
     setShowUpdatedOverlay(false);
     setAutoCorrectConfig(DEFAULT_AUTO_CORRECT_CONFIG);
 
-    setTemplatePoints([]);
-    setTemplateDetectedPoints([]);
-    setTemplateParams(DEFAULT_TEMPLATE_PARAMS);
-    setTemplateOverlayVariants([]);
+    setTemplatePoints(resetPoints);
+    setTemplateDetectedPoints(resetDetectedPoints);
+    setTemplateParams(resetParams);
+    setTemplateOverlayVariants(resetOverlayVariants);
     setSelectedTemplateOverlayLabels([]);
     setTemplateVariantResults([]);
     setTemplateBestVariantLabel(undefined);
@@ -1032,9 +1068,9 @@ export function useStep4Geometry2DController() {
     setTemplateMatchCsvRows([]);
     setTemplateLastRunAt(undefined);
     setTemplatePointFilter("all");
-    setSelectedTemplatePointId(undefined);
-    setTemplateSavedPointsSignature(pointSignature([]));
-    setTemplatePointHistoryState({ stack: [], index: -1 });
+    setSelectedTemplatePointId(resetPoints[0]?.id);
+    setTemplateSavedPointsSignature(pointSignature(resetPoints));
+    resetTemplatePointHistory(resetPoints);
 
     setReconstructResult(null);
     setReconstructPreviewBosses([]);
@@ -1062,6 +1098,16 @@ export function useStep4Geometry2DController() {
     completeStep(4, {
       geometry2d: {
         roi: nextRoi,
+        nodes: {
+          points: resetPoints,
+          detectedPoints: resetDetectedPoints,
+          lastStateLoadedAt: new Date().toISOString(),
+        },
+        matching: {
+          params: resetParams,
+          overlayVariants: resetOverlayVariants,
+          selectedOverlayLabels: [],
+        },
         ui: {
           activeSection: "roi",
           showAdvancedLayers: true,
@@ -1075,9 +1121,16 @@ export function useStep4Geometry2DController() {
 
     toast({
       title: "Step 4 reset",
-      description: "Step 4 results and status were cleared. You can start this step again from a clean state.",
+      description: "Step 4 results were cleared and the reference points were restored to detected bosses plus ROI corners.",
     });
-  }, [completeStep, currentProject?.steps, setGeometryResult]);
+  }, [
+    completeStep,
+    currentProject?.id,
+    currentProject?.steps,
+    resetTemplatePointHistory,
+    selectedProjection?.settings?.resolution,
+    setGeometryResult,
+  ]);
 
   const handleTemplatePointChange = (pointId: number, patch: Partial<Pick<Geometry2DTemplateBossPoint, "x" | "y">>) => {
     setSelectedTemplatePointId(pointId);

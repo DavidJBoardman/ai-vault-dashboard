@@ -223,6 +223,17 @@ async def save_nodes_state(request: SaveNodesRequest):
         return SaveNodesResponse(success=False, error=str(e))
 
 
+@router.post("/nodes/reset", response_model=NodesStateResponse)
+async def reset_nodes_state(request: NodesStateRequest):
+    """Reset editable node points to detected bosses plus ROI corners."""
+    try:
+        service = NodePreparationService()
+        payload = await service.reset_nodes(request.projectId)
+        return NodesStateResponse(success=True, data=NodesStateResult(**payload))
+    except Exception as e:
+        return NodesStateResponse(success=False, error=str(e))
+
+
 class CutTypologyStateRequest(BaseModel):
     projectId: str
 
@@ -502,6 +513,17 @@ async def load_bay_plan_state(request: BayPlanStateRequest):
     try:
         service = BayPlanCandidateService()
         payload = await service.get_state(request.projectId)
+        return BayPlanStateResponse(success=True, data=BayPlanStateResult(**payload))
+    except Exception as e:
+        return BayPlanStateResponse(success=False, error=str(e))
+
+
+@router.post("/bay-plan/reset", response_model=BayPlanStateResponse)
+async def reset_bay_plan_state(request: BayPlanStateRequest):
+    """Clear saved Step 4.4 bay-plan outputs and return the base state."""
+    try:
+        service = BayPlanCandidateService()
+        payload = await service.reset_state(request.projectId)
         return BayPlanStateResponse(success=True, data=BayPlanStateResult(**payload))
     except Exception as e:
         return BayPlanStateResponse(success=False, error=str(e))
