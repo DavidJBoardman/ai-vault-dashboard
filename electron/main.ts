@@ -116,3 +116,18 @@ ipcMain.handle('python:isRunning', () => {
   return pythonManager?.isRunning() || false;
 });
 
+ipcMain.handle('capture:region', async (_, rect: { x: number; y: number; width: number; height: number }) => {
+  if (!mainWindow) {
+    throw new Error('Main window is not available');
+  }
+
+  const bounds = {
+    x: Math.max(0, Math.round(rect.x)),
+    y: Math.max(0, Math.round(rect.y)),
+    width: Math.max(1, Math.round(rect.width)),
+    height: Math.max(1, Math.round(rect.height)),
+  };
+
+  const image = await mainWindow.webContents.capturePage(bounds);
+  return image.toPNG().toString('base64');
+});
