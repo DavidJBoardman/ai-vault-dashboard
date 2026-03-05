@@ -1,18 +1,17 @@
 """Upload router for E57 file handling."""
 
+import shutil
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from services.e57_processor import get_processor
 
 router = APIRouter()
-
-
-class E57UploadRequest(BaseModel):
-    file_path: str
 
 
 class BoundingBox(BaseModel):
@@ -33,14 +32,51 @@ class E57UploadResponse(BaseModel):
     error: Optional[str] = None
 
 
+async def _resolve_upload_path(request: Request) -> str:
+    """Resolve either a JSON file path or a multipart uploaded file."""
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        payload = await request.json()
+        file_path = payload.get("file_path")
+        if not file_path:
+            raise HTTPException(status_code=400, detail="Missing file_path")
+        return file_path
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        upload = form.get("file")
+
+        if not isinstance(upload, StarletteUploadFile):
+            raise HTTPException(status_code=400, detail="Missing uploaded file")
+
+        if not upload.filename or not upload.filename.lower().endswith(".e57"):
+            raise HTTPException(status_code=400, detail="Invalid file type. Expected .e57")
+
+        uploads_dir = Path("./data/uploads")
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = Path(upload.filename).name
+        target_path = uploads_dir / f"{uuid4().hex}_{filename}"
+
+        with target_path.open("wb") as buffer:
+            shutil.copyfileobj(upload.file, buffer)
+
+        await upload.close()
+        return str(target_path)
+
+    raise HTTPException(status_code=415, detail="Unsupported content type")
+
+
 @router.post("/e57", response_model=E57UploadResponse)
-async def upload_e57(request: E57UploadRequest):
+async def upload_e57(request: Request):
     """Upload and process an E57 file."""
     try:
-        file_path = Path(request.file_path)
+        resolved_path = await _resolve_upload_path(request)
+        file_path = Path(resolved_path)
         
         # Allow loading demo mode with special path
-        if request.file_path == "demo" or request.file_path == "__demo__":
+        if resolved_path == "demo" or resolved_path == "__demo__":
             processor = get_processor()
             info = processor._generate_mock_data()
             
@@ -58,7 +94,7 @@ async def upload_e57(request: E57UploadRequest):
             )
         
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
+            raise HTTPException(status_code=404, detail=f"File not found: {resolved_path}")
         
         if not file_path.suffix.lower() == ".e57":
             raise HTTPException(status_code=400, detail="Invalid file type. Expected .e57")

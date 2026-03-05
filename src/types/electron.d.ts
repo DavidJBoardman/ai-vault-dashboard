@@ -22,8 +22,8 @@ declare global {
       getPath: (name: string) => Promise<string>;
       getPythonPort: () => Promise<number>;
       isPythonRunning: () => Promise<boolean>;
+      captureRegion: (rect: { x: number; y: number; width: number; height: number }) => Promise<string>;
       platform: NodeJS.Platform;
     };
   }
 }
-
