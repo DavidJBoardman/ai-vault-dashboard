@@ -124,7 +124,7 @@ async def run_segmentation(request: SegmentationRequest):
         if not image_set:
             return SegmentationResponse(
                 success=False,
-                error="Failed to load image or SAM 3 model",
+                error=sam.last_error or "Failed to load image or SAM 3 model",
             )
         
         masks = []
