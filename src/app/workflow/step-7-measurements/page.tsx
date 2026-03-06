@@ -55,6 +55,14 @@ interface Line3D {
   label: string;
   color: string;
   points: Point3D[];
+  arc?: {
+    center: Point3D;
+    radius: number;
+    startAngle: number;
+    endAngle: number;
+    u: { x: number; y: number; z: number };
+    v: { x: number; y: number; z: number };
+  };
 }
 
 interface MeasurementResponse {
@@ -241,30 +249,35 @@ function createBestFitArcLines(
   const minAngle = angles[0];
   const maxAngle = angles[angles.length - 1];
 
-  // --- 5. Sample ideal arc ---
-  const steps = 64;
-  const arcPoints: Point3D[] = [];
+  // --- 5. Return as true mathematical arc with parameters ---
+  // Sample just the endpoints for the preview spheres
+  const arcPoints: Point3D[] = [
+    {
+      x: arcCenter.x + arcRadius * (Math.cos(minAngle) * u.x + Math.sin(minAngle) * v.x),
+      y: arcCenter.y + arcRadius * (Math.cos(minAngle) * u.y + Math.sin(minAngle) * v.y),
+      z: arcCenter.z + arcRadius * (Math.cos(minAngle) * u.z + Math.sin(minAngle) * v.z),
+    },
+    {
+      x: arcCenter.x + arcRadius * (Math.cos(maxAngle) * u.x + Math.sin(maxAngle) * v.x),
+      y: arcCenter.y + arcRadius * (Math.cos(maxAngle) * u.y + Math.sin(maxAngle) * v.y),
+      z: arcCenter.z + arcRadius * (Math.cos(maxAngle) * u.z + Math.sin(maxAngle) * v.z),
+    },
+  ];
 
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const angle = minAngle + t * (maxAngle - minAngle);
-
-    arcPoints.push({
-      x: arcCenter.x + arcRadius * (Math.cos(angle) * u.x + Math.sin(angle) * v.x),
-      y: arcCenter.y + arcRadius * (Math.cos(angle) * u.y + Math.sin(angle) * v.y),
-      z: arcCenter.z + arcRadius * (Math.cos(angle) * u.z + Math.sin(angle) * v.z),
-    });
-  }
-
-  // --- 6. Convert to segments ---
-  for (let i = 0; i < arcPoints.length - 1; i++) {
-    lines.push({
-      id: `${traceId}-ideal-arc-${i}`,
-      label: `Ideal Arc ${i}`,
-      color: arcColor,
-      points: [arcPoints[i], arcPoints[i + 1]],
-    });
-  }
+  lines.push({
+    id: `${traceId}-ideal-arc`,
+    label: `Ideal Arc`,
+    color: arcColor,
+    points: arcPoints,
+    arc: {
+      center: arcCenter,
+      radius: arcRadius,
+      startAngle: minAngle,
+      endAngle: maxAngle,
+      u,
+      v,
+    },
+  });
 
   return lines;
 }
@@ -357,12 +370,9 @@ export default function Step7MeasurementsPage() {
           points: line.points3d,
         }));
         
-        // Get floorPlaneZ from project store (saved in step 5)
-        const floorPlaneZ = (currentProject?.stepData?.[5] as any)?.floorPlaneZ;
-        
         const response = await calculateImpostLine({
           ribs: ribsData,
-        }, floorPlaneZ);
+        });
         
         if (response.success && response.data) {
           setImpostLineData(response.data);
