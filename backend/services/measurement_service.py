@@ -239,7 +239,7 @@ class MeasurementService:
             result = optimize.least_squares(
                 residuals,
                 [x_mean, z_mean, r_guess],
-                bounds=([x_mean - 10, z_mean - 10, 0.1], [x_mean + 10, z_mean + 10, 20])
+                bounds=([-np.inf, -np.inf, 0.01], [np.inf, np.inf, np.inf])
             )
             
             cx, cz, radius = result.x
