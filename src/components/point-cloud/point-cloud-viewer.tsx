@@ -32,6 +32,16 @@ export interface Line3D {
   label: string;
   color: string;
   points: Array<{ x: number; y: number; z: number }>;
+  // Optional: For rendering true mathematical arcs
+  arc?: {
+    center: { x: number; y: number; z: number };
+    radius: number;
+    startAngle: number;
+    endAngle: number;
+    // Basis vectors for the arc plane
+    u: { x: number; y: number; z: number };
+    v: { x: number; y: number; z: number };
+  };
 }
 
 export interface ExclusionBoxProps {
@@ -160,16 +170,100 @@ function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: num
       {lines.map((line) => {
         if (line.points.length < 2) return null;
         
-        // Create line geometry
+        // Parse hex color to THREE.Color
+        const color = new THREE.Color(line.color);
+        const sphereRadius = lineWidth * 2;
+        
+        // If arc parameters are provided, render a true mathematical arc
+        if (line.arc) {
+          const { center, radius, startAngle, endAngle, u, v } = line.arc;
+          
+          // Create a parametric curve for the arc
+          class ArcCurve extends THREE.Curve<THREE.Vector3> {
+            center: { x: number; y: number; z: number };
+            radius: number;
+            startAngle: number;
+            endAngle: number;
+            u: { x: number; y: number; z: number };
+            v: { x: number; y: number; z: number };
+
+            constructor(
+              center: { x: number; y: number; z: number },
+              radius: number,
+              startAngle: number,
+              endAngle: number,
+              u: { x: number; y: number; z: number },
+              v: { x: number; y: number; z: number }
+            ) {
+              super();
+              this.center = center;
+              this.radius = radius;
+              this.startAngle = startAngle;
+              this.endAngle = endAngle;
+              this.u = u;
+              this.v = v;
+            }
+
+            getPoint(t: number): THREE.Vector3 {
+              const angle = this.startAngle + t * (this.endAngle - this.startAngle);
+              const x = this.center.x + this.radius * (Math.cos(angle) * this.u.x + Math.sin(angle) * this.v.x);
+              const y = this.center.y + this.radius * (Math.cos(angle) * this.u.y + Math.sin(angle) * this.v.y);
+              const z = this.center.z + this.radius * (Math.cos(angle) * this.u.z + Math.sin(angle) * this.v.z);
+              return new THREE.Vector3(x, z, y); // Swap Y/Z for orientation
+            }
+          }
+          
+          const arcCurve = new ArcCurve(center, radius, startAngle, endAngle, u, v);
+          
+          return (
+            <group key={line.id}>
+              {/* Main arc tube */}
+              <mesh>
+                <tubeGeometry args={[
+                  arcCurve,
+                  64, // segments
+                  lineWidth,
+                  8, // radial segments
+                  false
+                ]} />
+                <meshBasicMaterial color={color} />
+              </mesh>
+              
+              {/* Glow effect */}
+              <mesh>
+                <tubeGeometry args={[
+                  arcCurve,
+                  64,
+                  lineWidth * 1.5,
+                  8,
+                  false
+                ]} />
+                <meshBasicMaterial color={color} transparent opacity={0.3} />
+              </mesh>
+              
+              {/* Start sphere */}
+              <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
+                <sphereGeometry args={[sphereRadius, 16, 16]} />
+                <meshBasicMaterial color={color} />
+              </mesh>
+              
+              {/* End sphere */}
+              <mesh position={[
+                line.points[line.points.length - 1].x,
+                line.points[line.points.length - 1].z,
+                line.points[line.points.length - 1].y
+              ]}>
+                <sphereGeometry args={[sphereRadius, 16, 16]} />
+                <meshBasicMaterial color={color} />
+              </mesh>
+            </group>
+          );
+        }
+        
+        // Fallback: use CatmullRomCurve3 for regular line rendering
         const points: THREE.Vector3[] = line.points.map(
           (p) => new THREE.Vector3(p.x, p.z, p.y) // Swap Y/Z for correct orientation
         );
-        
-        // Parse hex color to THREE.Color
-        const color = new THREE.Color(line.color);
-        
-        // Scale sphere size based on line width
-        const sphereRadius = lineWidth * 2;
         
         return (
           <group key={line.id}>
