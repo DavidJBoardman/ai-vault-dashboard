@@ -348,11 +348,10 @@ export interface ImpostLineRequest {
 
 export async function calculateImpostLine(
   params: ImpostLineRequest,
-  impostHeight?: number
 ): Promise<ApiResponse<ImpostLineResult>> {
   return apiRequest<ImpostLineResult>("/api/geometry/measurements/impost-line", {
     method: "POST",
-    body: JSON.stringify({ ...params, impostHeight }),
+    body: JSON.stringify(params),
   });
 }
 

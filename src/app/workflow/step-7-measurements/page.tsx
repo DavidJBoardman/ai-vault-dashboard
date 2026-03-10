@@ -310,6 +310,8 @@ export default function Step7MeasurementsPage() {
   // Impost line data
   const [impostLineData, setImpostLineData] = useState<ImpostLineResult | null>(null);
   const [isLoadingImpost, setIsLoadingImpost] = useState(false);
+  const [impostMode, setImpostMode] = useState<"auto" | "floorPlane">("floorPlane");
+  const step5FloorPlaneZ = currentProject?.stepData?.[5]?.floorPlaneZ as number | undefined;
   
   const selectedMeasurement = measurements.find(m => m.id === selectedRib);
   const selectedRibImpostData = selectedRib && impostLineData?.ribs[selectedRib] as RibImpostData | undefined;
@@ -357,21 +359,27 @@ export default function Step7MeasurementsPage() {
     loadData();
   }, [currentProject?.id, selectedRib]);
   
-  // Calculate impost line when intrados lines load
+  // Calculate impost line when intrados lines load or mode/floor plane changes
   useEffect(() => {
     const loadImpostLine = async () => {
       if (intradosLines.length === 0) return;
       
+      // In floor plane mode, require a valid value from step 5
+      if (impostMode === "floorPlane" && step5FloorPlaneZ === undefined) return;
+      
       setIsLoadingImpost(true);
+      setImpostLineData(null);
       try {
-        // Prepare request with all intrados lines as ribs
         const ribsData: ImpostLineRequest["ribs"] = intradosLines.map(line => ({
           id: line.id,
           points: line.points3d,
         }));
         
+        const impostHeight = impostMode === "floorPlane" ? step5FloorPlaneZ : undefined;
+        
         const response = await calculateImpostLine({
           ribs: ribsData,
+          impostHeight,
         });
         
         if (response.success && response.data) {
@@ -387,7 +395,7 @@ export default function Step7MeasurementsPage() {
     };
     
     loadImpostLine();
-  }, [intradosLines]);
+  }, [intradosLines, impostMode, step5FloorPlaneZ]);
   
   // Compute colored traces for all intrados lines
   useEffect(() => {
@@ -809,23 +817,73 @@ export default function Step7MeasurementsPage() {
             </CardContent>
           </Card>
           
-          {/* Impost Line Display - Always Show */}
-          {impostLineData && (
-            <Card>
-              <CardHeader className="pb-2">
+          {/* Impost Line Display */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
                 <CardTitle className="text-lg font-display">Impost Line</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="p-3 rounded-lg bg-muted/50 text-center">
-                  <p className="text-base font-bold">{impostLineData.impost_height.toFixed(3)}m</p>
-                  <p className="text-xs text-muted-foreground">Height</p>
+                {isLoadingImpost && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Mode selector */}
+              <div className="flex rounded-lg border border-border bg-muted p-1 gap-1">
+                <Button
+                  variant={impostMode === "floorPlane" ? "default" : "ghost"}
+                  size="sm"
+                  className="flex-1 text-xs h-7"
+                  onClick={() => setImpostMode("floorPlane")}
+                >
+                  Floor Plane
+                </Button>
+                <Button
+                  variant={impostMode === "auto" ? "default" : "ghost"}
+                  size="sm"
+                  className="flex-1 text-xs h-7"
+                  onClick={() => setImpostMode("auto")}
+                >
+                  Auto
+                </Button>
+              </div>
+
+              {/* Floor plane source info */}
+              {impostMode === "floorPlane" && (
+                <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs">
+                  {step5FloorPlaneZ !== undefined ? (
+                    <p className="text-muted-foreground">
+                      Using floor plane Z from Step 5:{" "}
+                      <span className="font-mono font-semibold text-foreground">
+                        {step5FloorPlaneZ.toFixed(3)}m
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-600 dark:text-amber-400">
+                      No floor plane set in Step 5. Enable a floor plane there first.
+                    </p>
+                  )}
                 </div>
-                <div className="text-xs text-muted-foreground text-center">
-                  Calculated from {impostLineData.num_ribs_used} springing rib(s)
-                </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+
+              {/* Result — only show height box in Auto mode */}
+              {impostMode === "auto" && (
+                impostLineData ? (
+                  <>
+                    <div className="p-3 rounded-lg bg-muted/50 text-center">
+                      <p className="text-base font-bold">{impostLineData.impost_height.toFixed(3)}m</p>
+                      <p className="text-xs text-muted-foreground">Height</p>
+                    </div>
+                    <div className="text-xs text-muted-foreground text-center">
+                      Calculated from {impostLineData.num_ribs_used} springing rib(s)
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-3 rounded-lg bg-muted/30 text-center text-xs text-muted-foreground">
+                    {isLoadingImpost ? "Calculating..." : "No impost data available"}
+                  </div>
+                )
+              )}
+            </CardContent>
+          </Card>
           
           {/* Selected Measurement Details */}
           {selectedMeasurement && (
@@ -834,14 +892,23 @@ export default function Step7MeasurementsPage() {
                 <CardTitle className="text-lg font-display">{selectedMeasurement.name}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Impost Distance - Conditionally Show */}
-                {selectedRibImpostData && (
+                {/* Impost Distance - mode-aware */}
+                {isLoadingImpost ? (
+                  <div className="p-3 rounded-lg bg-muted/30 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Recalculating impost distance...
+                  </div>
+                ) : selectedRibImpostData ? (
                   <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
                     <p className="text-base font-bold text-blue-900 dark:text-blue-100">{selectedRibImpostData.impost_distance.toFixed(3)}m</p>
                     <p className="text-xs text-blue-700 dark:text-blue-300">Impost Distance</p>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">Distance from springing point to impost line</p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      {impostMode === "auto"
+                        ? "Distance from springing point to auto-calculated impost line"
+                        : `Distance from springing point to floor plane (Z = ${step5FloorPlaneZ?.toFixed(3)}m)`}
+                    </p>
                   </div>
-                )}
+                ) : null}
                 
                 {/* Arc Radius and Rib Length */}
                 <div className="grid grid-cols-2 gap-3">
