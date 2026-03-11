@@ -20,8 +20,10 @@ import {
   Layers,
   Info,
   Loader2,
-  Spline
+  Spline,
+  AlertTriangle
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 export default function Step5ReprojectionPage() {
@@ -53,8 +55,20 @@ export default function Step5ReprojectionPage() {
   const [intradosError, setIntradosError] = useState<string | null>(null);
   
   // Exclusion controls state
-  const [floorPlaneZ, setFloorPlaneZ] = useState<number | undefined>(undefined);
-  const [showFloorPlane, setShowFloorPlane] = useState(false);
+  const savedStepData = currentProject?.stepData?.[5] as { floorPlaneZ?: number; showFloorPlane?: boolean } | undefined;
+  const [floorPlaneZ, setFloorPlaneZ] = useState<number | undefined>(
+    () => savedStepData?.floorPlaneZ
+  );
+  // Restore checkbox state explicitly — do NOT infer from floorPlaneZ value
+  const [showFloorPlane, setShowFloorPlane] = useState(
+    () => savedStepData?.showFloorPlane ?? false
+  );
+  // Track what floor plane Z was used when intrados were last traced
+  const [tracedFloorPlaneZ, setTracedFloorPlaneZ] = useState<number | null>(
+    () => (savedStepData?.showFloorPlane ? (savedStepData?.floorPlaneZ ?? null) : null)
+  );
+  const [showMismatchDialog, setShowMismatchDialog] = useState(false);
+  const [mismatchType, setMismatchType] = useState<"changed" | "removed" | "added">("changed");
   const [exclusionBox, setExclusionBox] = useState<ExclusionBoxProps | undefined>(undefined);
   const [showExclusionBox, setShowExclusionBox] = useState(false);
   
@@ -190,6 +204,7 @@ export default function Step5ReprojectionPage() {
       
       if (response.success && response.data) {
         setIntradosLines(response.data.lines || []);
+        setTracedFloorPlaneZ(showFloorPlane ? (floorPlaneZ ?? null) : null);
         console.log(`Traced ${response.data.lines?.length || 0} intrados lines`);
         
         if (response.data.lines?.length === 0) {
@@ -355,8 +370,75 @@ export default function Step5ReprojectionPage() {
   };
   
   const handleContinue = () => {
+    // Warn if floor plane was disabled but intrados were traced with one active
+    if (
+      intradosLines.length > 0 &&
+      !showFloorPlane &&
+      tracedFloorPlaneZ !== null
+    ) {
+      setMismatchType("removed");
+      setShowMismatchDialog(true);
+      return;
+    }
+    // Warn if floor plane was added but intrados were traced without one
+    if (
+      intradosLines.length > 0 &&
+      showFloorPlane &&
+      tracedFloorPlaneZ === null
+    ) {
+      setMismatchType("added");
+      setShowMismatchDialog(true);
+      return;
+    }
+    // Warn if the floor plane Z value was changed after the last intrados trace
+    if (
+      intradosLines.length > 0 &&
+      showFloorPlane &&
+      tracedFloorPlaneZ !== null &&
+      floorPlaneZ !== undefined &&
+      Math.abs(floorPlaneZ - tracedFloorPlaneZ) > 0.001
+    ) {
+      setMismatchType("changed");
+      setShowMismatchDialog(true);
+      return;
+    }
     setReprojectionSelections(selectedGroups);
-    completeStep(5, { selectedGroups, showUnmaskedPoints, floorPlaneZ });
+    completeStep(5, {
+      selectedGroups,
+      showUnmaskedPoints,
+      showFloorPlane,
+      floorPlaneZ: showFloorPlane ? floorPlaneZ : undefined,
+    });
+    router.push("/workflow/step-6-traces");
+  };
+
+  const handleRevertAndContinue = () => {
+    const revertedZ = tracedFloorPlaneZ!;
+    setFloorPlaneZ(revertedZ);
+    setShowMismatchDialog(false);
+    setReprojectionSelections(selectedGroups);
+    completeStep(5, {
+      selectedGroups,
+      showUnmaskedPoints,
+      showFloorPlane: true,
+      floorPlaneZ: revertedZ,
+    });
+    router.push("/workflow/step-6-traces");
+  };
+
+  const handleRestoreFloorPlaneAndContinue = () => {
+    // Re-enable the floor plane with the traced value and save
+    const restoredZ = tracedFloorPlaneZ!;
+    setFloorPlaneZ(restoredZ);
+    setShowFloorPlane(true);
+    setShowMismatchDialog(false);
+    setReprojectionSelections(selectedGroups);
+    completeStep(5, {
+      selectedGroups,
+      showUnmaskedPoints,
+      showFloorPlane: true,
+      floorPlaneZ: restoredZ,
+    });
     router.push("/workflow/step-6-traces");
   };
 
@@ -877,6 +959,107 @@ export default function Step5ReprojectionPage() {
         </div>
       )}
       
+      {/* Floor Plane Mismatch Warning Dialog */}
+      <Dialog open={showMismatchDialog} onOpenChange={setShowMismatchDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              {mismatchType === "removed"
+                ? "Floor Plane Disabled"
+                : mismatchType === "added"
+                ? "Floor Plane Added"
+                : "Floor Plane Value Changed"}
+            </DialogTitle>
+            <DialogDescription className="space-y-2 pt-1">
+              {mismatchType === "removed" ? (
+                <>
+                  <p>
+                    The intrados lines were traced with a floor plane of{" "}
+                    <strong>Z = {tracedFloorPlaneZ?.toFixed(2)}</strong>, but
+                    the floor plane is now <strong>disabled</strong>.
+                  </p>
+                  <p>
+                    Continuing without re-tracing means Step 7 measurements
+                    will be mismatched with your traced intrados lines.
+                  </p>
+                </>
+              ) : mismatchType === "added" ? (
+                <>
+                  <p>
+                    The intrados lines were traced <strong>without</strong> a
+                    floor plane, but the floor plane is now{" "}
+                    <strong>enabled</strong> at Z = {floorPlaneZ?.toFixed(2)}.
+                  </p>
+                  <p>
+                    Continuing without re-tracing means the floor plane in
+                    Step 7 will not match your traced intrados lines.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>
+                    The intrados lines were traced with a floor plane of{" "}
+                    <strong>Z = {tracedFloorPlaneZ?.toFixed(2)}</strong>, but
+                    the current value is{" "}
+                    <strong>Z = {floorPlaneZ?.toFixed(2)}</strong>.
+                  </p>
+                  <p>
+                    Saving without re-tracing means the floor plane in Step 7
+                    will not match your traced intrados lines.
+                  </p>
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            {mismatchType === "removed" ? (
+              <Button
+                variant="outline"
+                onClick={handleRestoreFloorPlaneAndContinue}
+              >
+                Restore Z = {tracedFloorPlaneZ?.toFixed(2)} &amp; Continue
+              </Button>
+            ) : mismatchType === "added" ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowFloorPlane(false);
+                  setShowMismatchDialog(false);
+                  setReprojectionSelections(selectedGroups);
+                  completeStep(5, {
+                    selectedGroups,
+                    showUnmaskedPoints,
+                    showFloorPlane: false,
+                    floorPlaneZ: undefined,
+                  });
+                  router.push("/workflow/step-6-traces");
+                }}
+              >
+                Disable Floor Plane &amp; Continue
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={handleRevertAndContinue}
+              >
+                Revert to Z = {tracedFloorPlaneZ?.toFixed(2)} &amp; Continue
+              </Button>
+            )}
+            <Button
+              variant="default"
+              onClick={() => {
+                setShowMismatchDialog(false);
+                handleTraceIntrados();
+              }}
+            >
+              <Spline className="w-4 h-4 mr-2" />
+              Re-trace Intrados
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <StepActions>
         <Button variant="outline" onClick={() => router.push("/workflow/step-4-geometry-2d")} className="gap-2">
           <ChevronLeft className="w-4 h-4" />

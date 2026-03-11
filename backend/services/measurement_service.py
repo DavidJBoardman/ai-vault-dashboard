@@ -93,13 +93,17 @@ class MeasurementService:
         """
         Calculate impost line and per-rib impost distance.
 
-        impost_distance = arc_center_z - global_impost_height
-        
+        impost_distance = springing_point_z - global_impost_height
+
+        The impost height in Auto mode is the median of springing-point Z values
+        (where the ribs leave the wall/pier), not the arc-centre Z, which can sit
+        far below the floor depending on arch geometry.
+
         Args:
             boundary_margin: Margin from vault boundary to identify springing ribs
             min_rise: Minimum rise (Z range) to consider a rib
-            impost_height: User-defined impost line height (e.g., floor plane Z). 
-                          If None, calculated as median of arc centers.
+            impost_height: User-defined impost line height (e.g., floor plane Z).
+                          If None, calculated as median of springing-point Z values.
         """
 
         if not self.traces:
@@ -142,35 +146,38 @@ class MeasurementService:
             if not near_boundary:
                 continue
 
-            # Fit arc to get the arc center
+            # Use springing-point Z as the candidate for auto impost height
+            springing_z = float(points[min_idx][2])
+            candidate_z.append(springing_z)
+
+            # Still fit the arc so we can expose the arc centre if needed
             arc_params = self._fit_arc(points)
-            arc_center_z = float(arc_params["center"]["z"])
-            
-            candidate_z.append(arc_center_z)
 
             rib_data[rib_id] = {
-                "arc_center_z": arc_center_z,
+                "arc_center_z": float(arc_params["center"]["z"]),
                 "arc_center": arc_params["center"],
+                "springing_z": springing_z,
                 "springing_point": {
                     "x": float(points[min_idx][0]),
                     "y": float(points[min_idx][1]),
-                    "z": float(points[min_idx][2]),
+                    "z": springing_z,
                 },
             }
 
         if not candidate_z:
             raise ValueError("No ribs identified as springing ribs.")
 
-        # Use provided impost_height or calculate from median arc centers
+        # Auto: median of springing-point Z values (architecturally correct reference).
+        # Floor-plane: use the value provided by the user.
         if impost_height is None:
             impost_height = float(np.median(candidate_z))
         else:
             impost_height = float(impost_height)
 
-        # Compute impost distance per rib
+        # impost_distance = how far each springing point sits above the impost line
         for rib_id in rib_data:
-            arc_center_z = rib_data[rib_id]["arc_center_z"]
-            rib_data[rib_id]["impost_distance"] = float(arc_center_z - impost_height)
+            springing_z = rib_data[rib_id]["springing_z"]
+            rib_data[rib_id]["impost_distance"] = float(springing_z - impost_height)
 
         return {
             "impost_height": impost_height,

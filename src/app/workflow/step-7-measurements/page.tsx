@@ -858,7 +858,7 @@ export default function Step7MeasurementsPage() {
                     </p>
                   ) : (
                     <p className="text-amber-600 dark:text-amber-400">
-                      No floor plane set in Step 5. Enable a floor plane there first.
+                      Floor plane was not selected in Step 5. Go back to enable it, or switch to <strong>Auto</strong> mode above.
                     </p>
                   )}
                 </div>
@@ -894,19 +894,16 @@ export default function Step7MeasurementsPage() {
               <CardContent className="space-y-4">
                 {/* Impost Distance - mode-aware */}
                 {isLoadingImpost ? (
-                  <div className="p-3 rounded-lg bg-muted/30 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Recalculating impost distance...
+                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                    <Loader2 className="w-4 h-4 mx-auto mb-1 animate-spin text-primary" />
+                    <p className="text-base font-bold">--</p>
+                    <p className="text-xs text-muted-foreground">Impost Distance</p>
                   </div>
                 ) : selectedRibImpostData ? (
-                  <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
-                    <p className="text-base font-bold text-blue-900 dark:text-blue-100">{selectedRibImpostData.impost_distance.toFixed(3)}m</p>
-                    <p className="text-xs text-blue-700 dark:text-blue-300">Impost Distance</p>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                      {impostMode === "auto"
-                        ? "Distance from springing point to auto-calculated impost line"
-                        : `Distance from springing point to floor plane (Z = ${step5FloorPlaneZ?.toFixed(3)}m)`}
-                    </p>
+                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                    <Ruler className="w-4 h-4 mx-auto mb-1 text-primary" />
+                    <p className="text-base font-bold">{selectedRibImpostData.impost_distance.toFixed(3)}m</p>
+                    <p className="text-xs text-muted-foreground">Impost Distance</p>
                   </div>
                 ) : null}
                 
