@@ -355,6 +355,41 @@ export async function calculateImpostLine(
   });
 }
 
+// Rib Group Detection
+export interface RibGroupCombinedMeasurements {
+  arc_radius: number;
+  rib_length: number;
+  apex_point: { x: number; y: number; z: number };
+  arc_center: { x: number; y: number; z: number };
+  arc_center_z: number;
+  fit_error: number;
+}
+
+export interface RibGroup {
+  groupId: string;
+  ribIds: string[];
+  isGrouped: boolean;
+  combinedMeasurements: RibGroupCombinedMeasurements;
+}
+
+export interface DetectRibGroupsRequest {
+  ribs: Array<{
+    id: string;
+    points: Array<[number, number, number]>;
+  }>;
+  maxGap?: number;
+  radiusTolerance?: number;
+}
+
+export async function detectRibGroups(
+  params: DetectRibGroupsRequest,
+): Promise<ApiResponse<RibGroup[]>> {
+  return apiRequest<RibGroup[]>("/api/geometry/measurements/rib-groups", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 // Chord Method Analysis
 export interface ChordAnalysisResult {
   predictedMethod: string;
