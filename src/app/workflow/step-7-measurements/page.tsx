@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
-import { PointCloudViewer, generateDemoPointCloud } from "@/components/point-cloud/point-cloud-viewer";
+import { PointCloudViewer, generateDemoPointCloud, type RibLabel } from "@/components/point-cloud/point-cloud-viewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,8 @@ import {
   ChevronDown,
   ChevronUp,
   Link2,
-  Link2Off
+  Link2Off,
+  Tag
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getReprojectionPreview, getIntradosLines, calculateMeasurements, calculateImpostLine, detectRibGroups, type RibImpostData, type ImpostLineResult, type ImpostLineRequest, type RibGroup } from "@/lib/api";
@@ -312,6 +313,7 @@ export default function Step7MeasurementsPage() {
   const measurementCacheRef = useRef<Map<string, MeasurementResponse["data"]>>(new Map());
   const [baseTraceLines, setBaseTraceLines] = useState<Line3D[]>([]);
   const [viewMode, setViewMode] = useState<"errorHeatmap" | "bestFitArc">("errorHeatmap");
+  const [showLabels, setShowLabels] = useState(true);
   // Derive display traces: apply selection highlight in memory with no API calls
   const traceLines = useMemo(() => {
     if (viewMode !== "errorHeatmap" || !selectedRib) return baseTraceLines;
@@ -629,6 +631,19 @@ export default function Step7MeasurementsPage() {
     }
     return DEMO_MEASUREMENTS;
   }, [intradosLines]);
+
+  // Compute rib label positions at each rib's apex point
+  const ribLabels = useMemo((): RibLabel[] => {
+    return intradosLines.map(line => {
+      const pts = line.points3d;
+      const apexIdx = pts.reduce((maxI, p, i, arr) => p[2] > arr[maxI][2] ? i : maxI, 0);
+      return {
+        id: line.id,
+        label: line.label,
+        position: { x: pts[apexIdx][0], y: pts[apexIdx][1], z: pts[apexIdx][2] },
+      };
+    });
+  }, [intradosLines]);
   
   // Update measurements when loaded data changes
   useEffect(() => {
@@ -803,6 +818,16 @@ export default function Step7MeasurementsPage() {
                       <span className="text-xs">Best Fit Arc</span>
                     </Button>
                   </div>
+                  <Button
+                    variant={showLabels ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setShowLabels(v => !v)}
+                    className="gap-1.5"
+                    title={showLabels ? "Hide rib labels" : "Show rib labels"}
+                  >
+                    <Tag className="w-3.5 h-3.5" />
+                    <span className="text-xs">Labels</span>
+                  </Button>
                   <Button onClick={handleCalculate} disabled={isCalculating} size="sm" className="gap-2">
                     {isCalculating ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -832,6 +857,9 @@ export default function Step7MeasurementsPage() {
                     showBoundingBox={true}
                     lines={traceLines}
                     lineWidth={0.03}
+                    ribLabels={showLabels ? ribLabels : []}
+                    selectedLabelId={selectedRib}
+                    onLabelClick={setSelectedRib}
                   />
                 ) : (
                   <div className="h-[400px] rounded-lg bg-muted flex items-center justify-center">
