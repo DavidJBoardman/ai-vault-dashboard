@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
 import { PointCloudViewer, generateDemoPointCloud } from "@/components/point-cloud/point-cloud-viewer";
@@ -300,6 +300,7 @@ export default function Step7MeasurementsPage() {
   // Data loading states
   const [pointCloudData, setPointCloudData] = useState<ReprojectionPoint[] | null>(null);
   const [intradosLines, setIntradosLines] = useState<IntradosLine[]>([]);
+  const initialSelectionSetRef = useRef(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   
   // Filter controls
@@ -308,8 +309,17 @@ export default function Step7MeasurementsPage() {
   
   // Measurement visualization data
   const [measurementData, setMeasurementData] = useState<MeasurementResponse["data"] | null>(null);
-  const [traceLines, setTraceLines] = useState<Line3D[]>([]);
+  const measurementCacheRef = useRef<Map<string, MeasurementResponse["data"]>>(new Map());
+  const [baseTraceLines, setBaseTraceLines] = useState<Line3D[]>([]);
   const [viewMode, setViewMode] = useState<"errorHeatmap" | "bestFitArc">("errorHeatmap");
+  // Derive display traces: apply selection highlight in memory with no API calls
+  const traceLines = useMemo(() => {
+    if (viewMode !== "errorHeatmap" || !selectedRib) return baseTraceLines;
+    const prefix = `${selectedRib}-segment-`;
+    return baseTraceLines.map(line =>
+      line.id.startsWith(prefix) ? { ...line, color: "rgb(180, 180, 180)" } : line
+    );
+  }, [baseTraceLines, selectedRib, viewMode]);
   
   // Impost line data
   const [impostLineData, setImpostLineData] = useState<ImpostLineResult | null>(null);
@@ -355,9 +365,10 @@ export default function Step7MeasurementsPage() {
           }));
           setIntradosLines(transformedLines);
           
-          // Set first line as selected if available
-          if (linesResponse.data.lines.length > 0 && !selectedRib) {
+          // Set first line as selected on initial load only
+          if (linesResponse.data.lines.length > 0 && !initialSelectionSetRef.current) {
             setSelectedRib(linesResponse.data.lines[0].id);
+            initialSelectionSetRef.current = true;
           }
         }
       } catch (err) {
@@ -368,7 +379,7 @@ export default function Step7MeasurementsPage() {
     };
     
     loadData();
-  }, [currentProject?.id, selectedRib]);
+  }, [currentProject?.id]);
   
   // Calculate impost line when intrados lines load or mode/floor plane changes
   useEffect(() => {
@@ -490,6 +501,7 @@ export default function Step7MeasurementsPage() {
   useEffect(() => {
     const computeAllTraces = async () => {
       const allTraces: Line3D[] = [];
+      measurementCacheRef.current.clear();
       
       for (const line of intradosLines) {
         try {
@@ -501,10 +513,12 @@ export default function Step7MeasurementsPage() {
           });
           
           if (response.success && response.data) {
+            // Cache measurement data so selection changes don't re-hit the API
+            measurementCacheRef.current.set(line.id, response.data);
+
             let lineTraces: Line3D[] = [];
             
             if (viewMode === "bestFitArc") {
-              // Best fit arc view: uniform colored arc
               lineTraces = createBestFitArcLines(
                 response.data.segmentPoints,
                 response.data.arcCenter,
@@ -512,20 +526,17 @@ export default function Step7MeasurementsPage() {
                 line.id
               );
             } else {
-              // Error heatmap view: color by fit error
+              // Always bake base heatmap colors without selection;
+              // selection highlight is applied via the traceLines useMemo
               lineTraces = createColoredTraceLines(
                 response.data.segmentPoints,
                 response.data.pointDistances,
                 line.id,
-                line.id === selectedRib
+                false
               );
             }
 
             allTraces.push(...lineTraces);
-
-            if (line.id === selectedRib) {
-              setMeasurementData(response.data);
-            }
           } else {
             console.error(`Error computing trace for ${line.id}:`, response.error);
           }
@@ -534,32 +545,38 @@ export default function Step7MeasurementsPage() {
         }
       }
       
-      setTraceLines(allTraces);
+      setBaseTraceLines(allTraces);
     };
     
     if (intradosLines.length > 0) {
       computeAllTraces();
     }
-  }, [intradosLines, selectedRib, viewMode]);
+  }, [intradosLines, viewMode]); // selectedRib removed — highlight is applied by useMemo
   
   // Load measurement data when rib is selected (for details panel)
   useEffect(() => {
     const loadMeasurement = async () => {
       if (!selectedRib) return;
-      
-      // Find the intrados line for this rib
+
+      // Fast path: use data already cached by computeAllTraces
+      const cached = measurementCacheRef.current.get(selectedRib);
+      if (cached) {
+        setMeasurementData(cached);
+        return;
+      }
+
+      // Slow path: cache not yet populated (still loading), call API directly
       const selectedLine = intradosLines.find(line => line.id === selectedRib);
       if (!selectedLine) return;
       
       setIsCalculating(true);
       try {
-        // Call the measurements API with actual trace points
         const response = await calculateMeasurements({
           traceId: selectedRib,
           segmentStart: 0,
           segmentEnd: 1,
           tracePoints: selectedLine.points3d,
-        })
+        });
         
         const data: MeasurementResponse = {
           success: response.success,
@@ -799,7 +816,7 @@ export default function Step7MeasurementsPage() {
             </CardHeader>
             <CardContent>
               <div className="relative">
-                {previewLoading ? (
+                {!pointCloudData && previewLoading ? (
                   <div className="h-[400px] rounded-lg bg-muted flex items-center justify-center">
                     <div className="flex flex-col items-center gap-2">
                       <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
