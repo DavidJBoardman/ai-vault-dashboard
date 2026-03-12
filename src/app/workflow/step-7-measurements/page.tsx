@@ -6,23 +6,19 @@ import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
 import { PointCloudViewer, generateDemoPointCloud, type RibLabel } from "@/components/point-cloud/point-cloud-viewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useProjectStore, Measurement, Hypothesis } from "@/lib/store";
+import { useProjectStore, Measurement } from "@/lib/store";
 import { 
   ChevronLeft, 
   ChevronRight,
   Ruler,
   Target,
   Circle,
-  Save,
-  History,
   Download,
   RefreshCw,
-  Plus,
   Loader2,
   ChevronDown,
   ChevronUp,
@@ -289,12 +285,10 @@ function createBestFitArcLines(
 
 export default function Step7MeasurementsPage() {
   const router = useRouter();
-  const { currentProject, addMeasurement, saveHypothesis, completeStep } = useProjectStore();
+  const { currentProject, addMeasurement, completeStep } = useProjectStore();
   
   const [measurements, setMeasurements] = useState<Measurement[]>(DEMO_MEASUREMENTS);
-  const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
   const [selectedRib, setSelectedRib] = useState<string | null>(null);
-  const [hypothesisName, setHypothesisName] = useState("");
   const [isCalculating, setIsCalculating] = useState(false);
   const [exportingRibs, setExportingRibs] = useState(false);
   
@@ -303,10 +297,6 @@ export default function Step7MeasurementsPage() {
   const [intradosLines, setIntradosLines] = useState<IntradosLine[]>([]);
   const initialSelectionSetRef = useRef(false);
   const [previewLoading, setPreviewLoading] = useState(false);
-  
-  // Filter controls
-  const [arcFilter, setArcFilter] = useState([0, 10]);
-  const [rotationFilter, setRotationFilter] = useState([0]);
   
   // Measurement visualization data
   const [measurementData, setMeasurementData] = useState<MeasurementResponse["data"] | null>(null);
@@ -664,22 +654,6 @@ export default function Step7MeasurementsPage() {
     setIsCalculating(false);
   };
   
-  const handleSaveHypothesis = () => {
-    if (!hypothesisName.trim()) return;
-    
-    const hypothesis: Hypothesis = {
-      id: `hyp-${Date.now()}`,
-      name: hypothesisName,
-      description: `Measurements saved at ${new Date().toLocaleString()}`,
-      measurements: [...measurements],
-      createdAt: new Date(),
-    };
-    
-    setHypotheses([...hypotheses, hypothesis]);
-    saveHypothesis(hypothesis);
-    setHypothesisName("");
-  };
-  
   const handleExport = () => {
     const csv = [
       "Rib,Arc Radius,Rib Length,Apex X,Apex Y,Apex Z",
@@ -778,7 +752,7 @@ export default function Step7MeasurementsPage() {
   };
   
   const handleContinue = () => {
-    completeStep(7, { measurements, hypotheses });
+    completeStep(7, { measurements });
     router.push("/workflow/step-8-analysis");
   };
 
@@ -1210,120 +1184,35 @@ export default function Step7MeasurementsPage() {
                   </div>
                 </div>
                 
-                {/* Springing Points */}
-                {selectedMeasurement.springingPoints && selectedMeasurement.springingPoints.length > 0 && (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Springing Points</Label>
+                {/* Springing Points - show first point only */}
+                {selectedMeasurement.springingPoints && selectedMeasurement.springingPoints.length > 0 && (() => {
+                  const point = selectedMeasurement.springingPoints[0];
+                  return (
                     <div className="space-y-2">
-                      {selectedMeasurement.springingPoints.map((point, idx) => (
-                        <div key={idx} className="grid grid-cols-3 gap-2 text-xs">
-                          <div className="p-2 rounded bg-muted/30 text-center">
-                            <p className="text-muted-foreground font-medium">X</p>
-                            <p className="font-mono">{point.x.toFixed(2)}</p>
-                          </div>
-                          <div className="p-2 rounded bg-muted/30 text-center">
-                            <p className="text-muted-foreground font-medium">Y</p>
-                            <p className="font-mono">{point.y.toFixed(2)}</p>
-                          </div>
-                          <div className="p-2 rounded bg-muted/30 text-center">
-                            <p className="text-muted-foreground font-medium">Z</p>
-                            <p className="font-mono">{point.z.toFixed(2)}</p>
-                          </div>
+                      <Label className="text-xs text-muted-foreground">Springing Point</Label>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="p-2 rounded bg-muted/30 text-center">
+                          <p className="text-muted-foreground font-medium">X</p>
+                          <p className="font-mono">{point.x.toFixed(2)}</p>
                         </div>
-                      ))}
+                        <div className="p-2 rounded bg-muted/30 text-center">
+                          <p className="text-muted-foreground font-medium">Y</p>
+                          <p className="font-mono">{point.y.toFixed(2)}</p>
+                        </div>
+                        <div className="p-2 rounded bg-muted/30 text-center">
+                          <p className="text-muted-foreground font-medium">Z</p>
+                          <p className="font-mono">{point.z.toFixed(2)}</p>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </CardContent>
             </Card>
           )}
           
-          {/* Filter Controls */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-display">Filters</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm">Arc Radius Range</Label>
-                  <span className="text-xs text-muted-foreground">
-                    {arcFilter[0]} - {arcFilter[1]}m
-                  </span>
-                </div>
-                <Slider
-                  value={arcFilter}
-                  onValueChange={setArcFilter}
-                  min={0}
-                  max={10}
-                  step={0.1}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm">Rotation Offset</Label>
-                  <span className="text-xs text-muted-foreground">{rotationFilter[0]}°</span>
-                </div>
-                <Slider
-                  value={rotationFilter}
-                  onValueChange={setRotationFilter}
-                  min={-45}
-                  max={45}
-                  step={1}
-                />
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </div>
-      
-      {/* Hypothesis Management */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="font-display">Hypothesis History</CardTitle>
-              <CardDescription>Save measurement configurations for comparison</CardDescription>
-            </div>
-            <Button variant="outline" onClick={handleExport} className="gap-2">
-              <Download className="w-4 h-4" />
-              Export Data
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4">
-            <div className="flex-1 flex gap-2">
-              <Input
-                placeholder="Hypothesis name..."
-                value={hypothesisName}
-                onChange={(e) => setHypothesisName(e.target.value)}
-              />
-              <Button onClick={handleSaveHypothesis} disabled={!hypothesisName.trim()} className="gap-2">
-                <Save className="w-4 h-4" />
-                Save
-              </Button>
-            </div>
-          </div>
-          
-          {hypotheses.length > 0 && (
-            <div className="mt-4">
-              <Label className="text-sm text-muted-foreground">Saved Hypotheses</Label>
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                {hypotheses.map((h) => (
-                  <div key={h.id} className="p-3 rounded-lg border bg-muted/30">
-                    <p className="font-medium text-sm">{h.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {h.measurements.length} measurements
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
       
       <StepActions>
         <Button variant="outline" onClick={() => router.push("/workflow/step-6-traces")} className="gap-2">
