@@ -80,6 +80,9 @@ interface PointCloudViewerProps {
   ribLabels?: RibLabel[];
   selectedLabelId?: string | null;
   onLabelClick?: (id: string) => void;
+  onLineClick?: (ribId: string) => void;
+  /** Full rib paths used for click hit-areas (one tube per rib, not per segment) */
+  ribPaths?: Array<{ id: string; points: Array<{ x: number; y: number; z: number }> }>;
 }
 
 function PointCloud({ 
@@ -229,34 +232,19 @@ function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: num
             <group key={line.id}>
               {/* Main arc tube */}
               <mesh>
-                <tubeGeometry args={[
-                  arcCurve,
-                  64, // segments
-                  lineWidth,
-                  8, // radial segments
-                  false
-                ]} />
+                <tubeGeometry args={[arcCurve, 64, lineWidth, 8, false]} />
                 <meshBasicMaterial color={color} />
               </mesh>
-              
               {/* Glow effect */}
               <mesh>
-                <tubeGeometry args={[
-                  arcCurve,
-                  64,
-                  lineWidth * 1.5,
-                  8,
-                  false
-                ]} />
+                <tubeGeometry args={[arcCurve, 64, lineWidth * 1.5, 8, false]} />
                 <meshBasicMaterial color={color} transparent opacity={0.3} />
               </mesh>
-              
               {/* Start sphere */}
               <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
                 <sphereGeometry args={[sphereRadius, 16, 16]} />
                 <meshBasicMaterial color={color} />
               </mesh>
-              
               {/* End sphere */}
               <mesh position={[
                 line.points[line.points.length - 1].x,
@@ -274,39 +262,26 @@ function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: num
         const points: THREE.Vector3[] = line.points.map(
           (p) => new THREE.Vector3(p.x, p.z, p.y) // Swap Y/Z for correct orientation
         );
-        
+        const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5);
+        const segments = Math.max(8, line.points.length * 2);
+
         return (
           <group key={line.id}>
             {/* Main line using tube geometry for thickness */}
             <mesh>
-              <tubeGeometry args={[
-                new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5),
-                Math.max(8, line.points.length * 2),
-                lineWidth, // tube radius
-                8, // radial segments
-                false
-              ]} />
+              <tubeGeometry args={[curve, segments, lineWidth, 8, false]} />
               <meshBasicMaterial color={color} />
             </mesh>
-            
             {/* Glow/highlight effect */}
             <mesh>
-              <tubeGeometry args={[
-                new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5),
-                Math.max(8, line.points.length * 2),
-                lineWidth * 1.5,
-                8,
-                false
-              ]} />
+              <tubeGeometry args={[curve, segments, lineWidth * 1.5, 8, false]} />
               <meshBasicMaterial color={color} transparent opacity={0.3} />
             </mesh>
-            
             {/* Start sphere */}
             <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
               <sphereGeometry args={[sphereRadius, 16, 16]} />
               <meshBasicMaterial color={color} />
             </mesh>
-            
             {/* End sphere */}
             <mesh position={[
               line.points[line.points.length - 1].x,
@@ -317,6 +292,50 @@ function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: num
               <meshBasicMaterial color={color} />
             </mesh>
           </group>
+        );
+      })}
+    </group>
+  );
+}
+
+/**
+ * One invisible wide tube per rib — the only raycasting targets for click/hover.
+ * Keeps raycasting cost at O(ribs) instead of O(ribs × segments).
+ */
+function RibHitAreas({
+  ribPaths,
+  lineWidth,
+  onLineClick,
+}: {
+  ribPaths: Array<{ id: string; points: Array<{ x: number; y: number; z: number }> }>;
+  lineWidth: number;
+  onLineClick?: (ribId: string) => void;
+}) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  return (
+    <group>
+      {ribPaths.map((rib) => {
+        if (rib.points.length < 2) return null;
+        const pts = rib.points.map((p) => new THREE.Vector3(p.x, p.z, p.y));
+        const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
+        const segs = Math.max(8, rib.points.length * 2);
+        const isHovered = hoveredId === rib.id;
+        return (
+          <mesh
+            key={rib.id}
+            onClick={(e) => { e.stopPropagation(); onLineClick?.(rib.id); }}
+            onPointerOver={(e) => { e.stopPropagation(); setHoveredId(rib.id); document.body.style.cursor = "pointer"; }}
+            onPointerOut={() => { setHoveredId(null); document.body.style.cursor = "default"; }}
+          >
+            <tubeGeometry args={[curve, segs, lineWidth * 6, 6, false]} />
+            <meshBasicMaterial
+              transparent
+              opacity={isHovered ? 0.18 : 0}
+              color="#ffffff"
+              depthWrite={false}
+            />
+          </mesh>
         );
       })}
     </group>
@@ -599,6 +618,8 @@ export function PointCloudViewer({
   ribLabels,
   selectedLabelId,
   onLabelClick,
+  onLineClick,
+  ribPaths,
 }: PointCloudViewerProps) {
   const [localColorMode, setLocalColorMode] = useState(colorMode);
   const [localPointSize, setLocalPointSize] = useState(pointSize);
@@ -693,6 +714,10 @@ export function PointCloudViewer({
         {showBoundingBox && <BoundingBox points={points} />}
         
         {showLines && lines.length > 0 && <Lines3D lines={lines} lineWidth={lineWidth} />}
+
+        {ribPaths && ribPaths.length > 0 && onLineClick && (
+          <RibHitAreas ribPaths={ribPaths} lineWidth={lineWidth} onLineClick={onLineClick} />
+        )}
         
         {showFloorPlane && floorPlaneZ !== undefined && (
           <FloorPlane 
