@@ -2,7 +2,7 @@
 
 import { useRef, useMemo, useEffect, useState, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera, Grid, Stats } from "@react-three/drei";
+import { OrbitControls, PerspectiveCamera, Grid, Stats, Html } from "@react-three/drei";
 import * as THREE from "three";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -54,6 +54,13 @@ export interface ExclusionBoxProps {
   enabled: boolean;
 }
 
+export interface RibLabel {
+  id: string;
+  label: string;
+  /** Data-space coordinates — Y/Z will be swapped to match the viewer's orientation */
+  position: { x: number; y: number; z: number };
+}
+
 interface PointCloudViewerProps {
   points: Point[];
   lines?: Line3D[];
@@ -70,6 +77,9 @@ interface PointCloudViewerProps {
   showFloorPlane?: boolean;
   exclusionBox?: ExclusionBoxProps;
   showExclusionBox?: boolean;
+  ribLabels?: RibLabel[];
+  selectedLabelId?: string | null;
+  onLabelClick?: (id: string) => void;
 }
 
 function PointCloud({ 
@@ -469,6 +479,56 @@ function ExclusionBoxVisual({
   );
 }
 
+function RibLabelsOverlay({
+  labels,
+  selectedId,
+  onLabelClick,
+}: {
+  labels: RibLabel[];
+  selectedId?: string | null;
+  onLabelClick?: (id: string) => void;
+}) {
+  return (
+    <>
+      {labels.map((label) => (
+        <Html
+          key={label.id}
+          position={[label.position.x, label.position.z, label.position.y]}
+          center
+          distanceFactor={8}
+          zIndexRange={[100, 0]}
+        >
+          <div
+            onClick={() => onLabelClick?.(label.id)}
+            style={{
+              cursor: "pointer",
+              padding: "2px 8px",
+              borderRadius: "9999px",
+              fontSize: "11px",
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+              userSelect: "none",
+              background: selectedId === label.id
+                ? "rgba(255,255,255,0.95)"
+                : "rgba(10,15,26,0.75)",
+              color: selectedId === label.id ? "#0a0f1a" : "#e2e8f0",
+              border: selectedId === label.id
+                ? "1.5px solid rgba(255,255,255,1)"
+                : "1px solid rgba(255,255,255,0.25)",
+              boxShadow: selectedId === label.id
+                ? "0 0 0 3px rgba(255,255,255,0.2)"
+                : "none",
+              transition: "all 0.15s ease",
+            }}
+          >
+            {label.label}
+          </div>
+        </Html>
+      ))}
+    </>
+  );
+}
+
 interface CameraControllerProps {
   center: { x: number; y: number; z: number };
   distance: number;
@@ -536,6 +596,9 @@ export function PointCloudViewer({
   showFloorPlane = false,
   exclusionBox,
   showExclusionBox = false,
+  ribLabels,
+  selectedLabelId,
+  onLabelClick,
 }: PointCloudViewerProps) {
   const [localColorMode, setLocalColorMode] = useState(colorMode);
   const [localPointSize, setLocalPointSize] = useState(pointSize);
@@ -641,6 +704,14 @@ export function PointCloudViewer({
         
         {showExclusionBox && exclusionBox && (
           <ExclusionBoxVisual box={exclusionBox} />
+        )}
+
+        {ribLabels && ribLabels.length > 0 && (
+          <RibLabelsOverlay
+            labels={ribLabels}
+            selectedId={selectedLabelId}
+            onLabelClick={onLabelClick}
+          />
         )}
         
         {showGrid && (
