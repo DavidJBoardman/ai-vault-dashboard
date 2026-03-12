@@ -23,10 +23,14 @@ import {
   Download,
   RefreshCw,
   Plus,
-  Loader2
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+  Link2,
+  Link2Off
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getReprojectionPreview, getIntradosLines, calculateMeasurements, calculateImpostLine, type RibImpostData, type ImpostLineResult, type ImpostLineRequest } from "@/lib/api";
+import { getReprojectionPreview, getIntradosLines, calculateMeasurements, calculateImpostLine, detectRibGroups, type RibImpostData, type ImpostLineResult, type ImpostLineRequest, type RibGroup } from "@/lib/api";
 
 interface Point3D {
   x: number;
@@ -312,6 +316,13 @@ export default function Step7MeasurementsPage() {
   const [isLoadingImpost, setIsLoadingImpost] = useState(false);
   const [impostMode, setImpostMode] = useState<"auto" | "floorPlane">("floorPlane");
   const step5FloorPlaneZ = currentProject?.stepData?.[5]?.floorPlaneZ as number | undefined;
+
+  // Rib grouping state
+  const [ribGroups, setRibGroups] = useState<RibGroup[] | null>(null);
+  const [userUngroups, setUserUngroups] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [proximityThreshold, setProximityThreshold] = useState(2.0);
+  const [isDetectingGroups, setIsDetectingGroups] = useState(false);
   
   const selectedMeasurement = measurements.find(m => m.id === selectedRib);
   const selectedRibImpostData = selectedRib && impostLineData?.ribs[selectedRib] as RibImpostData | undefined;
@@ -396,7 +407,85 @@ export default function Step7MeasurementsPage() {
     
     loadImpostLine();
   }, [intradosLines, impostMode, step5FloorPlaneZ]);
-  
+
+  // Detect rib groups whenever intrados lines or threshold changes
+  useEffect(() => {
+    const detectGroups = async () => {
+      if (intradosLines.length === 0) {
+        setRibGroups(null);
+        return;
+      }
+      setIsDetectingGroups(true);
+      try {
+        const response = await detectRibGroups({
+          ribs: intradosLines.map(line => ({ id: line.id, points: line.points3d })),
+          maxGap: proximityThreshold,
+        });
+        if (response.success && response.data) {
+          setRibGroups(response.data);
+          setUserUngroups(new Set()); // reset manual ungroups on re-detect
+        }
+      } catch (err) {
+        console.error("Error detecting rib groups:", err);
+      } finally {
+        setIsDetectingGroups(false);
+      }
+    };
+    detectGroups();
+  }, [intradosLines, proximityThreshold]);
+
+  const handleUngroup = (groupId: string) => {
+    setUserUngroups(prev => { const next = new Set(prev); next.add(groupId); return next; });
+  };
+
+  const handleRegroup = (groupId: string) => {
+    setUserUngroups(prev => {
+      const next = new Set(prev);
+      next.delete(groupId);
+      return next;
+    });
+  };
+
+  const toggleExpandGroup = (groupId: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  // displayGroups: apply user ungroups (split grouped ribs into singletons)
+  const displayGroups = useMemo((): RibGroup[] => {
+    if (!ribGroups) return [];
+    const result: RibGroup[] = [];
+    for (const group of ribGroups) {
+      if (!group.isGrouped || userUngroups.has(group.groupId)) {
+        // Treat each rib as its own singleton
+        for (const ribId of group.ribIds) {
+          const line = intradosLines.find(l => l.id === ribId);
+          const meas = measurements.find(m => m.id === ribId);
+          result.push({
+            groupId: ribId,
+            ribIds: [ribId],
+            isGrouped: false,
+            combinedMeasurements: {
+              arc_radius: meas?.arcRadius ?? 0,
+              rib_length: meas?.ribLength ?? 0,
+              apex_point: { x: 0, y: 0, z: 0 },
+              arc_center: { x: 0, y: 0, z: 0 },
+              arc_center_z: 0,
+              fit_error: 0,
+            },
+          });
+        }
+      } else {
+        result.push(group);
+      }
+    }
+    return result;
+  }, [ribGroups, userUngroups, intradosLines, measurements]);
+
   // Compute colored traces for all intrados lines
   useEffect(() => {
     const computeAllTraces = async () => {
@@ -791,9 +880,108 @@ export default function Step7MeasurementsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-48">
+              <ScrollArea className="h-64">
                 <div className="space-y-2">
-                  {measurements.map((m) => (
+                  {displayGroups.length > 0 ? displayGroups.map((group) => {
+                    const isMulti = group.isGrouped && group.ribIds.length > 1;
+                    const isExpanded = expandedGroups.has(group.groupId);
+                    const primaryId = group.ribIds[0];
+                    const primaryMeas = measurements.find(m => m.id === primaryId);
+
+                    if (isMulti) {
+                      // Grouped header row
+                      return (
+                        <div key={group.groupId} className="rounded-lg border border-amber-500/60 overflow-hidden">
+                          {/* Header */}
+                          <div
+                            className={cn(
+                              "p-3 cursor-pointer transition-colors bg-amber-500/5 hover:bg-amber-500/10",
+                              group.ribIds.includes(selectedRib ?? "") && "bg-amber-500/15"
+                            )}
+                            onClick={() => {
+                              setSelectedRib(primaryId);
+                              toggleExpandGroup(group.groupId);
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <Link2 className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                <span className="font-medium text-sm truncate">
+                                  Group ({group.ribIds.length} ribs)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-xs text-muted-foreground">
+                                  R: {group.combinedMeasurements.arc_radius.toFixed(2)}m
+                                </span>
+                                <button
+                                  className="p-0.5 rounded hover:bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                                  title="Ungroup these ribs"
+                                  onClick={(e) => { e.stopPropagation(); handleUngroup(group.groupId); }}
+                                >
+                                  <Link2Off className="w-3.5 h-3.5" />
+                                </button>
+                                {isExpanded
+                                  ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
+                                  : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                              </div>
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              L: {group.combinedMeasurements.rib_length.toFixed(2)}m
+                              {" · "}Err: {group.combinedMeasurements.fit_error.toFixed(4)}m
+                            </div>
+                          </div>
+                          {/* Members */}
+                          {isExpanded && (
+                            <div className="border-t border-amber-500/30 divide-y divide-amber-500/20">
+                              {group.ribIds.map(ribId => {
+                                const m = measurements.find(x => x.id === ribId);
+                                return (
+                                  <div
+                                    key={ribId}
+                                    className={cn(
+                                      "px-3 py-2 cursor-pointer transition-colors hover:bg-muted/50",
+                                      selectedRib === ribId && "bg-primary/5"
+                                    )}
+                                    onClick={() => setSelectedRib(ribId)}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-sm">{m?.name ?? ribId}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {m && m.arcRadius > 0 ? `R: ${m.arcRadius.toFixed(2)}m` : ""}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    // Singleton row
+                    const m = measurements.find(x => x.id === primaryId);
+                    return (
+                      <div
+                        key={group.groupId}
+                        className={cn(
+                          "p-3 rounded-lg border cursor-pointer transition-colors",
+                          selectedRib === primaryId
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/50"
+                        )}
+                        onClick={() => setSelectedRib(primaryId)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">{m?.name ?? primaryId}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {m && m.arcRadius > 0 && `R: ${m.arcRadius.toFixed(2)}m`}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }) : measurements.map((m) => (
                     <div
                       key={m.id}
                       className={cn(
@@ -814,6 +1002,25 @@ export default function Step7MeasurementsPage() {
                   ))}
                 </div>
               </ScrollArea>
+              {/* Max keystone gap slider */}
+              <div className="mt-3 space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <label>Max keystone gap</label>
+                  <span className="font-mono">{proximityThreshold.toFixed(1)} m</span>
+                </div>
+                <Slider
+                  min={0.1}
+                  max={5.0}
+                  step={0.1}
+                  value={[proximityThreshold]}
+                  onValueChange={([v]) => setProximityThreshold(v)}
+                />
+                {isDetectingGroups && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Detecting groups…
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
           
