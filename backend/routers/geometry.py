@@ -251,3 +251,85 @@ async def calculate_impost_line_endpoint(request: ImpostLineRequest):
     except Exception as e:
         return ImpostLineResponse(success=False, error=str(e))
 
+
+# ---------------------------------------------------------------------------
+# Rib Group Detection
+# ---------------------------------------------------------------------------
+
+class RibForGrouping(BaseModel):
+    id: str
+    points: List[List[float]]  # [[x, y, z], ...]
+
+
+class RibGroupCombinedMeasurements(BaseModel):
+    arc_radius: float
+    rib_length: float
+    apex_point: Point3D
+    arc_center: Point3D
+    arc_center_z: float
+    fit_error: float
+
+
+class RibGroupResult(BaseModel):
+    groupId: str
+    ribIds: List[str]
+    isGrouped: bool
+    combinedMeasurements: RibGroupCombinedMeasurements
+
+
+class DetectRibGroupsRequest(BaseModel):
+    ribs: List[RibForGrouping]
+    maxGap: float = 2.0
+    radiusTolerance: float = 0.15
+
+
+class DetectRibGroupsResponse(BaseModel):
+    success: bool
+    data: Optional[List[RibGroupResult]] = None
+    error: Optional[str] = None
+
+
+@router.post("/measurements/rib-groups", response_model=DetectRibGroupsResponse)
+async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
+    """Detect rib groups split by keystones and return combined arc measurements."""
+    try:
+        service = MeasurementService()
+        for rib in request.ribs:
+            points = np.array(rib.points)
+            if len(points) >= 3:
+                service.traces[rib.id] = points
+
+        if not service.traces:
+            return DetectRibGroupsResponse(success=False, error="No valid rib traces provided")
+
+        import asyncio as _asyncio
+        loop = _asyncio.get_event_loop()
+        groups = await loop.run_in_executor(
+            None,
+            service.detect_rib_groups,
+            request.maxGap,
+            25.0,  # angle_threshold_deg — internal constant
+            request.radiusTolerance,
+        )
+
+        results = []
+        for i, group_ids in enumerate(groups):
+            combined = service.calculate_group_measurements(group_ids)
+            results.append(RibGroupResult(
+                groupId=f"group-{i}",
+                ribIds=group_ids,
+                isGrouped=len(group_ids) > 1,
+                combinedMeasurements=RibGroupCombinedMeasurements(
+                    arc_radius=combined["arc_radius"],
+                    rib_length=combined["rib_length"],
+                    apex_point=Point3D(**combined["apex_point"]),
+                    arc_center=Point3D(**combined["arc_center"]),
+                    arc_center_z=combined["arc_center_z"],
+                    fit_error=combined["fit_error"],
+                ),
+            ))
+
+        return DetectRibGroupsResponse(success=True, data=results)
+    except Exception as e:
+        return DetectRibGroupsResponse(success=False, error=str(e))
+
