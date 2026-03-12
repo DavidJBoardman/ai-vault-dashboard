@@ -644,6 +644,14 @@ export default function Step7MeasurementsPage() {
       };
     });
   }, [intradosLines]);
+
+  // Full rib paths for click hit-areas in the 3D viewer (one tube per rib)
+  const ribPaths = useMemo(() =>
+    intradosLines.map(line => ({
+      id: line.id,
+      points: line.points3d.map(p => ({ x: p[0], y: p[1], z: p[2] })),
+    })),
+  [intradosLines]);
   
   // Update measurements when loaded data changes
   useEffect(() => {
@@ -860,6 +868,8 @@ export default function Step7MeasurementsPage() {
                     ribLabels={showLabels ? ribLabels : []}
                     selectedLabelId={selectedRib}
                     onLabelClick={setSelectedRib}
+                    ribPaths={ribPaths}
+                    onLineClick={setSelectedRib}
                   />
                 ) : (
                   <div className="h-[400px] rounded-lg bg-muted flex items-center justify-center">
