@@ -2,7 +2,7 @@
 
 import { useRef, useMemo, useEffect, useState, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera, Grid, Stats } from "@react-three/drei";
+import { OrbitControls, PerspectiveCamera, Grid, Stats, Html } from "@react-three/drei";
 import * as THREE from "three";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -32,6 +32,16 @@ export interface Line3D {
   label: string;
   color: string;
   points: Array<{ x: number; y: number; z: number }>;
+  // Optional: For rendering true mathematical arcs
+  arc?: {
+    center: { x: number; y: number; z: number };
+    radius: number;
+    startAngle: number;
+    endAngle: number;
+    // Basis vectors for the arc plane
+    u: { x: number; y: number; z: number };
+    v: { x: number; y: number; z: number };
+  };
 }
 
 export interface ExclusionBoxProps {
@@ -42,6 +52,13 @@ export interface ExclusionBoxProps {
   minZ: number;
   maxZ: number;
   enabled: boolean;
+}
+
+export interface RibLabel {
+  id: string;
+  label: string;
+  /** Data-space coordinates — Y/Z will be swapped to match the viewer's orientation */
+  position: { x: number; y: number; z: number };
 }
 
 interface PointCloudViewerProps {
@@ -60,6 +77,12 @@ interface PointCloudViewerProps {
   showFloorPlane?: boolean;
   exclusionBox?: ExclusionBoxProps;
   showExclusionBox?: boolean;
+  ribLabels?: RibLabel[];
+  selectedLabelId?: string | null;
+  onLabelClick?: (id: string) => void;
+  onLineClick?: (ribId: string) => void;
+  /** Full rib paths used for click hit-areas (one tube per rib, not per segment) */
+  ribPaths?: Array<{ id: string; points: Array<{ x: number; y: number; z: number }> }>;
 }
 
 function PointCloud({ 
@@ -160,49 +183,105 @@ function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: num
       {lines.map((line) => {
         if (line.points.length < 2) return null;
         
-        // Create line geometry
+        // Parse hex color to THREE.Color
+        const color = new THREE.Color(line.color);
+        const sphereRadius = lineWidth * 2;
+        
+        // If arc parameters are provided, render a true mathematical arc
+        if (line.arc) {
+          const { center, radius, startAngle, endAngle, u, v } = line.arc;
+          
+          // Create a parametric curve for the arc
+          class ArcCurve extends THREE.Curve<THREE.Vector3> {
+            center: { x: number; y: number; z: number };
+            radius: number;
+            startAngle: number;
+            endAngle: number;
+            u: { x: number; y: number; z: number };
+            v: { x: number; y: number; z: number };
+
+            constructor(
+              center: { x: number; y: number; z: number },
+              radius: number,
+              startAngle: number,
+              endAngle: number,
+              u: { x: number; y: number; z: number },
+              v: { x: number; y: number; z: number }
+            ) {
+              super();
+              this.center = center;
+              this.radius = radius;
+              this.startAngle = startAngle;
+              this.endAngle = endAngle;
+              this.u = u;
+              this.v = v;
+            }
+
+            getPoint(t: number): THREE.Vector3 {
+              const angle = this.startAngle + t * (this.endAngle - this.startAngle);
+              const x = this.center.x + this.radius * (Math.cos(angle) * this.u.x + Math.sin(angle) * this.v.x);
+              const y = this.center.y + this.radius * (Math.cos(angle) * this.u.y + Math.sin(angle) * this.v.y);
+              const z = this.center.z + this.radius * (Math.cos(angle) * this.u.z + Math.sin(angle) * this.v.z);
+              return new THREE.Vector3(x, z, y); // Swap Y/Z for orientation
+            }
+          }
+          
+          const arcCurve = new ArcCurve(center, radius, startAngle, endAngle, u, v);
+          
+          return (
+            <group key={line.id}>
+              {/* Main arc tube */}
+              <mesh>
+                <tubeGeometry args={[arcCurve, 64, lineWidth, 8, false]} />
+                <meshBasicMaterial color={color} />
+              </mesh>
+              {/* Glow effect */}
+              <mesh>
+                <tubeGeometry args={[arcCurve, 64, lineWidth * 1.5, 8, false]} />
+                <meshBasicMaterial color={color} transparent opacity={0.3} />
+              </mesh>
+              {/* Start sphere */}
+              <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
+                <sphereGeometry args={[sphereRadius, 16, 16]} />
+                <meshBasicMaterial color={color} />
+              </mesh>
+              {/* End sphere */}
+              <mesh position={[
+                line.points[line.points.length - 1].x,
+                line.points[line.points.length - 1].z,
+                line.points[line.points.length - 1].y
+              ]}>
+                <sphereGeometry args={[sphereRadius, 16, 16]} />
+                <meshBasicMaterial color={color} />
+              </mesh>
+            </group>
+          );
+        }
+        
+        // Fallback: use CatmullRomCurve3 for regular line rendering
         const points: THREE.Vector3[] = line.points.map(
           (p) => new THREE.Vector3(p.x, p.z, p.y) // Swap Y/Z for correct orientation
         );
-        
-        // Parse hex color to THREE.Color
-        const color = new THREE.Color(line.color);
-        
-        // Scale sphere size based on line width
-        const sphereRadius = lineWidth * 2;
-        
+        const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5);
+        const segments = Math.max(8, line.points.length * 2);
+
         return (
           <group key={line.id}>
             {/* Main line using tube geometry for thickness */}
             <mesh>
-              <tubeGeometry args={[
-                new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5),
-                Math.max(8, line.points.length * 2),
-                lineWidth, // tube radius
-                8, // radial segments
-                false
-              ]} />
+              <tubeGeometry args={[curve, segments, lineWidth, 8, false]} />
               <meshBasicMaterial color={color} />
             </mesh>
-            
             {/* Glow/highlight effect */}
             <mesh>
-              <tubeGeometry args={[
-                new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5),
-                Math.max(8, line.points.length * 2),
-                lineWidth * 1.5,
-                8,
-                false
-              ]} />
+              <tubeGeometry args={[curve, segments, lineWidth * 1.5, 8, false]} />
               <meshBasicMaterial color={color} transparent opacity={0.3} />
             </mesh>
-            
             {/* Start sphere */}
             <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
               <sphereGeometry args={[sphereRadius, 16, 16]} />
               <meshBasicMaterial color={color} />
             </mesh>
-            
             {/* End sphere */}
             <mesh position={[
               line.points[line.points.length - 1].x,
@@ -213,6 +292,50 @@ function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: num
               <meshBasicMaterial color={color} />
             </mesh>
           </group>
+        );
+      })}
+    </group>
+  );
+}
+
+/**
+ * One invisible wide tube per rib — the only raycasting targets for click/hover.
+ * Keeps raycasting cost at O(ribs) instead of O(ribs × segments).
+ */
+function RibHitAreas({
+  ribPaths,
+  lineWidth,
+  onLineClick,
+}: {
+  ribPaths: Array<{ id: string; points: Array<{ x: number; y: number; z: number }> }>;
+  lineWidth: number;
+  onLineClick?: (ribId: string) => void;
+}) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  return (
+    <group>
+      {ribPaths.map((rib) => {
+        if (rib.points.length < 2) return null;
+        const pts = rib.points.map((p) => new THREE.Vector3(p.x, p.z, p.y));
+        const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
+        const segs = Math.max(8, rib.points.length * 2);
+        const isHovered = hoveredId === rib.id;
+        return (
+          <mesh
+            key={rib.id}
+            onClick={(e) => { e.stopPropagation(); onLineClick?.(rib.id); }}
+            onPointerOver={(e) => { e.stopPropagation(); setHoveredId(rib.id); document.body.style.cursor = "pointer"; }}
+            onPointerOut={() => { setHoveredId(null); document.body.style.cursor = "default"; }}
+          >
+            <tubeGeometry args={[curve, segs, lineWidth * 6, 6, false]} />
+            <meshBasicMaterial
+              transparent
+              opacity={isHovered ? 0.18 : 0}
+              color="#ffffff"
+              depthWrite={false}
+            />
+          </mesh>
         );
       })}
     </group>
@@ -375,6 +498,56 @@ function ExclusionBoxVisual({
   );
 }
 
+function RibLabelsOverlay({
+  labels,
+  selectedId,
+  onLabelClick,
+}: {
+  labels: RibLabel[];
+  selectedId?: string | null;
+  onLabelClick?: (id: string) => void;
+}) {
+  return (
+    <>
+      {labels.map((label) => (
+        <Html
+          key={label.id}
+          position={[label.position.x, label.position.z, label.position.y]}
+          center
+          distanceFactor={8}
+          zIndexRange={[100, 0]}
+        >
+          <div
+            onClick={() => onLabelClick?.(label.id)}
+            style={{
+              cursor: "pointer",
+              padding: "2px 8px",
+              borderRadius: "9999px",
+              fontSize: "11px",
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+              userSelect: "none",
+              background: selectedId === label.id
+                ? "rgba(255,255,255,0.95)"
+                : "rgba(10,15,26,0.75)",
+              color: selectedId === label.id ? "#0a0f1a" : "#e2e8f0",
+              border: selectedId === label.id
+                ? "1.5px solid rgba(255,255,255,1)"
+                : "1px solid rgba(255,255,255,0.25)",
+              boxShadow: selectedId === label.id
+                ? "0 0 0 3px rgba(255,255,255,0.2)"
+                : "none",
+              transition: "all 0.15s ease",
+            }}
+          >
+            {label.label}
+          </div>
+        </Html>
+      ))}
+    </>
+  );
+}
+
 interface CameraControllerProps {
   center: { x: number; y: number; z: number };
   distance: number;
@@ -442,6 +615,11 @@ export function PointCloudViewer({
   showFloorPlane = false,
   exclusionBox,
   showExclusionBox = false,
+  ribLabels,
+  selectedLabelId,
+  onLabelClick,
+  onLineClick,
+  ribPaths,
 }: PointCloudViewerProps) {
   const [localColorMode, setLocalColorMode] = useState(colorMode);
   const [localPointSize, setLocalPointSize] = useState(pointSize);
@@ -536,6 +714,10 @@ export function PointCloudViewer({
         {showBoundingBox && <BoundingBox points={points} />}
         
         {showLines && lines.length > 0 && <Lines3D lines={lines} lineWidth={lineWidth} />}
+
+        {ribPaths && ribPaths.length > 0 && onLineClick && (
+          <RibHitAreas ribPaths={ribPaths} lineWidth={lineWidth} onLineClick={onLineClick} />
+        )}
         
         {showFloorPlane && floorPlaneZ !== undefined && (
           <FloorPlane 
@@ -547,6 +729,14 @@ export function PointCloudViewer({
         
         {showExclusionBox && exclusionBox && (
           <ExclusionBoxVisual box={exclusionBox} />
+        )}
+
+        {ribLabels && ribLabels.length > 0 && (
+          <RibLabelsOverlay
+            labels={ribLabels}
+            selectedId={selectedLabelId}
+            onLabelClick={onLabelClick}
+          />
         )}
         
         {showGrid && (

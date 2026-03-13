@@ -85,6 +85,7 @@ export interface Project {
   updatedAt: Date;
   currentStep: number;
   steps: Record<number, StepState>;
+  stepData: Record<number, Record<string, any>>;  // Data saved by each step
   
   // Step 1: E57 data
   e57Path?: string;
@@ -232,6 +233,7 @@ const initialProject = (): Project => ({
   updatedAt: new Date(),
   currentStep: 1,
   steps: {},
+  stepData: {},
   projections: [],
   segmentations: [],
   intradosLines: [],
@@ -537,6 +539,10 @@ export const useProjectStore = create<ProjectStore>()(
               ...state.currentProject,
               currentStep: step,
               steps: newSteps,
+              stepData: {
+                ...state.currentProject.stepData,
+                [step]: data || {},
+              },
             },
           };
         });
