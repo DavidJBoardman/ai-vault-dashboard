@@ -3,6 +3,11 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
 
+type PythonCandidate = {
+  path: string;
+  source: string;
+};
+
 export class PythonManager {
   private process: ChildProcess | null = null;
   private port: number = 8765;
@@ -37,11 +42,10 @@ export class PythonManager {
       const isDev = process.env.NODE_ENV !== 'production';
       let pythonPath: string;
       let args: string[];
+      const backendDir = path.join(__dirname, '..', 'backend');
+      const repoRoot = path.resolve(backendDir, '..');
 
       if (isDev) {
-        // In development, run the Python script
-        const backendDir = path.join(__dirname, '..', 'backend');
-
         // Debug: print environment info (keep compact and platform-neutral)
         console.log('[Python] ========================================');
         console.log('[Python] PYTHON ENVIRONMENT DETECTION');
@@ -50,7 +54,7 @@ export class PythonManager {
         console.log('[Python] Platform:', process.platform);
         console.log('[Python] PYTHON_PATH env:', process.env.PYTHON_PATH || '(not set)');
         console.log('[Python] CONDA_PREFIX env:', process.env.CONDA_PREFIX || '(not set)');
-        console.log('[Python] Using repo-local venv candidates: .venv / venv (repo root and backend/)');
+        console.log('[Python] Using uv/venv/conda candidates from repo root and backend/');
         console.log('[Python] ========================================');
 
         if (!fs.existsSync(path.join(backendDir, 'main.py'))) {
@@ -61,93 +65,15 @@ export class PythonManager {
 
         // Python resolution order (dev):
         // 1) PYTHON_PATH env (explicit override)
-        // 2) repo-local venv (.venv preferred; also support venv), including backend-local venvs
-        // 3) active conda env (CONDA_PREFIX) for colleague compatibility
+        // 2) repo-local uv/venv environments
+        // 3) active conda env (compat)
         // 4) pyenv-managed Python (pyenv which python)
         // 5) system fallback: python
+        const foundCandidate = this.resolveDevelopmentPython(repoRoot, backendDir);
+        pythonPath = foundCandidate?.path || (process.platform === 'win32' ? 'python.exe' : 'python');
 
-        let foundPython: string | null = null;
-        let foundBy: string | null = null;
-
-        // Helper to check candidates in order
-        const pickFirstExisting = (candidates: string[]): string | null => {
-          for (const p of candidates) {
-            if (p && fs.existsSync(p)) return p;
-          }
-          return null;
-        };
-
-        // 1) Explicit override
-        if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
-          foundPython = process.env.PYTHON_PATH;
-          foundBy = 'PYTHON_PATH';
-        }
-
-        // Resolve repo root based on backendDir
-        const repoRoot = path.resolve(backendDir, '..');
-
-        // 2) Local venvs (repo root first; then backend-local)
-        if (!foundPython) {
-          const venvCandidates: string[] = [];
-
-          // repo-root .venv / venv
-          if (process.platform === 'win32') {
-            venvCandidates.push(
-              path.join(repoRoot, '.venv', 'Scripts', 'python.exe'),
-              path.join(repoRoot, 'venv', 'Scripts', 'python.exe'),
-              path.join(backendDir, '.venv', 'Scripts', 'python.exe'),
-              path.join(backendDir, 'venv', 'Scripts', 'python.exe'),
-            );
-          } else {
-            venvCandidates.push(
-              path.join(repoRoot, '.venv', 'bin', 'python'),
-              path.join(repoRoot, 'venv', 'bin', 'python'),
-              path.join(backendDir, '.venv', 'bin', 'python'),
-              path.join(backendDir, 'venv', 'bin', 'python'),
-            );
-          }
-
-          const picked = pickFirstExisting(venvCandidates);
-          if (picked) {
-            foundPython = picked;
-            foundBy = 'local-venv';
-          }
-        }
-
-        // 3) Active conda env (compat)
-        if (!foundPython && process.env.CONDA_PREFIX) {
-          const condaPython = process.platform === 'win32'
-            ? path.join(process.env.CONDA_PREFIX, 'python.exe')
-            : path.join(process.env.CONDA_PREFIX, 'bin', 'python');
-
-          if (fs.existsSync(condaPython)) {
-            foundPython = condaPython;
-            foundBy = 'conda';
-          }
-        }
-
-        // 4) pyenv (best-effort; only if available)
-        if (!foundPython) {
-          try {
-            const pyenvPython = execFileSync('pyenv', ['which', 'python'], {
-              encoding: 'utf8',
-              stdio: ['ignore', 'pipe', 'pipe'],
-            }).trim();
-
-            if (pyenvPython && fs.existsSync(pyenvPython)) {
-              foundPython = pyenvPython;
-              foundBy = 'pyenv';
-            }
-          } catch (e) {
-            // pyenv not installed or not on PATH; ignore
-          }
-        }
-
-        // 5) System fallback
-        pythonPath = foundPython || 'python';
-
-        if (foundBy) {
-          console.log(`[Python] ✓ Using ${foundBy}:`, pythonPath);
+        if (foundCandidate) {
+          console.log(`[Python] ✓ Using ${foundCandidate.source}:`, pythonPath);
         } else {
           console.log('[Python] ⚠ Falling back to system python:', pythonPath);
         }
@@ -184,8 +110,7 @@ export class PythonManager {
         pythonPath = path.join(resourcesPath, 'backend', executableName);
 
         if (!fs.existsSync(pythonPath)) {
-          console.warn('Backend executable not found at:', pythonPath);
-          resolve();
+          failStart(new Error(`Bundled backend executable not found at: ${pythonPath}`));
           return;
         }
 
@@ -260,6 +185,84 @@ export class PythonManager {
         }
       }, 30000);
     });
+  }
+
+  private resolveDevelopmentPython(repoRoot: string, backendDir: string): PythonCandidate | null {
+    const explicitPython = process.env.PYTHON_PATH;
+    if (explicitPython && fs.existsSync(explicitPython)) {
+      return { path: explicitPython, source: 'PYTHON_PATH' };
+    }
+
+    const venvCandidates = this.getLocalPythonCandidates(repoRoot, backendDir);
+    const localPython = this.pickFirstExisting(venvCandidates);
+    if (localPython) {
+      return { path: localPython, source: 'local-uv-or-venv' };
+    }
+
+    const condaPython = this.getCondaPython();
+    if (condaPython) {
+      return { path: condaPython, source: 'conda' };
+    }
+
+    const pyenvPython = this.getPyenvPython();
+    if (pyenvPython) {
+      return { path: pyenvPython, source: 'pyenv' };
+    }
+
+    return null;
+  }
+
+  private getLocalPythonCandidates(repoRoot: string, backendDir: string): string[] {
+    if (process.platform === 'win32') {
+      return [
+        path.join(repoRoot, '.venv', 'Scripts', 'python.exe'),
+        path.join(repoRoot, 'venv', 'Scripts', 'python.exe'),
+        path.join(backendDir, '.venv', 'Scripts', 'python.exe'),
+        path.join(backendDir, 'venv', 'Scripts', 'python.exe'),
+      ];
+    }
+
+    return [
+      path.join(repoRoot, '.venv', 'bin', 'python'),
+      path.join(repoRoot, 'venv', 'bin', 'python'),
+      path.join(backendDir, '.venv', 'bin', 'python'),
+      path.join(backendDir, 'venv', 'bin', 'python'),
+    ];
+  }
+
+  private getCondaPython(): string | null {
+    if (!process.env.CONDA_PREFIX) {
+      return null;
+    }
+
+    const condaPython = process.platform === 'win32'
+      ? path.join(process.env.CONDA_PREFIX, 'python.exe')
+      : path.join(process.env.CONDA_PREFIX, 'bin', 'python');
+
+    return fs.existsSync(condaPython) ? condaPython : null;
+  }
+
+  private getPyenvPython(): string | null {
+    try {
+      const pyenvPython = execFileSync('pyenv', ['which', 'python'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+
+      return pyenvPython && fs.existsSync(pyenvPython) ? pyenvPython : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private pickFirstExisting(candidates: string[]): string | null {
+    for (const candidate of candidates) {
+      if (candidate && fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   stop(): void {

@@ -1,6 +1,7 @@
 # =====================================================
 # Vault Analyser Backend Requirements
-# Python 3.12+ (via Conda recommended)
+# Python 3.12+ compatibility requirements for Conda/manual installs
+# Canonical dependency definition: pyproject.toml + uv.lock
 # =====================================================
 #
 # SETUP INSTRUCTIONS:

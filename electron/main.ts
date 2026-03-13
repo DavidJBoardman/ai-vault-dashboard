@@ -7,7 +7,7 @@ let mainWindow: BrowserWindow | null = null;
 let pythonManager: PythonManager | null = null;
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1600,
     height: 1000,
     minWidth: 1200,
@@ -17,10 +17,15 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    titleBarStyle: 'hiddenInset',
     backgroundColor: '#0f172a',
     show: false,
-  });
+  };
+
+  if (process.platform === 'darwin') {
+    windowOptions.titleBarStyle = 'hiddenInset';
+  }
+
+  mainWindow = new BrowserWindow(windowOptions);
 
   // Show window when ready to prevent visual flash
   mainWindow.once('ready-to-show', () => {

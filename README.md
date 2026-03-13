@@ -43,9 +43,9 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 ## Prerequisites
 
 - Node.js 22+
-- Python 3.12+ (via Conda)
-- Conda (Miniconda or Anaconda)
-- n
+- Python 3.12+
+- `uv` for the preferred backend workflow
+- Conda (optional, supported for local development compatibility)
 
 ## Installation
 
@@ -62,30 +62,32 @@ cd ai-vault-dashboard
 npm install
 ```
 
-### 3. Set up Python environment with Conda
+### 3. Set up the backend environment
 
-Create and activate the conda environment:
+`uv` is the canonical dependency and packaging workflow for this repo. Conda remains supported for local development.
+
+#### Preferred: uv
 
 ```bash
-# Create conda environment with Python 3.12
-conda create -n vault-interface python=3.12
-conda activate vault-interface
-
-# Install PyTorch (required for SAM 3)
-# macOS (Apple Silicon - MPS acceleration):
-pip install torch torchvision torchaudio
-
-# Linux/Windows with CUDA 12.6:
-# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-
-# Install SAM 3 via HuggingFace Transformers
-pip install git+https://github.com/huggingface/transformers torchvision
-
-# Install remaining backend dependencies
-pip install -r backend/requirements.txt
+uv sync --directory backend --group build
 ```
 
-### 4. Verify SAM 3 installation
+#### Supported: Conda
+
+```bash
+conda create -n vault-interface python=3.12
+conda activate vault-interface
+pip install -r backend/requirements.txt
+pip install pyinstaller==6.10.0
+```
+
+### 4. Verify backend dependencies
+
+```bash
+uv run --directory backend python -c "from transformers import Sam3Processor, Sam3Model; print('SAM 3 OK')"
+```
+
+Or, if you are using Conda:
 
 ```bash
 conda activate vault-interface
@@ -98,36 +100,44 @@ python -c "from transformers import Sam3Processor, Sam3Model; print('SAM 3 OK')"
 
 ### Run in development mode
 
-**Important**: Always activate the conda environment before running the backend.
+The backend always runs on `127.0.0.1:8765` in development. Electron will try development interpreters in this order:
+
+1. `PYTHON_PATH`
+2. repo-local `uv` / virtualenv interpreters
+3. active Conda environment
+4. `pyenv`
+5. system `python`
+
+#### Full desktop dev loop
 
 ```bash
-# Terminal 1: Start the Python backend
-conda activate vault-interface
-npm run backend:dev
-
-# Terminal 2: Start the Next.js frontend and Electron
 npm run dev
 ```
 
-Or run them separately:
+#### Backend only
+
+With `uv`:
 
 ```bash
-# Frontend only (opens in browser at localhost:3000)
-npm run dev:next
+npm run backend:dev:uv
+```
 
-# Backend only (ensure conda env is active)
+With Conda:
+
+```bash
 conda activate vault-interface
-cd backend && python -m uvicorn main:app --reload --port 8765
+npm run backend:dev
+```
+
+#### Frontend only
+
+```bash
+npm run dev:next
 ```
 
 ### Environment Notes
 
-The Electron app will automatically detect your conda environment. It searches for:
-
-1. `PYTHON_PATH` environment variable
-2. Active conda environment (`CONDA_PREFIX`)
-3. The `vault-interface` conda environment in standard locations
-4. System Python as fallback
+Official packaging and CI use `uv`, even though local development supports both `uv` and Conda.
 
 ## Building for Production
 
@@ -139,17 +149,25 @@ npm run build
 
 ### Package for distribution
 
+Packaging must run on the same OS as the target installer. macOS builds produce `.dmg` artefacts and Windows builds produce `.exe` installers.
+
 ```bash
-# All platforms
+# Current platform
 npm run package
 
-# Platform-specific
-npm run package:win   # Windows (.exe)
-npm run package:mac   # macOS (.dmg)
-npm run package:linux # Linux (.AppImage)
+# Same-OS packaging
+npm run package:mac
+npm run package:win
 ```
 
 The packaged application will be in the `dist/` directory.
+
+### CI packaging
+
+GitHub Actions is the official release path. It builds:
+
+- macOS `.dmg` artefacts on `macos-latest`
+- Windows installer `.exe` artefacts on `windows-latest`
 
 ## Project Structure
 
