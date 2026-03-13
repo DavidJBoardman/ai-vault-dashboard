@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
-import { PointCloudViewer, generateDemoPointCloud, type RibLabel } from "@/components/point-cloud/point-cloud-viewer";
+import { PointCloudViewer, generateDemoPointCloud, type RibLabel, type BossStoneMarker } from "@/components/point-cloud/point-cloud-viewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import {
   getReprojectionPreview,
   getIntradosLines,
+  getBossStoneMarkers,
   calculateMeasurements,
   calculateImpostLine,
   detectRibGroups,
@@ -118,6 +119,7 @@ const EMPTY_MEASUREMENT_CONFIG: MeasurementConfig = {
   customGroups: [],
   disabledAutoGroupIds: [],
   groupNameById: {},
+  bossStoneNameById: {},
 };
 
 
@@ -329,6 +331,8 @@ export default function Step7MeasurementsPage() {
   // Data loading states
   const [pointCloudData, setPointCloudData] = useState<ReprojectionPoint[] | null>(null);
   const [intradosLines, setIntradosLines] = useState<IntradosLine[]>([]);
+  const [bossStoneMarkers, setBossStoneMarkers] = useState<BossStoneMarker[]>([]);
+  const [showBossStones, setShowBossStones] = useState(true);
   const initialSelectionSetRef = useRef(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   
@@ -364,6 +368,13 @@ export default function Step7MeasurementsPage() {
   const [isDetectingGroups, setIsDetectingGroups] = useState(false);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   const [renameValue, setRenameValue] = useState("");
+
+  // Boss stone rename + selection state
+  const [bossStoneRenameId, setBossStoneRenameId] = useState<string | null>(null);
+  const [bossStoneRenameValue, setBossStoneRenameValue] = useState("");
+  const [selectedBossStone, setSelectedBossStone] = useState<string | null>(null);
+  const bossStoneRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const bossStoneScrollAreaRef = useRef<HTMLDivElement | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const ribRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -408,6 +419,12 @@ export default function Step7MeasurementsPage() {
             setSelectedRib(linesResponse.data.lines[0].id);
             initialSelectionSetRef.current = true;
           }
+        }
+
+        // Load boss stone / keystone markers (purely for orientation visualisation)
+        const bossResponse = await getBossStoneMarkers(currentProject.id);
+        if (bossResponse.success && bossResponse.data?.markers) {
+          setBossStoneMarkers(bossResponse.data.markers);
         }
       } catch (err) {
         console.error("Error loading preview data:", err);
@@ -535,6 +552,19 @@ export default function Step7MeasurementsPage() {
     }));
   }, [intradosLines]);
 
+  // Prune boss stone names for markers that no longer exist
+  useEffect(() => {
+    if (bossStoneMarkers.length === 0) return;
+    const validIds = new Set(bossStoneMarkers.map(m => m.id));
+    setMeasurementConfig(prev => {
+      const pruned = Object.fromEntries(
+        Object.entries(prev.bossStoneNameById).filter(([id]) => validIds.has(id))
+      );
+      if (Object.keys(pruned).length === Object.keys(prev.bossStoneNameById).length) return prev;
+      return { ...prev, bossStoneNameById: pruned };
+    });
+  }, [bossStoneMarkers]);
+
   const isRibInCustomGroup = useCallback((ribId: string): boolean => {
     return measurementConfig.customGroups.some(g => g.ribIds.includes(ribId));
   }, [measurementConfig.customGroups]);
@@ -609,6 +639,28 @@ export default function Step7MeasurementsPage() {
   const cancelRename = () => {
     setRenameTarget(null);
     setRenameValue("");
+  };
+
+  const startRenameBossStone = (markerId: string, currentName: string) => {
+    setBossStoneRenameId(markerId);
+    setBossStoneRenameValue(currentName);
+  };
+
+  const commitRenameBossStone = () => {
+    const nextName = bossStoneRenameValue.trim();
+    if (bossStoneRenameId && nextName) {
+      setMeasurementConfig(prev => ({
+        ...prev,
+        bossStoneNameById: { ...prev.bossStoneNameById, [bossStoneRenameId]: nextName },
+      }));
+    }
+    setBossStoneRenameId(null);
+    setBossStoneRenameValue("");
+  };
+
+  const cancelRenameBossStone = () => {
+    setBossStoneRenameId(null);
+    setBossStoneRenameValue("");
   };
 
   const commitRename = () => {
@@ -786,6 +838,19 @@ export default function Step7MeasurementsPage() {
     }
   }, [selectedRib, displayGroups]);
 
+  // Scroll boss stone panel to the selected row when clicked in 3D viewer
+  // Use manual viewport scroll to avoid the page itself scrolling
+  useEffect(() => {
+    if (!selectedBossStone) return;
+    const target = bossStoneRowRefs.current[selectedBossStone];
+    const viewport = bossStoneScrollAreaRef.current?.querySelector<HTMLElement>('[data-radix-scroll-area-viewport]');
+    if (target && viewport) {
+      const targetMid = target.offsetTop + target.offsetHeight / 2;
+      const scrollTo = targetMid - viewport.clientHeight / 2;
+      viewport.scrollTo({ top: scrollTo, behavior: "smooth" });
+    }
+  }, [selectedBossStone]);
+
   // Compute colored traces for all intrados lines
   useEffect(() => {
     const computeAllTraces = async () => {
@@ -936,6 +1001,14 @@ export default function Step7MeasurementsPage() {
       points: line.points3d.map(p => ({ x: p[0], y: p[1], z: p[2] })),
     })),
   [intradosLines]);
+
+  // Merge custom names into markers so the 3D labels stay in sync
+  const displayBossStoneMarkers = useMemo(() =>
+    bossStoneMarkers.map(m => ({
+      ...m,
+      label: measurementConfig.bossStoneNameById[m.id] ?? m.label,
+    })),
+  [bossStoneMarkers, measurementConfig.bossStoneNameById]);
   
   // Update measurements when loaded data changes
   useEffect(() => {
@@ -1086,6 +1159,10 @@ export default function Step7MeasurementsPage() {
                     onLabelClick={setSelectedRib}
                     ribPaths={ribPaths}
                     onLineClick={setSelectedRib}
+                    bossStoneMarkers={displayBossStoneMarkers}
+                    showBossStones={showBossStones}
+                    selectedBossStoneId={selectedBossStone}
+                    onBossStoneClick={setSelectedBossStone}
                   />
                 ) : (
                   <div className="h-full rounded-lg bg-muted flex items-center justify-center">
@@ -1124,8 +1201,20 @@ export default function Step7MeasurementsPage() {
                     title={showLabels ? "Hide rib labels" : "Show rib labels"}
                   >
                     <Tag className="w-3.5 h-3.5" />
-                    <span className="text-xs">Labels</span>
+                    <span className="text-xs">Ribs</span>
                   </Button>
+                  {bossStoneMarkers.length > 0 && (
+                    <Button
+                      variant={showBossStones ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setShowBossStones(v => !v)}
+                      className="gap-1 h-7"
+                      title={showBossStones ? "Hide boss stones" : "Show boss stones"}
+                    >
+                      <Circle className="w-3.5 h-3.5" />
+                      <span className="text-xs">Bosses</span>
+                    </Button>
+                  )}
                   </div>
                 </div>
               </div>
@@ -1408,6 +1497,89 @@ export default function Step7MeasurementsPage() {
 
             </CardContent>
           </Card>
+
+          {/* Boss Stones panel — only shown when boss stone markers were detected */}
+          {bossStoneMarkers.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2 shrink-0">
+                <CardTitle className="text-base font-display flex items-center gap-2">
+                  <Circle className="w-4 h-4 text-blue-400" />
+                  Boss Stones
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Rename detected boss stone / keystone markers
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-0 px-4 pb-4">
+                {bossStoneRenameId && (
+                  <div className="rounded-md border bg-muted/40 p-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={bossStoneRenameValue}
+                        onChange={(e) => setBossStoneRenameValue(e.target.value)}
+                        placeholder="Boss stone name"
+                        className="h-8"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitRenameBossStone();
+                          if (e.key === "Escape") cancelRenameBossStone();
+                        }}
+                      />
+                      <Button size="icon" variant="secondary" className="h-8 w-8" onClick={commitRenameBossStone} title="Save name">
+                        <Check className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={cancelRenameBossStone} title="Cancel">
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <div ref={bossStoneScrollAreaRef}>
+                <ScrollArea className="h-48">
+                  <div className="space-y-2 pr-2">
+                    {bossStoneMarkers.map((marker) => {
+                      const displayName = measurementConfig.bossStoneNameById[marker.id] || marker.label;
+                      const isRenaming = bossStoneRenameId === marker.id;
+                      const isSelected = selectedBossStone === marker.id;
+                      return (
+                        <div
+                          key={marker.id}
+                          ref={(el) => { bossStoneRowRefs.current[marker.id] = el; }}
+                          className={cn(
+                            "p-3 rounded-lg border transition-colors cursor-pointer",
+                            isRenaming
+                              ? "border-blue-400/60 bg-blue-400/5"
+                              : isSelected
+                              ? "border-blue-400/70 bg-blue-400/10"
+                              : "border-border hover:border-blue-400/50"
+                          )}
+                          onClick={() => setSelectedBossStone(isSelected ? null : marker.id)}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ background: isSelected ? "#88CCFF" : "#4488FF" }}
+                              />
+                              <span className="text-sm font-medium truncate">{displayName}</span>
+                            </div>
+                            <button
+                              className="p-0.5 rounded hover:bg-muted shrink-0"
+                              title="Rename"
+                              onClick={(e) => { e.stopPropagation(); startRenameBossStone(marker.id, displayName); }}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Impost Line */}
           <Card>

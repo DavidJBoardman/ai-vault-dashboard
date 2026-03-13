@@ -61,6 +61,17 @@ export interface RibLabel {
   position: { x: number; y: number; z: number };
 }
 
+export interface BossStoneMarker {
+  id: string;
+  label: string;
+  groupId: string;
+  color: string;
+  /** Real-world X coordinate (data space, same convention as point cloud) */
+  x: number;
+  y: number;
+  z: number;
+}
+
 interface PointCloudViewerProps {
   points: Point[];
   lines?: Line3D[];
@@ -83,6 +94,11 @@ interface PointCloudViewerProps {
   onLineClick?: (ribId: string) => void;
   /** Full rib paths used for click hit-areas (one tube per rib, not per segment) */
   ribPaths?: Array<{ id: string; points: Array<{ x: number; y: number; z: number }> }>;
+  /** 3D sphere markers for boss stones / keystones (purely visual, for orientation) */
+  bossStoneMarkers?: BossStoneMarker[];
+  showBossStones?: boolean;
+  selectedBossStoneId?: string | null;
+  onBossStoneClick?: (id: string) => void;
 }
 
 function PointCloud({ 
@@ -498,6 +514,74 @@ function ExclusionBoxVisual({
   );
 }
 
+function BossStoneMarkers3D({
+  markers,
+  sphereRadius,
+  selectedId,
+  onBossStoneClick,
+}: {
+  markers: BossStoneMarker[];
+  sphereRadius: number;
+  selectedId?: string | null;
+  onBossStoneClick?: (id: string) => void;
+}) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  return (
+    <>
+      {markers.map((marker) => {
+        // Y↔Z swap — same convention applied throughout the viewer
+        const threePos: [number, number, number] = [marker.x, marker.z, marker.y];
+        const isSelected = selectedId === marker.id;
+        const isHovered = hoveredId === marker.id;
+        const color = isSelected ? "#88CCFF" : "#4488FF";
+        const radius = isSelected || isHovered ? sphereRadius * 1.2 : sphereRadius;
+        const labelPos: [number, number, number] = [marker.x, marker.z + radius * 2.5, marker.y];
+
+        return (
+          <group key={marker.id}>
+            <mesh
+              position={threePos}
+              onClick={(e) => { e.stopPropagation(); onBossStoneClick?.(marker.id); }}
+              onPointerOver={(e) => { e.stopPropagation(); setHoveredId(marker.id); document.body.style.cursor = "pointer"; }}
+              onPointerOut={() => { setHoveredId(null); document.body.style.cursor = "default"; }}
+            >
+              <sphereGeometry args={[radius, 16, 12]} />
+              <meshBasicMaterial color={color} transparent opacity={isSelected ? 1.0 : isHovered ? 0.95 : 0.9} />
+            </mesh>
+            <Html
+              position={labelPos}
+              center
+              distanceFactor={8}
+              zIndexRange={[90, 0]}
+            >
+              <div
+                onClick={() => onBossStoneClick?.(marker.id)}
+                onMouseEnter={() => setHoveredId(marker.id)}
+                onMouseLeave={() => setHoveredId(null)}
+                style={{
+                  padding: "2px 6px",
+                  borderRadius: "9999px",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  userSelect: "none",
+                  cursor: "pointer",
+                  background: isSelected ? "rgba(68,136,255,0.2)" : "rgba(10,15,26,0.8)",
+                  color: "#f0f0f0",
+                  border: `1px solid ${color}`,
+                }}
+              >
+                {marker.label}
+              </div>
+            </Html>
+          </group>
+        );
+      })}
+    </>
+  );
+}
+
 function RibLabelsOverlay({
   labels,
   selectedId,
@@ -620,19 +704,24 @@ export function PointCloudViewer({
   onLabelClick,
   onLineClick,
   ribPaths,
+  bossStoneMarkers,
+  showBossStones = true,
+  selectedBossStoneId,
+  onBossStoneClick,
 }: PointCloudViewerProps) {
   const [localColorMode, setLocalColorMode] = useState(colorMode);
   const [localPointSize, setLocalPointSize] = useState(pointSize);
   const [resetKey, setResetKey] = useState(0);
   
   // Calculate center for camera target
-  const { center, cameraDistance, gridPos, minZ } = useMemo(() => {
+  const { center, cameraDistance, gridPos, minZ, bossStoneRadius } = useMemo(() => {
     if (points.length === 0) {
       return { 
         center: { x: 0, y: 0, z: 0 }, 
         cameraDistance: 10,
         gridPos: { x: 0, y: 0, z: 0 },
-        minZ: 0
+        minZ: 0,
+        bossStoneRadius: 0.2,
       };
     }
     
@@ -660,12 +749,14 @@ export function PointCloudViewer({
     const rangeY = maxY - minY;
     const rangeZ = maxZ - minZ;
     const maxRange = Math.max(rangeX, rangeY, rangeZ);
+    const diagonal = Math.sqrt(rangeX ** 2 + rangeY ** 2 + rangeZ ** 2);
     
     return {
       center,
       cameraDistance: maxRange * 1.5,
       gridPos: { x: center.x, y: minZ - 0.1, z: center.z },
-      minZ
+      minZ,
+      bossStoneRadius: Math.max(diagonal / 60, 0.05),
     };
   }, [points]);
 
@@ -736,6 +827,15 @@ export function PointCloudViewer({
             labels={ribLabels}
             selectedId={selectedLabelId}
             onLabelClick={onLabelClick}
+          />
+        )}
+
+        {showBossStones && bossStoneMarkers && bossStoneMarkers.length > 0 && (
+          <BossStoneMarkers3D
+            markers={bossStoneMarkers}
+            sphereRadius={bossStoneRadius}
+            selectedId={selectedBossStoneId}
+            onBossStoneClick={onBossStoneClick}
           />
         )}
         
