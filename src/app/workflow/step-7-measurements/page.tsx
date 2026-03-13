@@ -31,7 +31,8 @@ import {
   Square,
   CheckSquare,
   Check,
-  X
+  X,
+  Wand2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -661,6 +662,49 @@ export default function Step7MeasurementsPage() {
   const cancelRenameBossStone = () => {
     setBossStoneRenameId(null);
     setBossStoneRenameValue("");
+  };
+
+  const autoLabelRibs = () => {
+    if (bossStoneMarkers.length === 0 || intradosLines.length === 0) return;
+
+    const getDisplayName = (id: string) =>
+      measurementConfig.bossStoneNameById[id] ??
+      bossStoneMarkers.find(m => m.id === id)?.label ??
+      id;
+
+    const nearestBossStone = (pt: [number, number, number]) => {
+      let bestId = bossStoneMarkers[0].id;
+      let bestDist = Infinity;
+      for (const m of bossStoneMarkers) {
+        const d = Math.sqrt((m.x - pt[0]) ** 2 + (m.y - pt[1]) ** 2 + (m.z - pt[2]) ** 2);
+        if (d < bestDist) { bestDist = d; bestId = m.id; }
+      }
+      return bestId;
+    };
+
+    const newRibNameById: Record<string, string> = { ...measurementConfig.ribNameById };
+
+    for (const line of intradosLines) {
+      // Skip ribs already manually named
+      if (measurementConfig.ribNameById[line.id]) continue;
+      if (line.points3d.length < 2) continue;
+
+      const firstPt = line.points3d[0] as [number, number, number];
+      const lastPt = line.points3d[line.points3d.length - 1] as [number, number, number];
+
+      // Lower Z = spring end, higher Z = crown end — name reads "lower-upper"
+      const lowerPt = firstPt[2] <= lastPt[2] ? firstPt : lastPt;
+      const upperPt = firstPt[2] <= lastPt[2] ? lastPt : firstPt;
+
+      const lowerId = nearestBossStone(lowerPt);
+      const upperId = nearestBossStone(upperPt);
+
+      newRibNameById[line.id] = lowerId === upperId
+        ? "unidentified"
+        : `${getDisplayName(lowerId)}-${getDisplayName(upperId)}`;
+    }
+
+    setMeasurementConfig(prev => ({ ...prev, ribNameById: newRibNameById }));
   };
 
   const commitRename = () => {
@@ -1577,6 +1621,17 @@ export default function Step7MeasurementsPage() {
                   </div>
                 </ScrollArea>
                 </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="w-full gap-1.5 mt-1"
+                  onClick={autoLabelRibs}
+                  disabled={bossStoneMarkers.length === 0 || intradosLines.length === 0}
+                  title="Auto-name ribs from nearest boss stones at each end. Skips already-named ribs."
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  <span className="text-xs">Auto Label Ribs</span>
+                </Button>
               </CardContent>
             </Card>
           )}
