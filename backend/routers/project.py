@@ -70,11 +70,107 @@ class SaveProgressRequest(BaseModel):
     steps: Dict[str, StepState] = {}
 
 
+class MeasurementCustomGroup(BaseModel):
+    """User-defined rib group for measurements."""
+    id: str
+    name: str
+    ribIds: List[str]
+
+
+class MeasurementConfig(BaseModel):
+    """Persistent measurement configuration for Step 7."""
+    ribNameById: Dict[str, str] = {}
+    customGroups: List[MeasurementCustomGroup] = []
+    disabledAutoGroupIds: List[str] = []
+    groupNameById: Dict[str, str] = {}
+
+
+class MeasurementConfigResponse(BaseModel):
+    """Response for measurement configuration endpoints."""
+    success: bool
+    data: Optional[MeasurementConfig] = None
+    error: Optional[str] = None
+
+
 def get_project_dir(project_id: str) -> Path:
     """Get or create project directory."""
     project_dir = PROJECT_DATA_DIR / "projects" / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
     return project_dir
+
+
+def _load_intrados_rib_ids(project_dir: Path) -> set:
+    """Load valid rib ids from saved intrados lines."""
+    intrados_path = project_dir / "segmentations" / "intrados_lines.json"
+    if not intrados_path.exists():
+        return set()
+    try:
+        with open(intrados_path, "r") as f:
+            payload = json.load(f)
+        lines = payload.get("lines", []) if isinstance(payload, dict) else []
+        return {str(line.get("id")) for line in lines if line.get("id")}
+    except Exception:
+        return set()
+
+
+def _sanitize_measurement_config(raw: Dict[str, Any], valid_rib_ids: set) -> Dict[str, Any]:
+    """Normalize and validate persisted measurement config."""
+    rib_name_by_id = raw.get("ribNameById", {}) if isinstance(raw.get("ribNameById", {}), dict) else {}
+    custom_groups_raw = raw.get("customGroups", []) if isinstance(raw.get("customGroups", []), list) else []
+    disabled_auto_group_ids = raw.get("disabledAutoGroupIds", []) if isinstance(raw.get("disabledAutoGroupIds", []), list) else []
+    group_name_by_id = raw.get("groupNameById", {}) if isinstance(raw.get("groupNameById", {}), dict) else {}
+
+    # Keep only valid rib ids and non-empty names
+    clean_rib_names: Dict[str, str] = {}
+    for rib_id, name in rib_name_by_id.items():
+        rib = str(rib_id)
+        nm = str(name).strip()
+        if (not valid_rib_ids or rib in valid_rib_ids) and nm:
+            clean_rib_names[rib] = nm[:100]
+
+    # Enforce unique rib ownership across custom groups
+    used_ribs = set()
+    clean_groups: List[Dict[str, Any]] = []
+    for g in custom_groups_raw:
+        if not isinstance(g, dict):
+            continue
+        gid = str(g.get("id", "")).strip()
+        gname = str(g.get("name", "")).strip()[:100]
+        rib_ids = g.get("ribIds", [])
+        if not gid:
+            continue
+        if not isinstance(rib_ids, list):
+            rib_ids = []
+        normalized_ribs: List[str] = []
+        for rib_id in rib_ids:
+            rid = str(rib_id)
+            if valid_rib_ids and rid not in valid_rib_ids:
+                continue
+            if rid in used_ribs:
+                continue
+            used_ribs.add(rid)
+            normalized_ribs.append(rid)
+
+        if normalized_ribs:
+            clean_groups.append({
+                "id": gid,
+                "name": gname if gname else gid,
+                "ribIds": normalized_ribs,
+            })
+
+    clean_disabled_ids = [str(v) for v in disabled_auto_group_ids if str(v).strip()]
+    clean_group_names = {
+        str(k): str(v).strip()[:100]
+        for k, v in group_name_by_id.items()
+        if str(k).strip() and str(v).strip()
+    }
+
+    return {
+        "ribNameById": clean_rib_names,
+        "customGroups": clean_groups,
+        "disabledAutoGroupIds": clean_disabled_ids,
+        "groupNameById": clean_group_names,
+    }
 
 
 def copy_projection_to_project(projection_id: str, project_dir: Path) -> Dict[str, Any]:
@@ -594,6 +690,52 @@ async def list_projects():
     except Exception as e:
         print(f"Error listing projects: {e}")
         return {"projects": [], "error": str(e)}
+
+
+@router.get("/{project_id}/measurement-config", response_model=MeasurementConfigResponse)
+async def get_measurement_config(project_id: str):
+    """Load persisted Step 7 measurement configuration for a project."""
+    try:
+        project_dir = get_project_dir(project_id)
+        project_path = project_dir / "project.json"
+        if not project_path.exists():
+            return MeasurementConfigResponse(success=False, error=f"Project not found: {project_id}")
+
+        with open(project_path, "r") as f:
+            project_data = json.load(f)
+
+        raw_config = project_data.get("measurementConfig", {})
+        valid_rib_ids = _load_intrados_rib_ids(project_dir)
+        clean_config = _sanitize_measurement_config(raw_config if isinstance(raw_config, dict) else {}, valid_rib_ids)
+
+        return MeasurementConfigResponse(success=True, data=MeasurementConfig(**clean_config))
+    except Exception as e:
+        return MeasurementConfigResponse(success=False, error=str(e))
+
+
+@router.post("/{project_id}/measurement-config", response_model=MeasurementConfigResponse)
+async def save_measurement_config(project_id: str, config: MeasurementConfig):
+    """Persist Step 7 measurement configuration for a project."""
+    try:
+        project_dir = get_project_dir(project_id)
+        project_path = project_dir / "project.json"
+        if not project_path.exists():
+            return MeasurementConfigResponse(success=False, error=f"Project not found: {project_id}")
+
+        with open(project_path, "r") as f:
+            project_data = json.load(f)
+
+        valid_rib_ids = _load_intrados_rib_ids(project_dir)
+        normalized = _sanitize_measurement_config(config.dict(), valid_rib_ids)
+        project_data["measurementConfig"] = normalized
+        project_data["updatedAt"] = datetime.now().isoformat()
+
+        with open(project_path, "w") as f:
+            json.dump(project_data, f, indent=2)
+
+        return MeasurementConfigResponse(success=True, data=MeasurementConfig(**normalized))
+    except Exception as e:
+        return MeasurementConfigResponse(success=False, error=str(e))
 
 
 @router.delete("/delete/{project_id}")

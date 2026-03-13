@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
 import { PointCloudViewer, generateDemoPointCloud, type RibLabel } from "@/components/point-cloud/point-cloud-viewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -24,10 +25,31 @@ import {
   ChevronUp,
   Link2,
   Link2Off,
-  Tag
+  Tag,
+  Pencil,
+  FolderPlus,
+  Square,
+  CheckSquare,
+  Check,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getReprojectionPreview, getIntradosLines, calculateMeasurements, calculateImpostLine, detectRibGroups, type RibImpostData, type ImpostLineResult, type ImpostLineRequest, type RibGroup } from "@/lib/api";
+import {
+  getReprojectionPreview,
+  getIntradosLines,
+  calculateMeasurements,
+  calculateImpostLine,
+  detectRibGroups,
+  calculateCustomRibGroups,
+  getMeasurementConfig,
+  saveMeasurementConfig,
+  type RibImpostData,
+  type ImpostLineResult,
+  type ImpostLineRequest,
+  type RibGroup,
+  type MeasurementConfig,
+  type MeasurementCustomGroup,
+} from "@/lib/api";
 
 interface Point3D {
   x: number;
@@ -81,12 +103,24 @@ interface MeasurementResponse {
   error?: string;
 }
 
-const DEMO_MEASUREMENTS: Measurement[] = [
-  { id: "m1", name: "Rib NE", arcRadius: 4.52, ribLength: 7.12, apexPoint: { x: 0, y: 0, z: 5.2 }, springingPoints: [{ x: -3, y: -3, z: 0 }], timestamp: new Date() },
-  { id: "m2", name: "Rib NW", arcRadius: 4.48, ribLength: 7.08, apexPoint: { x: 0, y: 0, z: 5.2 }, springingPoints: [{ x: 3, y: -3, z: 0 }], timestamp: new Date() },
-  { id: "m3", name: "Rib SE", arcRadius: 4.55, ribLength: 7.15, apexPoint: { x: 0, y: 0, z: 5.2 }, springingPoints: [{ x: -3, y: 3, z: 0 }], timestamp: new Date() },
-  { id: "m4", name: "Rib SW", arcRadius: 4.50, ribLength: 7.10, apexPoint: { x: 0, y: 0, z: 5.2 }, springingPoints: [{ x: 3, y: 3, z: 0 }], timestamp: new Date() },
-];
+interface DisplayGroup extends RibGroup {
+  source: "custom" | "auto" | "single";
+}
+
+interface RenameTarget {
+  type: "rib" | "group";
+  id: string;
+  source: "custom" | "auto" | "single";
+}
+
+const EMPTY_MEASUREMENT_CONFIG: MeasurementConfig = {
+  ribNameById: {},
+  customGroups: [],
+  disabledAutoGroupIds: [],
+  groupNameById: {},
+};
+
+
 
 /**
  * Convert normalized error value (0-1) to a color gradient (green to red)
@@ -287,7 +321,7 @@ export default function Step7MeasurementsPage() {
   const router = useRouter();
   const { currentProject, addMeasurement, completeStep } = useProjectStore();
   
-  const [measurements, setMeasurements] = useState<Measurement[]>(DEMO_MEASUREMENTS);
+  const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [selectedRib, setSelectedRib] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [exportingRibs, setExportingRibs] = useState(false);
@@ -303,7 +337,7 @@ export default function Step7MeasurementsPage() {
   const measurementCacheRef = useRef<Map<string, MeasurementResponse["data"]>>(new Map());
   const [baseTraceLines, setBaseTraceLines] = useState<Line3D[]>([]);
   const [viewMode, setViewMode] = useState<"errorHeatmap" | "bestFitArc">("errorHeatmap");
-  const [showLabels, setShowLabels] = useState(true);
+  const [showLabels, setShowLabels] = useState(false);
   // Derive display traces: apply selection highlight in memory with no API calls
   const traceLines = useMemo(() => {
     if (viewMode !== "errorHeatmap" || !selectedRib) return baseTraceLines;
@@ -321,10 +355,22 @@ export default function Step7MeasurementsPage() {
 
   // Rib grouping state
   const [ribGroups, setRibGroups] = useState<RibGroup[] | null>(null);
-  const [userUngroups, setUserUngroups] = useState<Set<string>>(new Set());
+  const [customGroupMetrics, setCustomGroupMetrics] = useState<Record<string, RibGroup["combinedMeasurements"]>>({});
+  const [measurementConfig, setMeasurementConfig] = useState<MeasurementConfig>(EMPTY_MEASUREMENT_CONFIG);
+  const [selectedForGrouping, setSelectedForGrouping] = useState<Set<string>>(new Set());
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [proximityThreshold, setProximityThreshold] = useState(2.0);
   const [isDetectingGroups, setIsDetectingGroups] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const ribRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const measurementConfigRef = useRef<MeasurementConfig>(EMPTY_MEASUREMENT_CONFIG);
+  useEffect(() => {
+    measurementConfigRef.current = measurementConfig;
+  }, [measurementConfig]);
   
   const selectedMeasurement = measurements.find(m => m.id === selectedRib);
   const selectedRibImpostData = selectedRib && impostLineData?.ribs[selectedRib] as RibImpostData | undefined;
@@ -426,7 +472,6 @@ export default function Step7MeasurementsPage() {
         });
         if (response.success && response.data) {
           setRibGroups(response.data);
-          setUserUngroups(new Set()); // reset manual ungroups on re-detect
         }
       } catch (err) {
         console.error("Error detecting rib groups:", err);
@@ -437,16 +482,173 @@ export default function Step7MeasurementsPage() {
     detectGroups();
   }, [intradosLines, proximityThreshold]);
 
-  const handleUngroup = (groupId: string) => {
-    setUserUngroups(prev => { const next = new Set(prev); next.add(groupId); return next; });
+  useEffect(() => {
+    const loadConfig = async () => {
+      if (!currentProject?.id) return;
+      setConfigLoaded(false);
+      try {
+        const response = await getMeasurementConfig(currentProject.id);
+        if (response.success && response.data) {
+          setMeasurementConfig(response.data);
+        } else {
+          setMeasurementConfig(EMPTY_MEASUREMENT_CONFIG);
+        }
+      } catch (err) {
+        console.error("Error loading measurement config:", err);
+        setMeasurementConfig(EMPTY_MEASUREMENT_CONFIG);
+      } finally {
+        setConfigLoaded(true);
+      }
+    };
+    loadConfig();
+  }, [currentProject?.id]);
+
+  const saveConfigNow = useCallback(async (nextConfig?: MeasurementConfig) => {
+    if (!currentProject?.id) return;
+    const payload = nextConfig ?? measurementConfigRef.current;
+    try {
+      await saveMeasurementConfig(currentProject.id, payload);
+    } catch (err) {
+      console.error("Error saving measurement config:", err);
+    }
+  }, [currentProject?.id]);
+
+  useEffect(() => {
+    if (!configLoaded || !currentProject?.id) return;
+    const handle = setTimeout(() => {
+      saveConfigNow();
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [measurementConfig, configLoaded, currentProject?.id, saveConfigNow]);
+
+  useEffect(() => {
+    if (intradosLines.length === 0) return;
+    const validIds = new Set(intradosLines.map(l => l.id));
+    setMeasurementConfig(prev => ({
+      ...prev,
+      ribNameById: Object.fromEntries(
+        Object.entries(prev.ribNameById).filter(([ribId]) => validIds.has(ribId))
+      ),
+      customGroups: prev.customGroups
+        .map(g => ({ ...g, ribIds: g.ribIds.filter(ribId => validIds.has(ribId)) }))
+        .filter(g => g.ribIds.length > 0),
+    }));
+  }, [intradosLines]);
+
+  const isRibInCustomGroup = useCallback((ribId: string): boolean => {
+    return measurementConfig.customGroups.some(g => g.ribIds.includes(ribId));
+  }, [measurementConfig.customGroups]);
+
+  const handleUngroup = (groupId: string, source: "custom" | "auto" | "single") => {
+    if (source === "custom") {
+      setMeasurementConfig(prev => ({
+        ...prev,
+        customGroups: prev.customGroups.filter(g => g.id !== groupId),
+      }));
+      return;
+    }
+    if (source === "auto") {
+      setMeasurementConfig(prev => {
+        if (prev.disabledAutoGroupIds.includes(groupId)) return prev;
+        return {
+          ...prev,
+          disabledAutoGroupIds: [...prev.disabledAutoGroupIds, groupId],
+        };
+      });
+    }
   };
 
-  const handleRegroup = (groupId: string) => {
-    setUserUngroups(prev => {
+  const toggleRibForGrouping = (ribId: string) => {
+    setSelectedForGrouping(prev => {
       const next = new Set(prev);
-      next.delete(groupId);
+      if (next.has(ribId)) next.delete(ribId);
+      else next.add(ribId);
       return next;
     });
+  };
+
+  const handleCreateCustomGroup = () => {
+    const selected = Array.from(selectedForGrouping);
+    if (selected.length < 2) return;
+
+    const groupId = `manual-${Date.now()}`;
+    const nextGroup: MeasurementCustomGroup = {
+      id: groupId,
+      name: `Group ${measurementConfig.customGroups.length + 1}`,
+      ribIds: selected,
+    };
+
+    setMeasurementConfig(prev => {
+      const selectedSet = new Set(selected);
+      const existingGroups = prev.customGroups
+        .map(g => ({ ...g, ribIds: g.ribIds.filter(ribId => !selectedSet.has(ribId)) }))
+        .filter(g => g.ribIds.length > 0);
+      return {
+        ...prev,
+        customGroups: [...existingGroups, nextGroup],
+      };
+    });
+    setSelectedForGrouping(new Set());
+    setExpandedGroups(prev => new Set(prev).add(groupId));
+  };
+
+  const startRenameRib = (ribId: string, currentName: string) => {
+    setRenameTarget({ type: "rib", id: ribId, source: "single" });
+    setRenameValue(currentName);
+  };
+
+  const startRenameGroup = (
+    groupId: string,
+    currentName: string,
+    source: "custom" | "auto" | "single",
+  ) => {
+    setRenameTarget({ type: "group", id: groupId, source });
+    setRenameValue(currentName);
+  };
+
+  const cancelRename = () => {
+    setRenameTarget(null);
+    setRenameValue("");
+  };
+
+  const commitRename = () => {
+    if (!renameTarget) return;
+    const nextName = renameValue.trim();
+    if (!nextName) return;
+
+    if (renameTarget.type === "rib") {
+      setMeasurementConfig(prev => ({
+        ...prev,
+        ribNameById: {
+          ...prev.ribNameById,
+          [renameTarget.id]: nextName,
+        },
+      }));
+      cancelRename();
+      return;
+    }
+
+    if (renameTarget.source === "custom") {
+      setMeasurementConfig(prev => ({
+        ...prev,
+        customGroups: prev.customGroups.map(g =>
+          g.id === renameTarget.id ? { ...g, name: nextName } : g
+        ),
+      }));
+      cancelRename();
+      return;
+    }
+
+    if (renameTarget.source === "auto") {
+      setMeasurementConfig(prev => ({
+        ...prev,
+        groupNameById: {
+          ...prev.groupNameById,
+          [renameTarget.id]: nextName,
+        },
+      }));
+      cancelRename();
+    }
   };
 
   const toggleExpandGroup = (groupId: string) => {
@@ -458,36 +660,131 @@ export default function Step7MeasurementsPage() {
     });
   };
 
-  // displayGroups: apply user ungroups (split grouped ribs into singletons)
-  const displayGroups = useMemo((): RibGroup[] => {
-    if (!ribGroups) return [];
-    const result: RibGroup[] = [];
-    for (const group of ribGroups) {
-      if (!group.isGrouped || userUngroups.has(group.groupId)) {
-        // Treat each rib as its own singleton
-        for (const ribId of group.ribIds) {
-          const line = intradosLines.find(l => l.id === ribId);
-          const meas = measurements.find(m => m.id === ribId);
-          result.push({
-            groupId: ribId,
-            ribIds: [ribId],
-            isGrouped: false,
-            combinedMeasurements: {
-              arc_radius: meas?.arcRadius ?? 0,
-              rib_length: meas?.ribLength ?? 0,
-              apex_point: { x: 0, y: 0, z: 0 },
-              arc_center: { x: 0, y: 0, z: 0 },
-              arc_center_z: 0,
-              fit_error: 0,
-            },
+  useEffect(() => {
+    const computeCustomGroupMetrics = async () => {
+      if (measurementConfig.customGroups.length === 0 || intradosLines.length === 0) {
+        setCustomGroupMetrics({});
+        return;
+      }
+      try {
+        const response = await calculateCustomRibGroups({
+          ribs: intradosLines.map(line => ({ id: line.id, points: line.points3d })),
+          groups: measurementConfig.customGroups.map(g => ({
+            groupId: g.id,
+            groupName: g.name,
+            ribIds: g.ribIds,
+          })),
+        });
+        if (response.success && response.data) {
+          const byId: Record<string, RibGroup["combinedMeasurements"]> = {};
+          response.data.forEach(group => {
+            byId[group.groupId] = group.combinedMeasurements;
           });
+          setCustomGroupMetrics(byId);
         }
-      } else {
-        result.push(group);
+      } catch (err) {
+        console.error("Error computing custom group measurements:", err);
+      }
+    };
+    computeCustomGroupMetrics();
+  }, [intradosLines, measurementConfig.customGroups]);
+
+  const displayGroups = useMemo((): DisplayGroup[] => {
+    const result: DisplayGroup[] = [];
+    const assigned = new Set<string>();
+
+    const fallbackCombined = (ribIds: string[]): RibGroup["combinedMeasurements"] => {
+      const members = measurements.filter(m => ribIds.includes(m.id));
+      const count = Math.max(members.length, 1);
+      const avgRadius = members.reduce((acc, m) => acc + m.arcRadius, 0) / count;
+      const totalLength = members.reduce((acc, m) => acc + m.ribLength, 0);
+      return {
+        arc_radius: avgRadius,
+        rib_length: totalLength,
+        apex_point: { x: 0, y: 0, z: 0 },
+        arc_center: { x: 0, y: 0, z: 0 },
+        arc_center_z: 0,
+        fit_error: 0,
+      };
+    };
+
+    for (const group of measurementConfig.customGroups) {
+      const ribIds = group.ribIds.filter(ribId => intradosLines.some(line => line.id === ribId));
+      if (ribIds.length === 0) continue;
+      ribIds.forEach(ribId => assigned.add(ribId));
+      result.push({
+        groupId: group.id,
+        groupName: group.name,
+        ribIds,
+        isGrouped: ribIds.length > 1,
+        combinedMeasurements: customGroupMetrics[group.id] ?? fallbackCombined(ribIds),
+        source: "custom",
+      });
+    }
+
+    if (ribGroups) {
+      for (const group of ribGroups) {
+        if (measurementConfig.disabledAutoGroupIds.includes(group.groupId)) continue;
+        const hasAssignedMember = group.ribIds.some(ribId => assigned.has(ribId));
+        if (hasAssignedMember) continue;
+        group.ribIds.forEach(ribId => assigned.add(ribId));
+        result.push({
+          ...group,
+          groupName: measurementConfig.groupNameById[group.groupId] ?? group.groupName,
+          source: group.isGrouped ? "auto" : "single",
+        });
       }
     }
+
+    for (const line of intradosLines) {
+      if (assigned.has(line.id)) continue;
+      const m = measurements.find(x => x.id === line.id);
+      result.push({
+        groupId: line.id,
+        groupName: measurementConfig.ribNameById[line.id] ?? line.label,
+        ribIds: [line.id],
+        isGrouped: false,
+        combinedMeasurements: {
+          arc_radius: m?.arcRadius ?? 0,
+          rib_length: m?.ribLength ?? 0,
+          apex_point: { x: 0, y: 0, z: 0 },
+          arc_center: { x: 0, y: 0, z: 0 },
+          arc_center_z: 0,
+          fit_error: 0,
+        },
+        source: "single",
+      });
+    }
+
     return result;
-  }, [ribGroups, userUngroups, intradosLines, measurements]);
+  }, [ribGroups, measurementConfig, intradosLines, measurements, customGroupMetrics]);
+
+  const selectedGroup = useMemo(
+    () => (selectedGroupId ? displayGroups.find(g => g.groupId === selectedGroupId) ?? null : null),
+    [selectedGroupId, displayGroups]
+  );
+
+  useEffect(() => {
+    if (!selectedRib) return;
+
+    const containingGroup = displayGroups.find(group => group.ribIds.includes(selectedRib));
+    if (!containingGroup) return;
+
+    if (containingGroup.isGrouped && !expandedGroups.has(containingGroup.groupId)) {
+      setExpandedGroups(prev => {
+        if (prev.has(containingGroup.groupId)) return prev;
+        const next = new Set(prev);
+        next.add(containingGroup.groupId);
+        return next;
+      });
+      return;
+    }
+
+    const target = ribRowRefs.current[selectedRib];
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [selectedRib, displayGroups]);
 
   // Compute colored traces for all intrados lines
   useEffect(() => {
@@ -598,7 +895,7 @@ export default function Step7MeasurementsPage() {
     
     return {
       id: line.id,
-      name: line.label,
+      name: measurementConfig.ribNameById[line.id] ?? line.label,
       arcRadius: 0,
       ribLength: 0,
       apexPoint: {
@@ -616,11 +913,8 @@ export default function Step7MeasurementsPage() {
   
   // Convert intrados lines to measurements
   const loadedMeasurements = useMemo(() => {
-    if (intradosLines.length > 0) {
-      return intradosLines.map(intradosToMeasurement);
-    }
-    return DEMO_MEASUREMENTS;
-  }, [intradosLines]);
+    return intradosLines.map(intradosToMeasurement);
+  }, [intradosLines, measurementConfig.ribNameById]);
 
   // Compute rib label positions at each rib's apex point
   const ribLabels = useMemo((): RibLabel[] => {
@@ -629,11 +923,11 @@ export default function Step7MeasurementsPage() {
       const apexIdx = pts.reduce((maxI, p, i, arr) => p[2] > arr[maxI][2] ? i : maxI, 0);
       return {
         id: line.id,
-        label: line.label,
+        label: measurementConfig.ribNameById[line.id] ?? line.label,
         position: { x: pts[apexIdx][0], y: pts[apexIdx][1], z: pts[apexIdx][2] },
       };
     });
-  }, [intradosLines]);
+  }, [intradosLines, measurementConfig.ribNameById]);
 
   // Full rib paths for click hit-areas in the 3D viewer (one tube per rib)
   const ribPaths = useMemo(() =>
@@ -751,80 +1045,28 @@ export default function Step7MeasurementsPage() {
     setExportingRibs(false);
   };
   
-  const handleContinue = () => {
+  const handleContinue = async () => {
+    await saveConfigNow();
     completeStep(7, { measurements });
     router.push("/workflow/step-8-analysis");
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <StepHeader 
         title="Measurements & Analysis"
         description="Calculate arc radius, rib length, and geometric properties"
       />
       
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* 3D Viewer with colored trace heatmap */}
+
+        {/* 3D Viewer */}
         <div className="lg:col-span-2">
-          <Card className="h-full">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="font-display">
-                    {viewMode === "errorHeatmap" ? "3D Error Heatmap" : "3D Best Fit Arc"}
-                  </CardTitle>
-                  <CardDescription>
-                    {viewMode === "errorHeatmap"
-                      ? "Trace visualization colored by fit error (green = low error, red = high error)"
-                      : "Ideal circular arcs for each rib based on calculated radius"}
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex rounded-lg border border-border bg-muted p-1">
-                    <Button
-                      variant={viewMode === "errorHeatmap" ? "default" : "ghost"}
-                      size="sm"
-                      onClick={() => setViewMode("errorHeatmap")}
-                      className="gap-1"
-                    >
-                      <Target className="w-3.5 h-3.5" />
-                      <span className="text-xs">Error Heat</span>
-                    </Button>
-                    <Button
-                      variant={viewMode === "bestFitArc" ? "default" : "ghost"}
-                      size="sm"
-                      onClick={() => setViewMode("bestFitArc")}
-                      className="gap-1"
-                    >
-                      <Circle className="w-3.5 h-3.5" />
-                      <span className="text-xs">Best Fit Arc</span>
-                    </Button>
-                  </div>
-                  <Button
-                    variant={showLabels ? "secondary" : "ghost"}
-                    size="sm"
-                    onClick={() => setShowLabels(v => !v)}
-                    className="gap-1.5"
-                    title={showLabels ? "Hide rib labels" : "Show rib labels"}
-                  >
-                    <Tag className="w-3.5 h-3.5" />
-                    <span className="text-xs">Labels</span>
-                  </Button>
-                  <Button onClick={handleCalculate} disabled={isCalculating} size="sm" className="gap-2">
-                    {isCalculating ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Ruler className="w-4 h-4" />
-                    )}
-                    Recalculate
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="relative">
+          <Card>
+            <CardContent className="p-3">
+              <div className="relative h-[504px]">
                 {!pointCloudData && previewLoading ? (
-                  <div className="h-[400px] rounded-lg bg-muted flex items-center justify-center">
+                  <div className="h-full rounded-lg bg-muted flex items-center justify-center">
                     <div className="flex flex-col items-center gap-2">
                       <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">Loading preview...</p>
@@ -833,7 +1075,7 @@ export default function Step7MeasurementsPage() {
                 ) : pointCloudData ? (
                   <PointCloudViewer
                     points={pointCloudData}
-                    className="h-[400px] rounded-lg overflow-hidden"
+                    className="h-full rounded-lg overflow-hidden"
                     colorMode="height"
                     showGrid={true}
                     showBoundingBox={true}
@@ -846,193 +1088,304 @@ export default function Step7MeasurementsPage() {
                     onLineClick={setSelectedRib}
                   />
                 ) : (
-                  <div className="h-[400px] rounded-lg bg-muted flex items-center justify-center">
+                  <div className="h-full rounded-lg bg-muted flex items-center justify-center">
                     <p className="text-sm text-muted-foreground">No data available</p>
                   </div>
                 )}
-                
-                {/* Color legend */}
-                <div className="absolute bottom-4 right-4 bg-background/90 backdrop-blur-sm rounded-lg p-3 z-10 text-sm">
-                  {viewMode === "errorHeatmap" ? (
-                    <>
-                      <p className="font-medium mb-2">Error Gradient</p>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-3 rounded" style={{background: "rgb(0, 255, 0)"}}></div>
-                          <span className="text-xs text-muted-foreground">Low Error</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-3 rounded" style={{background: "rgb(255, 0, 0)"}}></div>
-                          <span className="text-xs text-muted-foreground">High Error</span>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p className="font-medium mb-2">Arc View</p>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-3 rounded" style={{background: "rgb(100, 150, 255)"}}></div>
-                          <span className="text-xs text-muted-foreground">Ideal Arc</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-2 max-w-xs">
-                          Shows fitted circular arcs for each rib
-                        </p>
-                      </div>
-                    </>
-                  )}
+
+                {/* Overlay toolbar */}
+                <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+                  <div className="flex rounded-lg border border-border bg-background/90 backdrop-blur-sm p-1">
+                    <Button
+                      variant={viewMode === "errorHeatmap" ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setViewMode("errorHeatmap")}
+                      className="gap-1 h-7"
+                    >
+                      <Target className="w-3.5 h-3.5" />
+                      <span className="text-xs">Error Heat</span>
+                    </Button>
+                    <Button
+                      variant={viewMode === "bestFitArc" ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setViewMode("bestFitArc")}
+                      className="gap-1 h-7"
+                    >
+                      <Circle className="w-3.5 h-3.5" />
+                      <span className="text-xs">Best Fit Arc</span>
+                    </Button>
+                  </div>
+                  <div className="flex rounded-lg border border-border bg-background/90 backdrop-blur-sm p-1">
+                  <Button
+                    variant={showLabels ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setShowLabels(v => !v)}
+                    className="gap-1 h-7"
+                    title={showLabels ? "Hide rib labels" : "Show rib labels"}
+                  >
+                    <Tag className="w-3.5 h-3.5" />
+                    <span className="text-xs">Labels</span>
+                  </Button>
+                  </div>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
-        
-        {/* Measurements Panel */}
-        <div className="space-y-4">
+
+        {/* Right panel — rib list + impost + details */}
+        <div className="flex flex-col gap-4">
+
+          {/* Rib list card */}
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-2 shrink-0">
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-lg font-display">Rib Measurements</CardTitle>
                   <CardDescription>Select a rib to view details</CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={handleExportAllRibs} disabled={exportingRibs} className="gap-2">
-                    {exportingRibs ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                    Export Ribs
-                  </Button>
-                </div>
+                <Button size="sm" onClick={handleExportAllRibs} disabled={exportingRibs} className="gap-2">
+                  {exportingRibs ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Export
+                </Button>
               </div>
             </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-64">
-                <div className="space-y-2">
-                  {displayGroups.length > 0 ? displayGroups.map((group) => {
-                    const isMulti = group.isGrouped && group.ribIds.length > 1;
-                    const isExpanded = expandedGroups.has(group.groupId);
-                    const primaryId = group.ribIds[0];
-                    const primaryMeas = measurements.find(m => m.id === primaryId);
+            <CardContent className="space-y-3 pt-0 px-4 pb-4">
 
-                    if (isMulti) {
-                      // Grouped header row
-                      return (
-                        <div key={group.groupId} className="rounded-lg border border-amber-500/60 overflow-hidden">
-                          {/* Header */}
-                          <div
-                            className={cn(
-                              "p-3 cursor-pointer transition-colors bg-amber-500/5 hover:bg-amber-500/10",
-                              group.ribIds.includes(selectedRib ?? "") && "bg-amber-500/15"
-                            )}
-                            onClick={() => {
-                              setSelectedRib(primaryId);
-                              toggleExpandGroup(group.groupId);
-                            }}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <Link2 className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                <span className="font-medium text-sm truncate">
-                                  Group ({group.ribIds.length} ribs)
-                                </span>
+              {/* Rib list */}
+              {previewLoading && displayGroups.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-10">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Loading ribs…</p>
+                </div>
+              ) : (
+              <>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Selected for grouping: {selectedForGrouping.size}
+                </p>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-7 gap-1"
+                  onClick={handleCreateCustomGroup}
+                  disabled={selectedForGrouping.size < 2}
+                  title="Create a manual group from selected ribs"
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  <span className="text-xs">Group Selected</span>
+                </Button>
+              </div>
+              {renameTarget && (
+                <div className="rounded-md border bg-muted/40 p-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      placeholder={renameTarget.type === "rib" ? "Rib name" : "Group name"}
+                      className="h-8"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitRename();
+                        if (e.key === "Escape") cancelRename();
+                      }}
+                    />
+                    <Button size="icon" variant="secondary" className="h-8 w-8" onClick={commitRename} title="Save rename">
+                      <Check className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={cancelRename} title="Cancel rename">
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <ScrollArea className="h-64">
+                <div className="space-y-2 pr-2">
+                    {displayGroups.length > 0 ? displayGroups.map((group) => {
+                      const isMulti = group.isGrouped && group.ribIds.length > 1;
+                      const isExpanded = expandedGroups.has(group.groupId);
+                      const primaryId = group.ribIds[0];
+                      const groupTitle = group.groupName ?? `Group (${group.ribIds.length} ribs)`;
+
+                      if (isMulti) {
+                        return (
+                          <div key={group.groupId} className="rounded-lg border border-amber-500/60 overflow-hidden">
+                            <div
+                              className={cn(
+                                "p-3 cursor-pointer transition-colors bg-amber-500/5 hover:bg-amber-500/10",
+                                (selectedGroupId === group.groupId || group.ribIds.includes(selectedRib ?? "")) && "bg-amber-500/15"
+                              )}
+                              onClick={() => {
+                                setSelectedGroupId(group.groupId);
+                                setSelectedRib(primaryId);
+                                toggleExpandGroup(group.groupId);
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <Link2 className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                  <span className="font-medium text-sm truncate">
+                                    {groupTitle} ({group.ribIds.length} ribs)
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-xs text-muted-foreground">
+                                    R: {group.combinedMeasurements.arc_radius.toFixed(2)}m
+                                  </span>
+                                  <button
+                                    className="p-0.5 rounded hover:bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                                    title="Rename this group"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      startRenameGroup(group.groupId, groupTitle, group.source);
+                                    }}
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    className="p-0.5 rounded hover:bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                                    title="Ungroup these ribs"
+                                    onClick={(e) => { e.stopPropagation(); handleUngroup(group.groupId, group.source); }}
+                                  >
+                                    <Link2Off className="w-3.5 h-3.5" />
+                                  </button>
+                                  {isExpanded
+                                    ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
+                                    : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <span className="text-xs text-muted-foreground">
-                                  R: {group.combinedMeasurements.arc_radius.toFixed(2)}m
-                                </span>
-                                <button
-                                  className="p-0.5 rounded hover:bg-amber-500/20 text-amber-600 dark:text-amber-400"
-                                  title="Ungroup these ribs"
-                                  onClick={(e) => { e.stopPropagation(); handleUngroup(group.groupId); }}
-                                >
-                                  <Link2Off className="w-3.5 h-3.5" />
-                                </button>
-                                {isExpanded
-                                  ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
-                                  : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                L: {group.combinedMeasurements.rib_length.toFixed(2)}m
+                                {" · "}Err: {group.combinedMeasurements.fit_error.toFixed(4)}m
                               </div>
                             </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              L: {group.combinedMeasurements.rib_length.toFixed(2)}m
-                              {" · "}Err: {group.combinedMeasurements.fit_error.toFixed(4)}m
+                            {isExpanded && (
+                              <div className="border-t border-amber-500/30 divide-y divide-amber-500/20">
+                                {group.ribIds.map(ribId => {
+                                  const m = measurements.find(x => x.id === ribId);
+                                  return (
+                                    <div
+                                      key={ribId}
+                                      ref={(el) => {
+                                        ribRowRefs.current[ribId] = el;
+                                      }}
+                                      className={cn(
+                                        "px-3 py-2 cursor-pointer transition-colors hover:bg-muted/50",
+                                        selectedRib === ribId && "bg-primary/5"
+                                      )}
+                                      onClick={() => { setSelectedRib(ribId); setSelectedGroupId(null); }}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <button
+                                            className="p-0.5 rounded hover:bg-muted"
+                                            title="Toggle rib for grouping"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleRibForGrouping(ribId);
+                                            }}
+                                          >
+                                            {selectedForGrouping.has(ribId)
+                                              ? <CheckSquare className="w-3.5 h-3.5 text-primary" />
+                                              : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
+                                          </button>
+                                          <span className="text-sm truncate">{m?.name ?? ribId}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <button
+                                            className="p-0.5 rounded hover:bg-muted"
+                                            title="Rename rib"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              startRenameRib(ribId, m?.name ?? ribId);
+                                            }}
+                                          >
+                                            <Pencil className="w-3.5 h-3.5" />
+                                          </button>
+                                        <span className="text-xs text-muted-foreground">
+                                          {m && m.arcRadius > 0 ? `R: ${m.arcRadius.toFixed(2)}m` : ""}
+                                        </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      const m = measurements.find(x => x.id === primaryId);
+                      return (
+                        <div
+                          key={group.groupId}
+                          ref={(el) => {
+                            ribRowRefs.current[primaryId] = el;
+                          }}
+                          className={cn(
+                            "p-3 rounded-lg border cursor-pointer transition-colors",
+                            selectedRib === primaryId
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-primary/50"
+                          )}
+                          onClick={() => { setSelectedRib(primaryId); setSelectedGroupId(null); }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <button
+                                className="p-0.5 rounded hover:bg-muted"
+                                title="Toggle rib for grouping"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleRibForGrouping(primaryId);
+                                }}
+                              >
+                                {selectedForGrouping.has(primaryId)
+                                  ? <CheckSquare className="w-3.5 h-3.5 text-primary" />
+                                  : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
+                              </button>
+                              <span className="font-medium truncate">{m?.name ?? group.groupName ?? primaryId}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {!isRibInCustomGroup(primaryId) && group.source === "auto" && (
+                                <button
+                                  className="p-0.5 rounded hover:bg-muted"
+                                  title="Rename suggested auto group"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startRenameGroup(group.groupId, group.groupName ?? "Group", group.source);
+                                  }}
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              <button
+                                className="p-0.5 rounded hover:bg-muted"
+                                title="Rename rib"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startRenameRib(primaryId, m?.name ?? primaryId);
+                                }}
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="text-sm text-muted-foreground">
+                                {m && m.arcRadius > 0 && `R: ${m.arcRadius.toFixed(2)}m`}
+                              </span>
                             </div>
                           </div>
-                          {/* Members */}
-                          {isExpanded && (
-                            <div className="border-t border-amber-500/30 divide-y divide-amber-500/20">
-                              {group.ribIds.map(ribId => {
-                                const m = measurements.find(x => x.id === ribId);
-                                return (
-                                  <div
-                                    key={ribId}
-                                    className={cn(
-                                      "px-3 py-2 cursor-pointer transition-colors hover:bg-muted/50",
-                                      selectedRib === ribId && "bg-primary/5"
-                                    )}
-                                    onClick={() => setSelectedRib(ribId)}
-                                  >
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-sm">{m?.name ?? ribId}</span>
-                                      <span className="text-xs text-muted-foreground">
-                                        {m && m.arcRadius > 0 ? `R: ${m.arcRadius.toFixed(2)}m` : ""}
-                                      </span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
                         </div>
                       );
-                    }
-
-                    // Singleton row
-                    const m = measurements.find(x => x.id === primaryId);
-                    return (
-                      <div
-                        key={group.groupId}
-                        className={cn(
-                          "p-3 rounded-lg border cursor-pointer transition-colors",
-                          selectedRib === primaryId
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:border-primary/50"
-                        )}
-                        onClick={() => setSelectedRib(primaryId)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">{m?.name ?? primaryId}</span>
-                          <span className="text-sm text-muted-foreground">
-                            {m && m.arcRadius > 0 && `R: ${m.arcRadius.toFixed(2)}m`}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  }) : measurements.map((m) => (
-                    <div
-                      key={m.id}
-                      className={cn(
-                        "p-3 rounded-lg border cursor-pointer transition-colors",
-                        selectedRib === m.id
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/50"
-                      )}
-                      onClick={() => setSelectedRib(m.id)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{m.name}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {m.arcRadius > 0 && `R: ${m.arcRadius.toFixed(2)}m`}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    }) : null}
                 </div>
               </ScrollArea>
-              {/* Max keystone gap slider */}
-              <div className="mt-3 space-y-1.5">
+
+              {/* Keystone gap slider */}
+              <div className="shrink-0 space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <label>Max keystone gap</label>
                   <span className="font-mono">{proximityThreshold.toFixed(1)} m</span>
@@ -1050,10 +1403,13 @@ export default function Step7MeasurementsPage() {
                   </p>
                 )}
               </div>
+              </>
+              )}
+
             </CardContent>
           </Card>
-          
-          {/* Impost Line Display */}
+
+          {/* Impost Line */}
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
@@ -1062,7 +1418,6 @@ export default function Step7MeasurementsPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {/* Mode selector */}
               <div className="flex rounded-lg border border-border bg-muted p-1 gap-1">
                 <Button
                   variant={impostMode === "floorPlane" ? "default" : "ghost"}
@@ -1082,135 +1437,168 @@ export default function Step7MeasurementsPage() {
                 </Button>
               </div>
 
-              {/* Floor plane source info */}
               {impostMode === "floorPlane" && (
                 <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs">
                   {step5FloorPlaneZ !== undefined ? (
                     <p className="text-muted-foreground">
-                      Using floor plane Z from Step 5:{" "}
+                      Floor plane Z from Step 5:{" "}
                       <span className="font-mono font-semibold text-foreground">
                         {step5FloorPlaneZ.toFixed(3)}m
                       </span>
                     </p>
                   ) : (
                     <p className="text-amber-600 dark:text-amber-400">
-                      Floor plane was not selected in Step 5. Go back to enable it, or switch to <strong>Auto</strong> mode above.
+                      Floor plane not set in Step 5. Switch to <strong>Auto</strong> mode.
                     </p>
                   )}
                 </div>
               )}
 
-              {/* Result — only show height box in Auto mode */}
               {impostMode === "auto" && (
                 impostLineData ? (
-                  <>
-                    <div className="p-3 rounded-lg bg-muted/50 text-center">
-                      <p className="text-base font-bold">{impostLineData.impost_height.toFixed(3)}m</p>
-                      <p className="text-xs text-muted-foreground">Height</p>
-                    </div>
-                    <div className="text-xs text-muted-foreground text-center">
-                      Calculated from {impostLineData.num_ribs_used} springing rib(s)
-                    </div>
-                  </>
-                ) : (
-                  <div className="p-3 rounded-lg bg-muted/30 text-center text-xs text-muted-foreground">
-                    {isLoadingImpost ? "Calculating..." : "No impost data available"}
+                  <div className="flex items-center justify-between px-1">
+                    <p className="text-xs text-muted-foreground">
+                      Height ({impostLineData.num_ribs_used} ribs)
+                    </p>
+                    <p className="font-bold">{impostLineData.impost_height.toFixed(3)}m</p>
                   </div>
+                ) : (
+                  <p className="text-center text-xs text-muted-foreground py-1">
+                    {isLoadingImpost ? "Calculating..." : "No impost data available"}
+                  </p>
                 )
               )}
             </CardContent>
           </Card>
-          
-          {/* Selected Measurement Details */}
-          {selectedMeasurement && (
+
+          {/* Selected rib / group details card */}
+          {(selectedGroup || selectedMeasurement) && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-display">{selectedMeasurement.name}</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base font-display">
+                    {selectedGroup
+                      ? `${selectedGroup.groupName ?? "Group"} (${selectedGroup.ribIds.length} ribs)`
+                      : selectedMeasurement!.name}
+                  </CardTitle>
+                  {isLoadingImpost && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+                </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Impost Distance - mode-aware */}
-                {isLoadingImpost ? (
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
-                    <Loader2 className="w-4 h-4 mx-auto mb-1 animate-spin text-primary" />
-                    <p className="text-base font-bold">--</p>
-                    <p className="text-xs text-muted-foreground">Impost Distance</p>
-                  </div>
-                ) : selectedRibImpostData ? (
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
-                    <Ruler className="w-4 h-4 mx-auto mb-1 text-primary" />
-                    <p className="text-base font-bold">{selectedRibImpostData.impost_distance.toFixed(3)}m</p>
-                    <p className="text-xs text-muted-foreground">Impost Distance</p>
-                  </div>
-                ) : null}
-                
-                {/* Arc Radius and Rib Length */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
-                    <Circle className="w-4 h-4 mx-auto mb-1 text-primary" />
-                    <p className="text-base font-bold">{(measurementData?.arcRadius ?? selectedMeasurement.arcRadius).toFixed(2)}m</p>
-                    <p className="text-xs text-muted-foreground">Arc Radius</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
-                    <Ruler className="w-4 h-4 mx-auto mb-1 text-primary" />
-                    <p className="text-base font-bold">{(measurementData?.ribLength ?? selectedMeasurement.ribLength).toFixed(2)}m</p>
-                    <p className="text-xs text-muted-foreground">Rib Length</p>
-                  </div>
-                </div>
-                
-                {/* Fit Error */}
-                {measurementData && (
-                  <div className="p-2 rounded bg-muted/30">
-                    <p className="text-xs text-muted-foreground">Fit Error</p>
-                    <p className="text-sm font-medium">{measurementData.fitError.toFixed(4)}m</p>
-                  </div>
-                )}
-                
-                {/* Apex Point */}
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Apex Point</Label>
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div className="p-2 rounded bg-muted/30 text-center">
-                      <p className="text-muted-foreground font-medium">X</p>
-                      <p className="font-mono">{selectedMeasurement.apexPoint?.x.toFixed(2)}</p>
+              <CardContent className="space-y-3 pt-0 px-4 pb-4">
+                {selectedGroup ? (
+                  // ── Group combined metrics ──────────────────────────────
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="p-2 rounded-lg bg-muted/50 text-center">
+                        <Circle className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
+                        <p className="text-sm font-bold">{selectedGroup.combinedMeasurements.arc_radius.toFixed(2)}m</p>
+                        <p className="text-xs text-muted-foreground">Arc Radius</p>
+                      </div>
+                      <div className="p-2 rounded-lg bg-muted/50 text-center">
+                        <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
+                        <p className="text-sm font-bold">{selectedGroup.combinedMeasurements.rib_length.toFixed(2)}m</p>
+                        <p className="text-xs text-muted-foreground">Total Length</p>
+                      </div>
+                      <div className="p-2 rounded-lg bg-muted/50 text-center col-span-2">
+                        <p className="text-sm font-bold">{selectedGroup.combinedMeasurements.fit_error.toFixed(4)}m</p>
+                        <p className="text-xs text-muted-foreground">Fit Error</p>
+                      </div>
                     </div>
-                    <div className="p-2 rounded bg-muted/30 text-center">
-                      <p className="text-muted-foreground font-medium">Y</p>
-                      <p className="font-mono">{selectedMeasurement.apexPoint?.y.toFixed(2)}</p>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Individual Ribs</Label>
+                      {selectedGroup.ribIds.map(ribId => {
+                        const m = measurements.find(x => x.id === ribId);
+                        const cached = measurementCacheRef.current.get(ribId);
+                        return (
+                          <button
+                            key={ribId}
+                            className="w-full text-left px-2 py-1 rounded text-xs hover:bg-muted/60 flex items-center justify-between"
+                            onClick={() => { setSelectedRib(ribId); setSelectedGroupId(null); }}
+                          >
+                            <span className="truncate">{m?.name ?? ribId}</span>
+                            <span className="text-muted-foreground shrink-0 ml-2">
+                              {cached?.arcRadius ? `R: ${cached.arcRadius.toFixed(2)}m` : ""}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
-                    <div className="p-2 rounded bg-muted/30 text-center">
-                      <p className="text-muted-foreground font-medium">Z</p>
-                      <p className="font-mono">{selectedMeasurement.apexPoint?.z.toFixed(2)}</p>
+                  </>
+                ) : (
+                  // ── Individual rib metrics ──────────────────────────────
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="p-2 rounded-lg bg-muted/50 text-center">
+                        <Circle className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
+                        <p className="text-sm font-bold">{(measurementData?.arcRadius ?? selectedMeasurement!.arcRadius).toFixed(2)}m</p>
+                        <p className="text-xs text-muted-foreground">Arc Radius</p>
+                      </div>
+                      <div className="p-2 rounded-lg bg-muted/50 text-center">
+                        <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
+                        <p className="text-sm font-bold">{(measurementData?.ribLength ?? selectedMeasurement!.ribLength).toFixed(2)}m</p>
+                        <p className="text-xs text-muted-foreground">Rib Length</p>
+                      </div>
+                      {selectedRibImpostData && (
+                        <div className="p-2 rounded-lg bg-muted/50 text-center">
+                          <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
+                          <p className="text-sm font-bold">{selectedRibImpostData.impost_distance.toFixed(3)}m</p>
+                          <p className="text-xs text-muted-foreground">Impost Dist</p>
+                        </div>
+                      )}
+                      {measurementData && (
+                        <div className="p-2 rounded-lg bg-muted/50 text-center">
+                          <p className="text-sm font-bold">{measurementData.fitError.toFixed(4)}m</p>
+                          <p className="text-xs text-muted-foreground">Fit Error</p>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </div>
-                
-                {/* Springing Points - show first point only */}
-                {selectedMeasurement.springingPoints && selectedMeasurement.springingPoints.length > 0 && (() => {
-                  const point = selectedMeasurement.springingPoints[0];
-                  return (
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Springing Point</Label>
-                      <div className="grid grid-cols-3 gap-2 text-xs">
-                        <div className="p-2 rounded bg-muted/30 text-center">
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Apex Point</Label>
+                      <div className="grid grid-cols-3 gap-1.5 text-xs">
+                        <div className="p-1.5 rounded bg-muted/30 text-center">
                           <p className="text-muted-foreground font-medium">X</p>
-                          <p className="font-mono">{point.x.toFixed(2)}</p>
+                          <p className="font-mono">{selectedMeasurement!.apexPoint?.x.toFixed(2)}</p>
                         </div>
-                        <div className="p-2 rounded bg-muted/30 text-center">
+                        <div className="p-1.5 rounded bg-muted/30 text-center">
                           <p className="text-muted-foreground font-medium">Y</p>
-                          <p className="font-mono">{point.y.toFixed(2)}</p>
+                          <p className="font-mono">{selectedMeasurement!.apexPoint?.y.toFixed(2)}</p>
                         </div>
-                        <div className="p-2 rounded bg-muted/30 text-center">
+                        <div className="p-1.5 rounded bg-muted/30 text-center">
                           <p className="text-muted-foreground font-medium">Z</p>
-                          <p className="font-mono">{point.z.toFixed(2)}</p>
+                          <p className="font-mono">{selectedMeasurement!.apexPoint?.z.toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
-                  );
-                })()}
+
+                    {selectedMeasurement!.springingPoints && selectedMeasurement!.springingPoints.length > 0 && (() => {
+                      const point = selectedMeasurement!.springingPoints[0];
+                      return (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">Springing Point</Label>
+                          <div className="grid grid-cols-3 gap-1.5 text-xs">
+                            <div className="p-1.5 rounded bg-muted/30 text-center">
+                              <p className="text-muted-foreground font-medium">X</p>
+                              <p className="font-mono">{point.x.toFixed(2)}</p>
+                            </div>
+                            <div className="p-1.5 rounded bg-muted/30 text-center">
+                              <p className="text-muted-foreground font-medium">Y</p>
+                              <p className="font-mono">{point.y.toFixed(2)}</p>
+                            </div>
+                            <div className="p-1.5 rounded bg-muted/30 text-center">
+                              <p className="text-muted-foreground font-medium">Z</p>
+                              <p className="font-mono">{point.z.toFixed(2)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
               </CardContent>
             </Card>
           )}
-          
+
         </div>
       </div>
       
