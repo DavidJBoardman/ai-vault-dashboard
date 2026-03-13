@@ -302,6 +302,7 @@ export interface MeasurementParams {
   traceId: string;
   segmentStart: number;
   segmentEnd: number;
+  tracePoints: Array<number[]>; // [[x, y, z], ...]
 }
 
 export interface MeasurementResult {
@@ -310,12 +311,80 @@ export interface MeasurementResult {
   apexPoint: { x: number; y: number; z: number };
   springingPoints: Array<{ x: number; y: number; z: number }>;
   fitError: number;
+  pointDistances: number[];
+  segmentPoints: Array<{ x: number; y: number; z: number }>;
+  arcCenter: { x: number; y: number; z: number };
 }
 
 export async function calculateMeasurements(
   params: MeasurementParams
 ): Promise<ApiResponse<MeasurementResult>> {
-  return apiRequest<MeasurementResult>("/api/measurements/calculate", {
+  return apiRequest<MeasurementResult>("/api/geometry/measurements/calculate", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// Impost Line Calculation
+export interface RibImpostData {
+  springing_z: number;
+  springing_point: { x: number; y: number; z: number };
+  impost_distance: number;
+}
+
+export interface ImpostLineResult {
+  impost_height: number;
+  num_ribs_used: number;
+  ribs: Record<string, RibImpostData>;
+}
+
+export interface ImpostLineRequest {
+  ribs: Array<{
+    id: string;
+    points: Array<[number, number, number]>;
+  }>;
+  impostHeight?: number;
+}
+
+export async function calculateImpostLine(
+  params: ImpostLineRequest,
+): Promise<ApiResponse<ImpostLineResult>> {
+  return apiRequest<ImpostLineResult>("/api/geometry/measurements/impost-line", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// Rib Group Detection
+export interface RibGroupCombinedMeasurements {
+  arc_radius: number;
+  rib_length: number;
+  apex_point: { x: number; y: number; z: number };
+  arc_center: { x: number; y: number; z: number };
+  arc_center_z: number;
+  fit_error: number;
+}
+
+export interface RibGroup {
+  groupId: string;
+  ribIds: string[];
+  isGrouped: boolean;
+  combinedMeasurements: RibGroupCombinedMeasurements;
+}
+
+export interface DetectRibGroupsRequest {
+  ribs: Array<{
+    id: string;
+    points: Array<[number, number, number]>;
+  }>;
+  maxGap?: number;
+  radiusTolerance?: number;
+}
+
+export async function detectRibGroups(
+  params: DetectRibGroupsRequest,
+): Promise<ApiResponse<RibGroup[]>> {
+  return apiRequest<RibGroup[]>("/api/geometry/measurements/rib-groups", {
     method: "POST",
     body: JSON.stringify(params),
   });

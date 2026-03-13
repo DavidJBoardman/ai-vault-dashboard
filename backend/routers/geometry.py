@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter
 from pydantic import BaseModel
+import numpy as np
 
 from services.geometry_analyzer import GeometryAnalyzer
 from services.measurement_service import MeasurementService
@@ -81,6 +82,7 @@ class MeasurementRequest(BaseModel):
     traceId: str
     segmentStart: float
     segmentEnd: float
+    tracePoints: List[List[float]]  # [[x, y, z], ...]
 
 
 class Point3D(BaseModel):
@@ -95,6 +97,9 @@ class MeasurementResult(BaseModel):
     apexPoint: Point3D
     springingPoints: List[Point3D]
     fitError: float
+    pointDistances: List[float]
+    segmentPoints: List[Point3D]
+    arcCenter: Point3D
 
 
 class MeasurementResponse(BaseModel):
@@ -108,6 +113,10 @@ async def calculate_measurements(request: MeasurementRequest):
     """Calculate geometric measurements for a trace segment."""
     try:
         service = MeasurementService()
+        
+        # Load the trace points into the service
+        trace_points = np.array(request.tracePoints)
+        service.traces[request.traceId] = trace_points
         
         result = await service.calculate(
             trace_id=request.traceId,
@@ -123,6 +132,9 @@ async def calculate_measurements(request: MeasurementRequest):
                 apexPoint=Point3D(**result["apex_point"]),
                 springingPoints=[Point3D(**p) for p in result["springing_points"]],
                 fitError=result["fit_error"],
+                pointDistances=result["point_distances"],
+                segmentPoints=[Point3D(x=p[0], y=p[1], z=p[2]) for p in result["segment_points"]],
+                arcCenter=Point3D(**result["arc_center"]),
             ),
         )
     except Exception as e:
@@ -177,3 +189,147 @@ async def analyze_chord_method(request: ChordAnalysisRequest):
         )
     except Exception as e:
         return ChordAnalysisResponse(success=False, error=str(e))
+
+
+class RibImpostData(BaseModel):
+    springing_z: float
+    springing_point: Point3D
+    impost_distance: float
+
+
+class ImpostLineResult(BaseModel):
+    impost_height: float
+    num_ribs_used: int
+    ribs: dict  # Dictionary of {rib_id: RibImpostData}
+
+
+class ImpostLineResponse(BaseModel):
+    success: bool
+    data: Optional[ImpostLineResult] = None
+    error: Optional[str] = None
+
+
+class ImpostLineRequest(BaseModel):
+    """Request for impost line calculation with multiple rib traces."""
+    ribs: List[dict]  # [{id: str, points: [[x, y, z], ...]}, ...]
+    impostHeight: Optional[float] = None  # User-defined impost height (e.g., floor plane Z)
+
+
+@router.post("/measurements/impost-line", response_model=ImpostLineResponse)
+async def calculate_impost_line_endpoint(request: ImpostLineRequest):
+    """Calculate impost line height and per-rib impost distances.
+    
+    This analyzes ribs that originate from walls/piers to determine the
+    horizontal impost line height and calculates the distance from the
+    impost line to each rib's springing point.
+    """
+    try:
+        service = MeasurementService()
+        
+        # Load all rib traces into the service
+        for rib in request.ribs:
+            rib_id = rib.get("id", f"rib-{len(service.traces)}")
+            points = np.array(rib.get("points", []))
+            if len(points) > 0:
+                service.traces[rib_id] = points
+        
+        if not service.traces:
+            return ImpostLineResponse(success=False, error="No valid rib traces provided")
+        
+        result = await service._async_calculate_impost_line(
+            impost_height=request.impostHeight
+        )
+        
+        return ImpostLineResponse(
+            success=True,
+            data=ImpostLineResult(
+                impost_height=result["impost_height"],
+                num_ribs_used=result["num_ribs_used"],
+                ribs=result["ribs"],
+            ),
+        )
+    except Exception as e:
+        return ImpostLineResponse(success=False, error=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Rib Group Detection
+# ---------------------------------------------------------------------------
+
+class RibForGrouping(BaseModel):
+    id: str
+    points: List[List[float]]  # [[x, y, z], ...]
+
+
+class RibGroupCombinedMeasurements(BaseModel):
+    arc_radius: float
+    rib_length: float
+    apex_point: Point3D
+    arc_center: Point3D
+    arc_center_z: float
+    fit_error: float
+
+
+class RibGroupResult(BaseModel):
+    groupId: str
+    ribIds: List[str]
+    isGrouped: bool
+    combinedMeasurements: RibGroupCombinedMeasurements
+
+
+class DetectRibGroupsRequest(BaseModel):
+    ribs: List[RibForGrouping]
+    maxGap: float = 2.0
+    radiusTolerance: float = 0.15
+
+
+class DetectRibGroupsResponse(BaseModel):
+    success: bool
+    data: Optional[List[RibGroupResult]] = None
+    error: Optional[str] = None
+
+
+@router.post("/measurements/rib-groups", response_model=DetectRibGroupsResponse)
+async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
+    """Detect rib groups split by keystones and return combined arc measurements."""
+    try:
+        service = MeasurementService()
+        for rib in request.ribs:
+            points = np.array(rib.points)
+            if len(points) >= 3:
+                service.traces[rib.id] = points
+
+        if not service.traces:
+            return DetectRibGroupsResponse(success=False, error="No valid rib traces provided")
+
+        import asyncio as _asyncio
+        loop = _asyncio.get_event_loop()
+        groups = await loop.run_in_executor(
+            None,
+            service.detect_rib_groups,
+            request.maxGap,
+            25.0,  # angle_threshold_deg — internal constant
+            request.radiusTolerance,
+        )
+
+        results = []
+        for i, group_ids in enumerate(groups):
+            combined = service.calculate_group_measurements(group_ids)
+            results.append(RibGroupResult(
+                groupId=f"group-{i}",
+                ribIds=group_ids,
+                isGrouped=len(group_ids) > 1,
+                combinedMeasurements=RibGroupCombinedMeasurements(
+                    arc_radius=combined["arc_radius"],
+                    rib_length=combined["rib_length"],
+                    apex_point=Point3D(**combined["apex_point"]),
+                    arc_center=Point3D(**combined["arc_center"]),
+                    arc_center_z=combined["arc_center_z"],
+                    fit_error=combined["fit_error"],
+                ),
+            ))
+
+        return DetectRibGroupsResponse(success=True, data=results)
+    except Exception as e:
+        return DetectRibGroupsResponse(success=False, error=str(e))
+
