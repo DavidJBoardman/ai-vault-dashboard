@@ -40,7 +40,7 @@ const buildCommands = [
       'run',
       '--directory',
       backendDir,
-      '--group',
+      '--extra',
       'build',
       'pyinstaller',
       '--noconfirm',

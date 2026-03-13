@@ -69,7 +69,7 @@ npm install
 #### Preferred: uv
 
 ```bash
-uv sync --directory backend --group build
+uv sync --directory backend --extra build
 ```
 
 #### Supported: Conda
