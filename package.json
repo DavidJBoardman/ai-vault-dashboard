@@ -11,15 +11,22 @@
     "dev:electron": "wait-on http://localhost:3000 && electron .",
     "build": "npm run build:electron && next build",
     "build:electron": "tsc -p electron/tsconfig.json",
-    "build:all": "npm run build:electron && next build && npm run backend:build",
+    "build:frontend": "npm run build:electron && next build",
+    "build:all": "npm run build:frontend && npm run backend:build",
     "start": "npm run build:electron && electron .",
     "package": "npm run build:all && electron-builder",
-    "package:win": "npm run build:all && electron-builder --win",
-    "package:mac": "npm run build:all && electron-builder --mac",
+    "package:win": "npm run build:frontend && npm run backend:build:win && electron-builder --win",
+    "package:mac": "npm run build:frontend && npm run backend:build:mac && electron-builder --mac",
     "package:linux": "npm run build:all && electron-builder --linux",
+    "package:ci:win": "npm run build:frontend && npm run backend:build:win && electron-builder --win --publish never",
+    "package:ci:mac": "npm run build:frontend && npm run backend:build:mac && electron-builder --mac --publish never",
     "lint": "next lint",
-    "backend:dev": "cd backend && (python -m uvicorn main:app --reload --port 8765 || ./.venv/bin/python -m uvicorn main:app --reload --port 8765 || ./venv/bin/python -m uvicorn main:app --reload --port 8765)",
-    "backend:build": "cd backend && (python -m PyInstaller --onefile --name vault-backend --hidden-import=pye57 --hidden-import=open3d --hidden-import=uvicorn --hidden-import=fastapi --hidden-import=uvicorn.logging --hidden-import=uvicorn.loops --hidden-import=uvicorn.loops.auto --hidden-import=uvicorn.protocols --hidden-import=uvicorn.protocols.http --hidden-import=uvicorn.protocols.http.auto --hidden-import=uvicorn.protocols.websockets --hidden-import=uvicorn.protocols.websockets.auto --hidden-import=uvicorn.lifespan --hidden-import=uvicorn.lifespan.on main.py || ./.venv/bin/python -m PyInstaller --onefile --name vault-backend --hidden-import=pye57 --hidden-import=open3d --hidden-import=uvicorn --hidden-import=fastapi --hidden-import=uvicorn.logging --hidden-import=uvicorn.loops --hidden-import=uvicorn.loops.auto --hidden-import=uvicorn.protocols --hidden-import=uvicorn.protocols.http --hidden-import=uvicorn.protocols.http.auto --hidden-import=uvicorn.protocols.websockets --hidden-import=uvicorn.protocols.websockets.auto --hidden-import=uvicorn.lifespan --hidden-import=uvicorn.lifespan.on main.py || ./venv/bin/python -m PyInstaller --onefile --name vault-backend --hidden-import=pye57 --hidden-import=open3d --hidden-import=uvicorn --hidden-import=fastapi --hidden-import=uvicorn.logging --hidden-import=uvicorn.loops --hidden-import=uvicorn.loops.auto --hidden-import=uvicorn.protocols --hidden-import=uvicorn.protocols.http --hidden-import=uvicorn.protocols.http.auto --hidden-import=uvicorn.protocols.websockets --hidden-import=uvicorn.protocols.websockets.auto --hidden-import=uvicorn.lifespan --hidden-import=uvicorn.lifespan.on main.py)"
+    "backend:dev": "node scripts/run-backend-dev.mjs",
+    "backend:dev:uv": "uv run --directory backend python -m uvicorn main:app --reload --host 127.0.0.1 --port 8765",
+    "backend:build": "node scripts/build-backend.mjs",
+    "backend:build:mac": "node scripts/build-backend.mjs --target mac",
+    "backend:build:win": "node scripts/build-backend.mjs --target win",
+    "backend:build:linux": "node scripts/build-backend.mjs --target linux"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.0",
@@ -84,8 +91,12 @@
     ],
     "extraResources": [
       {
-        "from": "backend/dist/vault-backend",
-        "to": "backend/vault-backend"
+        "from": "backend/dist/",
+        "to": "backend",
+        "filter": [
+          "vault-backend",
+          "vault-backend.exe"
+        ]
       }
     ],
     "asar": false,
@@ -103,4 +114,3 @@
     }
   }
 }
-
