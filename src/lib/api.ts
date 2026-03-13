@@ -425,6 +425,7 @@ export interface MeasurementConfig {
   customGroups: MeasurementCustomGroup[];
   disabledAutoGroupIds: string[];
   groupNameById: Record<string, string>;
+  bossStoneNameById: Record<string, string>;
 }
 
 export async function getMeasurementConfig(
@@ -719,6 +720,28 @@ export async function getIntradosLines(
   projectId: string
 ): Promise<ApiResponse<IntradosTraceResponse>> {
   return apiRequest(`/api/project/${projectId}/intrados-lines`, {
+    method: "GET",
+  });
+}
+
+// =====================================================
+// Boss Stone / Keystone Marker Functions
+// =====================================================
+
+export interface BossStoneMarker {
+  id: string;
+  label: string;
+  groupId: string;
+  color: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export async function getBossStoneMarkers(
+  projectId: string
+): Promise<ApiResponse<{ markers: BossStoneMarker[] }>> {
+  return apiRequest(`/api/project/${projectId}/boss-stone-markers`, {
     method: "GET",
   });
 }
