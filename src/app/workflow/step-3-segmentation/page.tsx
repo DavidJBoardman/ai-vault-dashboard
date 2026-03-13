@@ -214,8 +214,11 @@ export default function Step3SegmentationPage() {
         color: seg.color,
         maskBase64: seg.mask, // Store uses 'mask', component uses 'maskBase64'
         visible: seg.visible,
-        bbox: seg.bbox || [0, 0, 100, 100],
+        bbox: (seg.bbox as [number, number, number, number]) || [0, 0, 100, 100],
         area: seg.area || 0,
+        predictedIou: 0,
+        stabilityScore: 0,
+        source: seg.source,
       }));
       setMasks(loadedMasks);
     }
