@@ -436,7 +436,13 @@ export function ProjectionCanvas({
 
     let nearest:
       | {
-          edge: { a: number; b: number };
+          edge: {
+            a: number;
+            b: number;
+            isConstraint?: boolean;
+            isManual?: boolean;
+            isBoundaryForced?: boolean;
+          };
           distance: number;
         }
       | null = null;

@@ -235,7 +235,7 @@ function cloneAndSortTemplatePoints(points: Geometry2DTemplateBossPoint[]): Geom
 }
 
 function allocateNextPointId(usedIds: Set<number>): number {
-  let nextId = Math.max(0, ...usedIds) + 1;
+  let nextId = Math.max(0, ...Array.from(usedIds)) + 1;
   while (usedIds.has(nextId)) {
     nextId += 1;
   }
@@ -1850,7 +1850,7 @@ export function useStep4Geometry2DController() {
       setAutoCorrectConfig(normalizeAutoCorrectConfig(prepData.autoCorrectConfig));
     }
     if (geometry2dData?.ui) {
-      const rawSection = geometry2dData.ui.activeSection;
+      const rawSection = geometry2dData.ui.activeSection as Geometry2DWorkflowSection | "report" | undefined;
       const nextSection: Geometry2DWorkflowSection =
         rawSection === "report" ? "reconstruct" : rawSection || "roi";
       const nextAdvancedLayers = geometry2dData.ui.showAdvancedLayers ?? true;
