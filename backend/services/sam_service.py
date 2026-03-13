@@ -62,7 +62,25 @@ except Exception as e:
 
 print("=" * 60)
 
-SAM3_MODEL_ID = os.getenv("SAM3_MODEL_ID", "jetjodh/sam3")
+DEFAULT_SAM3_MODEL_ID = "jetjodh/sam3"
+
+
+def resolve_hf_token() -> Optional[str]:
+    """Resolve a Hugging Face token from supported environment variable names."""
+    for env_name in ("HF_TOKEN", "HF_TOKAN", "HUGGINGFACE_HUB_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        token = os.getenv(env_name)
+        if token:
+            return token
+    return None
+
+
+def resolve_sam3_model_id() -> str:
+    """Resolve the configured SAM 3 model, defaulting to the public model."""
+    return os.getenv("SAM3_MODEL_ID") or DEFAULT_SAM3_MODEL_ID
+
+
+SAM3_MODEL_ID = resolve_sam3_model_id()
+HF_TOKEN = resolve_hf_token()
 
 
 class SAM3Service:
@@ -102,10 +120,15 @@ class SAM3Service:
         try:
             print(f"Loading SAM 3 model from HuggingFace ({SAM3_MODEL_ID})...")
             print("This may take a few minutes on first run to download the model...")
+            if HF_TOKEN:
+                print("Using HuggingFace token from environment.")
+            else:
+                print(f"No HuggingFace token found. Using public model access for {SAM3_MODEL_ID}.")
             
             # Load processor and model from HuggingFace
-            self.processor = Sam3Processor.from_pretrained(SAM3_MODEL_ID)
-            self.model = Sam3Model.from_pretrained(SAM3_MODEL_ID)
+            from_pretrained_kwargs = {"token": HF_TOKEN} if HF_TOKEN else {}
+            self.processor = Sam3Processor.from_pretrained(SAM3_MODEL_ID, **from_pretrained_kwargs)
+            self.model = Sam3Model.from_pretrained(SAM3_MODEL_ID, **from_pretrained_kwargs)
             
             # Move model to appropriate device
             if DEVICE != "cpu":
@@ -129,7 +152,7 @@ class SAM3Service:
                 else:
                     self.last_error = (
                         f"Cannot access HuggingFace model {SAM3_MODEL_ID} (gated repo). "
-                        "Request access and authenticate with a HuggingFace token."
+                        "Request access and authenticate with HF_TOKEN."
                     )
             else:
                 self.last_error = f"Error loading SAM 3 model: {e}"
