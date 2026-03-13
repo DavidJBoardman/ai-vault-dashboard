@@ -83,6 +83,7 @@ class MeasurementConfig(BaseModel):
     customGroups: List[MeasurementCustomGroup] = []
     disabledAutoGroupIds: List[str] = []
     groupNameById: Dict[str, str] = {}
+    bossStoneNameById: Dict[str, str] = {}
 
 
 class MeasurementConfigResponse(BaseModel):
@@ -165,11 +166,21 @@ def _sanitize_measurement_config(raw: Dict[str, Any], valid_rib_ids: set) -> Dic
         if str(k).strip() and str(v).strip()
     }
 
+    boss_stone_name_by_id_raw = raw.get("bossStoneNameById", {})
+    if not isinstance(boss_stone_name_by_id_raw, dict):
+        boss_stone_name_by_id_raw = {}
+    clean_boss_stone_names = {
+        str(k): str(v).strip()[:100]
+        for k, v in boss_stone_name_by_id_raw.items()
+        if str(k).strip() and str(v).strip()
+    }
+
     return {
         "ribNameById": clean_rib_names,
         "customGroups": clean_groups,
         "disabledAutoGroupIds": clean_disabled_ids,
         "groupNameById": clean_group_names,
+        "bossStoneNameById": clean_boss_stone_names,
     }
 
 
@@ -1701,6 +1712,189 @@ async def get_intrados_lines(project_id: str):
         
     except Exception as e:
         print(f"Error getting intrados lines: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
+# =====================================================
+# Boss Stone / Keystone Marker Endpoints
+# =====================================================
+
+def _is_boss_stone(text: str) -> bool:
+    """Return True if the text corresponds to a boss stone / keystone label.
+
+    Normalises the input by lowercasing and stripping all spaces and underscores
+    before substring-matching against known slugs.  This accepts any casing and
+    space/underscore spacing variant, e.g.:
+      "boss stone", "boss_stone", "Boss Stone #2", "keystone", "crown stone"
+    """
+    slug = text.lower().replace(" ", "").replace("_", "")
+    known = ["bossstone", "keystone", "boss", "crown", "crownstone", "key"]
+    return any(k in slug for k in known)
+
+
+@router.get("/{project_id}/boss-stone-markers")
+async def get_boss_stone_markers(project_id: str):
+    """Get 3D centroid positions for boss stone / keystone masks.
+
+    For every segmentation whose groupId or label is recognised as a boss stone,
+    the centroid pixel of its mask is looked up in the projection's
+    ``_coordinates.npy`` (shape H×W×3, normalised) and the normalised coordinate
+    is denormalised to real-world XYZ using ``min_vals`` / ``range_vals`` from
+    the projection metadata.
+
+    Returns a list of markers::
+        [{ id, label, groupId, color, x, y, z }, ...]
+    """
+    import numpy as np
+    from PIL import Image
+
+    try:
+        project_dir = get_project_dir(project_id)
+        seg_dir = project_dir / "segmentations"
+        seg_index_path = seg_dir / "index.json"
+
+        if not seg_index_path.exists():
+            return {"success": True, "data": {"markers": []}}
+
+        with open(seg_index_path, "r") as f:
+            seg_index = json.load(f)
+
+        if isinstance(seg_index, list):
+            seg_refs = seg_index
+            groups = []
+        else:
+            seg_refs = seg_index.get("segmentations", [])
+            groups = seg_index.get("groups", [])
+
+        group_lookup = {g["groupId"]: g for g in groups}
+
+        # Filter segmentations that belong to boss stone / keystone groups
+        boss_segs = [
+            s for s in seg_refs
+            if _is_boss_stone(s.get("groupId", "")) or _is_boss_stone(s.get("label", ""))
+        ]
+
+        if not boss_segs:
+            return {"success": True, "data": {"markers": []}}
+
+        # Load projection index to find coordinates file
+        proj_dir = project_dir / "projections"
+        proj_index_path = proj_dir / "index.json"
+
+        if not proj_index_path.exists():
+            return {"success": True, "data": {"markers": []}}
+
+        with open(proj_index_path, "r") as f:
+            proj_index = json.load(f)
+
+        projections = proj_index.get("projections", [])
+        if not projections:
+            return {"success": True, "data": {"markers": []}}
+
+        proj = projections[0]
+        files = proj.get("files", {})
+
+        coord_file = files.get("coordinates")
+        if not coord_file:
+            return {"success": True, "data": {"markers": []}}
+
+        coord_path = proj_dir / coord_file
+        if not coord_path.exists():
+            print(f"  Coordinates file not found: {coord_path}")
+            return {"success": True, "data": {"markers": []}}
+
+        # Load projection metadata for denormalisation
+        meta_file = files.get("metadata")
+        meta_path = proj_dir / meta_file if meta_file else None
+
+        if meta_path and meta_path.exists():
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+        else:
+            metadata = proj.get("metadata", {})
+
+        min_vals = metadata.get("min_vals", [0.0, 0.0, 0.0])
+        range_vals = metadata.get("range_vals", [1.0, 1.0, 1.0])
+        # Projection was computed on centroid-centred points, so coordinates stored in
+        # _coordinates.npy are in centred space.  Add the centroid back to recover
+        # real-world E57 coordinates (same system as the reprojection preview points).
+        centroid = metadata.get("centroid", [0.0, 0.0, 0.0])
+
+        # Load the coordinates array once (H, W, 3), values in [0, 1]
+        coords = np.load(str(coord_path))
+
+        markers = []
+        for seg in boss_segs:
+            mask_file = seg.get("maskFile")
+            if not mask_file:
+                continue
+
+            mask_path = seg_dir / mask_file
+            if not mask_path.exists():
+                continue
+
+            # Load mask and extract alpha channel
+            mask_img = Image.open(mask_path)
+            if mask_img.mode == "RGBA":
+                alpha = np.array(mask_img)[:, :, 3]
+            elif mask_img.mode == "LA":
+                alpha = np.array(mask_img)[:, :, 1]
+            else:
+                alpha = np.array(mask_img.convert("L"))
+
+            # Find all foreground pixels
+            ys, xs = np.where(alpha > 127)
+            if len(ys) == 0:
+                continue
+
+            # Compute centroid pixel
+            cy = int(np.mean(ys))
+            cx = int(np.mean(xs))
+            cy = min(cy, coords.shape[0] - 1)
+            cx = min(cx, coords.shape[1] - 1)
+
+            norm_xyz = coords[cy, cx]
+
+            # If centroid falls on an empty pixel, use the mean of valid mask pixels instead
+            if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
+                coord_valid = np.any(coords != 0, axis=2)
+                valid_mask = (alpha > 127) & coord_valid
+                valid_ys, valid_xs = np.where(valid_mask)
+                if len(valid_ys) == 0:
+                    continue
+                cy = int(np.mean(valid_ys))
+                cx = int(np.mean(valid_xs))
+                cy = min(cy, coords.shape[0] - 1)
+                cx = min(cx, coords.shape[1] - 1)
+                norm_xyz = coords[cy, cx]
+
+            # Denormalise centred coords: centred = norm * range + min
+            # Then add centroid to recover real-world E57 coordinates
+            x = float(norm_xyz[0] * range_vals[0] + min_vals[0] + centroid[0])
+            y = float(norm_xyz[1] * range_vals[1] + min_vals[1] + centroid[1])
+            z = float(norm_xyz[2] * range_vals[2] + min_vals[2] + centroid[2])
+
+            group_id = seg.get("groupId") or extract_group_id(seg.get("label", ""))
+            group_info = group_lookup.get(group_id, {})
+            color = seg.get("color") or group_info.get("color") or "#FFD700"
+
+            markers.append({
+                "id": seg.get("id", ""),
+                "label": seg.get("label", group_id),
+                "groupId": group_id,
+                "color": color,
+                "x": x,
+                "y": y,
+                "z": z,
+            })
+
+        print(f"Boss stone markers for {project_id}: {len(markers)} found")
+        return {"success": True, "data": {"markers": markers}}
+
+    except Exception as e:
+        print(f"Error getting boss stone markers: {e}")
         import traceback
         traceback.print_exc()
         return {"success": False, "error": str(e)}
