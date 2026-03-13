@@ -29,6 +29,7 @@ env/
 *.egg
 backend/dist/
 *.spec
+!backend/vault-backend.spec
 
 # IDE
 .idea/
@@ -73,8 +74,6 @@ projects/
 .cursorignore
 .cursorindexingignore
 
-pyproject.toml
-uv.lock
 .venv/
 backend/.python-version
 /.cursor
