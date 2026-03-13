@@ -28,7 +28,7 @@ dependencies = [
     "websockets==12.0",
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 build = [
     "pyinstaller==6.10.0",
 ]

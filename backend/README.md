@@ -13,7 +13,7 @@ This backend is a FastAPI service used by the Electron desktop app.
 Preferred:
 
 ```bash
-uv sync --group build
+uv sync --extra build
 uv run python -m uvicorn main:app --reload --host 127.0.0.1 --port 8765
 ```
 
@@ -32,6 +32,6 @@ python -m uvicorn main:app --reload --host 127.0.0.1 --port 8765
 Production packaging uses `uv` and PyInstaller:
 
 ```bash
-uv sync --group build
+uv sync --extra build
 uv run pyinstaller --noconfirm --clean vault-backend.spec
 ```
