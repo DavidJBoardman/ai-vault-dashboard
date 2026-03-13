@@ -77,3 +77,4 @@ pyproject.toml
 uv.lock
 .venv/
 backend/.python-version
+/.cursor
