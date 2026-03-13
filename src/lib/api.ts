@@ -367,6 +367,7 @@ export interface RibGroupCombinedMeasurements {
 
 export interface RibGroup {
   groupId: string;
+  groupName?: string;
   ribIds: string[];
   isGrouped: boolean;
   combinedMeasurements: RibGroupCombinedMeasurements;
@@ -387,6 +388,60 @@ export async function detectRibGroups(
   return apiRequest<RibGroup[]>("/api/geometry/measurements/rib-groups", {
     method: "POST",
     body: JSON.stringify(params),
+  });
+}
+
+export interface CustomRibGroupRequest {
+  groupId: string;
+  groupName?: string;
+  ribIds: string[];
+}
+
+export interface CalculateCustomRibGroupsRequest {
+  ribs: Array<{
+    id: string;
+    points: Array<[number, number, number]>;
+  }>;
+  groups: CustomRibGroupRequest[];
+}
+
+export async function calculateCustomRibGroups(
+  params: CalculateCustomRibGroupsRequest,
+): Promise<ApiResponse<RibGroup[]>> {
+  return apiRequest<RibGroup[]>("/api/geometry/measurements/custom-rib-groups", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export interface MeasurementCustomGroup {
+  id: string;
+  name: string;
+  ribIds: string[];
+}
+
+export interface MeasurementConfig {
+  ribNameById: Record<string, string>;
+  customGroups: MeasurementCustomGroup[];
+  disabledAutoGroupIds: string[];
+  groupNameById: Record<string, string>;
+}
+
+export async function getMeasurementConfig(
+  projectId: string,
+): Promise<ApiResponse<MeasurementConfig>> {
+  return apiRequest<MeasurementConfig>(`/api/project/${projectId}/measurement-config`, {
+    method: "GET",
+  });
+}
+
+export async function saveMeasurementConfig(
+  projectId: string,
+  config: MeasurementConfig,
+): Promise<ApiResponse<MeasurementConfig>> {
+  return apiRequest<MeasurementConfig>(`/api/project/${projectId}/measurement-config`, {
+    method: "POST",
+    body: JSON.stringify(config),
   });
 }
 

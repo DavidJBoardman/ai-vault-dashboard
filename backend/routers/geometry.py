@@ -272,6 +272,7 @@ class RibGroupCombinedMeasurements(BaseModel):
 
 class RibGroupResult(BaseModel):
     groupId: str
+    groupName: Optional[str] = None
     ribIds: List[str]
     isGrouped: bool
     combinedMeasurements: RibGroupCombinedMeasurements
@@ -317,8 +318,60 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
             combined = service.calculate_group_measurements(group_ids)
             results.append(RibGroupResult(
                 groupId=f"group-{i}",
+                groupName=None,
                 ribIds=group_ids,
                 isGrouped=len(group_ids) > 1,
+                combinedMeasurements=RibGroupCombinedMeasurements(
+                    arc_radius=combined["arc_radius"],
+                    rib_length=combined["rib_length"],
+                    apex_point=Point3D(**combined["apex_point"]),
+                    arc_center=Point3D(**combined["arc_center"]),
+                    arc_center_z=combined["arc_center_z"],
+                    fit_error=combined["fit_error"],
+                ),
+            ))
+
+        return DetectRibGroupsResponse(success=True, data=results)
+    except Exception as e:
+        return DetectRibGroupsResponse(success=False, error=str(e))
+
+
+class CustomRibGroupInput(BaseModel):
+    groupId: str
+    ribIds: List[str]
+    groupName: Optional[str] = None
+
+
+class CalculateCustomRibGroupsRequest(BaseModel):
+    ribs: List[RibForGrouping]
+    groups: List[CustomRibGroupInput]
+
+
+@router.post("/measurements/custom-rib-groups", response_model=DetectRibGroupsResponse)
+async def calculate_custom_rib_groups_endpoint(request: CalculateCustomRibGroupsRequest):
+    """Calculate combined measurements for explicit user-defined rib groups."""
+    try:
+        service = MeasurementService()
+        for rib in request.ribs:
+            points = np.array(rib.points)
+            if len(points) >= 3:
+                service.traces[rib.id] = points
+
+        if not service.traces:
+            return DetectRibGroupsResponse(success=False, error="No valid rib traces provided")
+
+        results: List[RibGroupResult] = []
+        for group in request.groups:
+            rib_ids = [rid for rid in group.ribIds if rid in service.traces]
+            if not rib_ids:
+                continue
+
+            combined = service.calculate_group_measurements(rib_ids)
+            results.append(RibGroupResult(
+                groupId=group.groupId,
+                groupName=group.groupName,
+                ribIds=rib_ids,
+                isGrouped=len(rib_ids) > 1,
                 combinedMeasurements=RibGroupCombinedMeasurements(
                     arc_radius=combined["arc_radius"],
                     rib_length=combined["rib_length"],
