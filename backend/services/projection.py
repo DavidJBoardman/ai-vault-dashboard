@@ -192,7 +192,7 @@ class ProjectionService:
                 projection_id=projection_id,
             )
             
-            print(f"✓ Gaussian projection saved: {projection_id}")
+            print(f"[OK] Gaussian projection saved: {projection_id}")
             
         else:
             # Fallback to demo projection
