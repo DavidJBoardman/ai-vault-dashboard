@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 
 project_dir = Path(SPECPATH)
 hiddenimports = [
@@ -17,7 +19,13 @@ hiddenimports = [
     "uvicorn.protocols.websockets.auto",
     "uvicorn.lifespan",
     "uvicorn.lifespan.on",
+    "torchvision",
+    "torchvision.io",
+    "torchvision.ops",
+    "torchvision.ops.boxes",
+    "torchvision.transforms",
 ]
+hiddenimports += collect_submodules("transformers.models.sam3")
 
 
 a = Analysis(
@@ -31,19 +39,30 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
+    module_collection_mode={
+        "transformers": "py",
+    },
 )
 pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="vault-backend",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=True,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    name="vault-backend",
 )

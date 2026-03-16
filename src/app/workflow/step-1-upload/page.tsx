@@ -94,21 +94,6 @@ export default function Step1UploadPage() {
     setIsDragging(false);
   }, []);
   
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    const files = Array.from(e.dataTransfer.files);
-    const e57File = files.find(f => f.name.endsWith('.e57'));
-    
-    if (e57File) {
-      const nativePath = (e57File as File & { path?: string }).path;
-      await processFile(nativePath || e57File);
-    } else {
-      setUploadError("Please upload an E57 file");
-    }
-  }, []);
-  
   const handleFileSelect = async () => {
     if (typeof window !== "undefined" && window.electronAPI) {
       const result = await window.electronAPI.openFile({
@@ -123,7 +108,30 @@ export default function Step1UploadPage() {
     }
   };
   
-  const processFile = async (file: string | File) => {
+  const fetchPointCloudData = useCallback(async (maxPoints: number) => {
+    setIsLoadingPoints(true);
+    try {
+      const response = await getPointCloudPreview(maxPoints);
+      
+      if (response.success && response.data) {
+        setPointCloudData(response.data.points);
+        setTotalPointCount(response.data.total);
+        if (response.data.bounding_box) {
+          setBoundingBox(response.data.bounding_box);
+        }
+        setPointCloudStats({
+          pointCount: response.data.total,
+          boundingBox: response.data.bounding_box || undefined,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to fetch point cloud:", error);
+    } finally {
+      setIsLoadingPoints(false);
+    }
+  }, [setPointCloudStats]);
+
+  const processFile = useCallback(async (file: string | File) => {
     setIsUploading(true);
     setUploadProgress(0);
     setUploadError(null);
@@ -164,7 +172,22 @@ export default function Step1UploadPage() {
       clearInterval(progressInterval);
       setIsUploading(false);
     }
-  };
+  }, [displayPointCount, fetchPointCloudData, setE57Path, setPointCloudStats]);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    const e57File = files.find(f => f.name.endsWith('.e57'));
+    
+    if (e57File) {
+      const nativePath = (e57File as File & { path?: string }).path;
+      await processFile(nativePath || e57File);
+    } else {
+      setUploadError("Please upload an E57 file");
+    }
+  }, [processFile]);
 
   const handleBrowserFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -178,29 +201,6 @@ export default function Step1UploadPage() {
     }
 
     await processFile(file);
-  };
-  
-  const fetchPointCloudData = async (maxPoints: number) => {
-    setIsLoadingPoints(true);
-    try {
-      const response = await getPointCloudPreview(maxPoints);
-      
-      if (response.success && response.data) {
-        setPointCloudData(response.data.points);
-        setTotalPointCount(response.data.total);
-        if (response.data.bounding_box) {
-          setBoundingBox(response.data.bounding_box);
-        }
-        setPointCloudStats({
-          pointCount: response.data.total,
-          boundingBox: response.data.bounding_box || undefined,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to fetch point cloud:", error);
-    } finally {
-      setIsLoadingPoints(false);
-    }
   };
   
   const handleRefreshPoints = async () => {

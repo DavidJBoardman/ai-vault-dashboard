@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
 import { PointCloudViewer, ExclusionBoxProps } from "@/components/point-cloud/point-cloud-viewer";
@@ -73,11 +73,11 @@ export default function Step5ReprojectionPage() {
   const [showExclusionBox, setShowExclusionBox] = useState(false);
   
   // Get segmentations and groups from store
-  const segmentations = currentProject?.segmentations || [];
-  const segmentationGroups = currentProject?.segmentationGroups || [];
-  
   // Build groups from segmentations if not available in store
   const availableGroups = useMemo(() => {
+    const segmentations = currentProject?.segmentations ?? [];
+    const segmentationGroups = currentProject?.segmentationGroups ?? [];
+
     if (segmentationGroups.length > 0) {
       return segmentationGroups;
     }
@@ -98,7 +98,7 @@ export default function Step5ReprojectionPage() {
     });
     
     return Object.values(groups);
-  }, [segmentations, segmentationGroups]);
+  }, [currentProject?.segmentations, currentProject?.segmentationGroups]);
   
   // Track if initial load has been done
   const [initialLoadDone, setInitialLoadDone] = useState(false);
@@ -222,7 +222,7 @@ export default function Step5ReprojectionPage() {
   };
   
   // Initialize floor plane from point cloud bounds
-  const initializeExclusionControls = () => {
+  const initializeExclusionControls = useCallback(() => {
     if (!pointCloudData || pointCloudData.length === 0) return;
     
     // Find Z bounds
@@ -261,14 +261,14 @@ export default function Step5ReprojectionPage() {
         enabled: true,
       });
     }
-  };
+  }, [exclusionBox, floorPlaneZ, pointCloudData]);
   
   // Initialize exclusion controls when point cloud is loaded
   useEffect(() => {
     if (pointCloudData && pointCloudData.length > 0) {
       initializeExclusionControls();
     }
-  }, [pointCloudData]);
+  }, [initializeExclusionControls, pointCloudData]);
   
   // Auto-load 3D preview when page loads with available data
   useEffect(() => {

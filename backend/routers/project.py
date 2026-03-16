@@ -10,10 +10,12 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from services.app_paths import get_data_root
+
 router = APIRouter()
 
 # Project data directory
-PROJECT_DATA_DIR = Path(__file__).parent.parent / "data"
+PROJECT_DATA_DIR = get_data_root()
 PROJECTIONS_DIR = PROJECT_DATA_DIR / "projections"
 
 
