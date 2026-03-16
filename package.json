@@ -21,7 +21,7 @@
     "package:mac:app": "npm run build:frontend && npm run backend:build:mac && electron-builder --mac dir",
     "package:mac": "npm run build:frontend && npm run backend:build:mac && electron-builder --mac",
     "package:linux": "npm run build:all && electron-builder --linux",
-    "package:ci:win": "npm run build:frontend && npm run backend:build:win && electron-builder --win --publish never",
+    "package:ci:win": "npm run build:frontend && npm run backend:build:win && electron-builder --win dir --publish never",
     "package:ci:mac": "npm run build:frontend && npm run backend:build:mac && electron-builder --mac dir --publish never",
     "lint": "next lint",
     "backend:dev": "node scripts/run-backend-dev.mjs",
