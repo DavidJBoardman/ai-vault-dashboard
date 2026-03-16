@@ -26,6 +26,16 @@ hiddenimports = [
     "torchvision.transforms",
 ]
 hiddenimports += collect_submodules("transformers.models.sam3")
+excludes = [
+    # Optional visualisation/data-science stacks pulled in around open3d are not
+    # used by the packaged backend runtime and add substantial PyInstaller cost.
+    "dash",
+    "plotly",
+    "matplotlib",
+    "matplotlib_inline",
+    "pandas",
+    "sklearn",
+]
 
 
 a = Analysis(
@@ -37,7 +47,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=excludes,
     noarchive=False,
     module_collection_mode={
         "transformers": "py",

@@ -13,3 +13,6 @@ Others
 [-] Project saved locations 
     * fixed on building, but need to discuss
 [] logo, app icon
+
+Build
+[] Add NSIS installer if required. 
