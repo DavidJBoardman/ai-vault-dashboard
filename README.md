@@ -279,8 +279,8 @@ Then commit and push a matching tag:
 git add package.json package-lock.json src/app/page.tsx backend/main.py
 git commit -m "Release v0.1.0"
 
-# If need to replace previously existing tag
-git -d v0.1.0
+# Only if the tag already exists locally/remotely
+git tag -d v0.1.0
 git push origin :refs/tags/v0.1.0
 
 git tag v0.1.0
