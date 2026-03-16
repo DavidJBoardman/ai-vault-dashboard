@@ -2,6 +2,19 @@
 
 Medieval Vault Architecture Analysis Platform - A cross-platform desktop application for analyzing 3D point cloud scans of historical vault structures.
 
+## Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Development](#development)
+- [Project Structure](#project-structure)
+- [Workflow Steps](#workflow-steps)
+- [Technologies](#technologies)
+- [Build and Release](#build-and-release)
+- [License](#license)
+
 ## Features
 
 - **E57 Point Cloud Import**: Load and visualize 3D laser scan data
@@ -139,36 +152,6 @@ npm run dev:next
 
 Official packaging and CI use `uv`, even though local development supports both `uv` and Conda.
 
-## Building for Production
-
-### Build the application
-
-```bash
-npm run build
-```
-
-### Package for distribution
-
-Packaging must run on the same OS as the target installer. macOS builds produce `.dmg` artefacts and Windows builds produce `.exe` installers.
-
-```bash
-# Current platform
-npm run package
-
-# Same-OS packaging
-npm run package:mac
-npm run package:win
-```
-
-The packaged application will be in the `dist/` directory.
-
-### CI packaging
-
-GitHub Actions is the official release path. It builds:
-
-- macOS `.dmg` artefacts on `macos-latest`
-- Windows installer `.exe` artefacts on `windows-latest`
-
 ## Project Structure
 
 ```
@@ -223,6 +206,88 @@ ai-vault-interface/
 - SAM 3 (Segment Anything Model 3 via HuggingFace Transformers)
 - PyTorch (with MPS support for macOS)
 - NumPy/SciPy
+
+## Build and Release
+
+### Local development
+
+Use this loop when you are changing code and running the app from source:
+
+```bash
+npm install
+uv sync --directory backend --extra build
+npm run dev
+```
+
+The development backend stores runtime data under `backend/data/`.
+
+### Local packaged build
+
+```bash
+# Clean previously generated files from building
+npm run clean
+
+# Build a local packaged macOS app
+npm run package:mac:app
+
+# Run the packaged app
+open "dist/mac-arm64/Vault Analyser.app"
+```
+
+If you specifically want the fuller packaging path, including DMG creation:
+
+```bash
+npm run clean
+npm run package:mac
+```
+
+Notes:
+
+- `npm run clean` removes generated build folders but keeps `node_modules` and `backend/.venv`.
+- Local packaged builds are unsigned. Gatekeeper warnings are expected on other Macs until signing/notarization is added.
+- The packaged app saves its working data under the user home folder:
+- macOS: `/Users/<you>/Vault Analyser/`
+- Windows: `C:\Users\<you>\Vault Analyser\`
+
+### GitHub build trigger
+
+GitHub Actions is the current artifact build path for unsigned test releases.
+
+The workflow is defined in [`.github/workflows/desktop-release.yml`](/Users/yangzhang/Documents/Bitbucket/AI-Vaults-2025/ai-vault-dashboard/.github/workflows/desktop-release.yml) and can be triggered in two ways:
+
+1. Manually from the `Actions` tab using `Desktop Release` and `Run workflow`
+2. Automatically by pushing a Git tag that matches `v*`
+
+Current workflow outputs:
+
+- macOS: `dist/mac*/Vault Analyser.app`
+- Windows: `dist/*.exe` and `dist/win-unpacked/`
+
+For the current unsigned internal-build setup, no extra GitHub configuration is required beyond the existing workflow. Apple signing and notarization secrets are only needed later if you decide to distribute signed macOS builds.
+
+### Replacing the version and tagging a build
+
+Before creating a release tag, update the software version in the source:
+
+- [`package.json`](./package.json)
+- [`src/app/page.tsx`](./src/app/page.tsx)
+- [`backend/main.py`](./backend/main.py)
+
+Then commit and push a matching tag:
+
+```bash
+git add package.json package-lock.json src/app/page.tsx backend/main.py
+git commit -m "Release v0.1.0"
+
+# If need to replace previously existing tag
+git -d v0.1.0
+git push origin :refs/tags/v0.1.0
+
+git tag v0.1.0
+git push origin main --tags
+```
+
+That tag push will trigger the GitHub desktop build workflow.
 
 ## License
 

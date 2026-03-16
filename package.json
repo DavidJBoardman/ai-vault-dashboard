@@ -1,11 +1,13 @@
 {
   "name": "ai-vault-interface",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Medieval Vault Architecture Analysis Platform",
-  "main": "electron/main.js",
+  "main": "electron-dist/main.js",
   "author": "Your Name",
   "license": "MIT",
   "scripts": {
+    "clean": "rm -rf .next out dist electron-dist backend/build backend/dist backend/__pycache__",
+    "clean:all": "rm -rf .next out dist electron-dist node_modules backend/build backend/dist backend/__pycache__",
     "dev": "npm run build:electron && concurrently \"npm run dev:next\" \"npm run dev:electron\"",
     "dev:next": "next dev -p 3000",
     "dev:electron": "wait-on http://localhost:3000 && electron .",
@@ -16,10 +18,11 @@
     "start": "npm run build:electron && electron .",
     "package": "npm run build:all && electron-builder",
     "package:win": "npm run build:frontend && npm run backend:build:win && electron-builder --win",
+    "package:mac:app": "npm run build:frontend && npm run backend:build:mac && electron-builder --mac dir",
     "package:mac": "npm run build:frontend && npm run backend:build:mac && electron-builder --mac",
     "package:linux": "npm run build:all && electron-builder --linux",
     "package:ci:win": "npm run build:frontend && npm run backend:build:win && electron-builder --win --publish never",
-    "package:ci:mac": "npm run build:frontend && npm run backend:build:mac && electron-builder --mac --publish never",
+    "package:ci:mac": "npm run build:frontend && npm run backend:build:mac && electron-builder --mac dir --publish never",
     "lint": "next lint",
     "backend:dev": "node scripts/run-backend-dev.mjs",
     "backend:dev:uv": "uv run --directory backend python -m uvicorn main:app --reload --host 127.0.0.1 --port 8765",
@@ -78,29 +81,27 @@
   },
   "build": {
     "appId": "com.vault.interface",
-    "productName": "Vault Analyzer",
+    "productName": "Vault Analyser",
     "directories": {
       "output": "dist",
       "buildResources": "build"
     },
     "files": [
-      "electron/**/*",
+      "electron-dist/**/*",
       "out/**/*",
       "public/**/*",
       "package.json"
     ],
     "extraResources": [
       {
-        "from": "backend/dist/",
-        "to": "backend",
-        "filter": [
-          "vault-backend",
-          "vault-backend.exe"
-        ]
+        "from": "backend/dist/vault-backend/",
+        "to": "backend"
       }
     ],
     "asar": false,
     "mac": {
+      "identity": null,
+      "gatekeeperAssess": false,
       "target": "dmg",
       "icon": "build/icon.icns"
     },

@@ -32,6 +32,8 @@ if (currentPlatformTarget !== target) {
 }
 
 const executableName = process.platform === 'win32' ? 'vault-backend.exe' : 'vault-backend';
+const outputDir = path.join(distDir, 'vault-backend');
+const outputPath = path.join(outputDir, executableName);
 const buildCommands = [
   {
     label: 'uv',
@@ -65,7 +67,7 @@ console.log(`[backend:build] target=${target}`);
 console.log(`[backend:build] backendDir=${backendDir}`);
 
 fs.rmSync(buildDir, { recursive: true, force: true });
-fs.rmSync(path.join(distDir, executableName), { recursive: true, force: true });
+fs.rmSync(outputDir, { recursive: true, force: true });
 
 let buildSucceeded = false;
 
@@ -99,7 +101,6 @@ if (!buildSucceeded) {
   process.exit(1);
 }
 
-const outputPath = path.join(distDir, executableName);
 if (!fs.existsSync(outputPath)) {
   console.error(`[backend:build] Expected executable missing: ${outputPath}`);
   process.exit(1);

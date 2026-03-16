@@ -24,6 +24,7 @@ export class PythonManager {
       const stderrBuffer: string[] = [];
       const stdoutBuffer: string[] = [];
       const maxBufferedLines = 50;
+      const startupTimeoutMs = app.isPackaged ? 120000 : 30000;
       const markStarted = () => {
         if (settled) return;
         settled = true;
@@ -39,7 +40,7 @@ export class PythonManager {
         reject(error);
       };
 
-      const isDev = process.env.NODE_ENV !== 'production';
+      const isDev = !app.isPackaged;
       let pythonPath: string;
       let args: string[];
       const backendDir = path.join(__dirname, '..', 'backend');
@@ -107,6 +108,8 @@ export class PythonManager {
         // In production, run the bundled executable
         const resourcesPath = process.resourcesPath || app.getAppPath();
         const executableName = process.platform === 'win32' ? 'vault-backend.exe' : 'vault-backend';
+        const dataRoot = path.join(app.getPath('home'), 'Vault Analyser');
+        const backendCwd = dataRoot;
         pythonPath = path.join(resourcesPath, 'backend', executableName);
 
         if (!fs.existsSync(pythonPath)) {
@@ -114,8 +117,17 @@ export class PythonManager {
           return;
         }
 
+        fs.mkdirSync(dataRoot, { recursive: true });
+
         this.process = spawn(pythonPath, ['--port', this.port.toString()], {
+          cwd: backendCwd,
           stdio: ['pipe', 'pipe', 'pipe'],
+          env: {
+            ...process.env,
+            PYTHONIOENCODING: 'utf-8',
+            PYTHONUNBUFFERED: '1',
+            VAULT_ANALYSER_DATA_ROOT: dataRoot,
+          },
         });
       }
 
@@ -170,7 +182,7 @@ export class PythonManager {
         }
       });
 
-      // Timeout after 30 seconds
+      // Packaged PyInstaller one-file startup can take much longer due to extraction.
       startupTimeout = setTimeout(() => {
         if (!this.running) {
           const recentStderr = stderrBuffer.filter(Boolean).slice(-10).join('\n');
@@ -178,12 +190,12 @@ export class PythonManager {
           const recentLogs = [recentStderr, recentStdout].filter(Boolean).join('\n');
           failStart(
             new Error(
-              'Python backend startup timed out after 30 seconds.' +
+              `Python backend startup timed out after ${startupTimeoutMs / 1000} seconds.` +
                 (recentLogs ? ` Recent logs:\n${recentLogs}` : '')
             )
           );
         }
-      }, 30000);
+      }, startupTimeoutMs);
     });
   }
 

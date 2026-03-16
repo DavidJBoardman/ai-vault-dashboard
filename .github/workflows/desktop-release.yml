@@ -39,7 +39,6 @@ jobs:
         with:
           name: vault-analyser-macos
           path: |
-            dist/*.dmg
             dist/mac*/
 
   package-windows:
