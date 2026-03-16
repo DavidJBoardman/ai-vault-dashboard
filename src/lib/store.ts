@@ -213,6 +213,7 @@ interface ProjectStore {
   setE57Path: (path: string) => void;
   setPointCloudStats: (stats: Project["pointCloudStats"]) => void;
   addProjection: (projection: Project["projections"][0]) => void;
+  updateProjection: (id: string, updates: Partial<Project["projections"][0]>) => void;
   removeProjection: (id: string) => void;
   setSegmentations: (segmentations: Segmentation[]) => void;
   updateSegmentation: (id: string, updates: Partial<Segmentation>) => void;
@@ -580,6 +581,28 @@ export const useProjectStore = create<ProjectStore>()(
             ? {
                 ...state.currentProject,
                 projections: [...state.currentProject.projections, projection],
+              }
+            : null,
+        }));
+      },
+
+      updateProjection: (id, updates) => {
+        set((state) => ({
+          currentProject: state.currentProject
+            ? {
+                ...state.currentProject,
+                projections: state.currentProject.projections.map((projection) =>
+                  projection.id === id
+                    ? {
+                        ...projection,
+                        ...updates,
+                        images: {
+                          ...projection.images,
+                          ...updates.images,
+                        },
+                      }
+                    : projection
+                ),
               }
             : null,
         }));

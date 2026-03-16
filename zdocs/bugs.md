@@ -6,3 +6,7 @@ Segmentation
 [] Suggested ROI - optimise parameters, adding more align n
 [] Suggested ROI - add Beta label
 [] Add a generate report if got time
+
+Others
+[] Rename app to Vault Analyser
+[] Project saved locations

@@ -4,10 +4,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // For Electron compatibility
+  // Export static routes with trailing slashes so Electron can serve nested workflow pages.
   trailingSlash: true,
-  assetPrefix: process.env.NODE_ENV === 'production' ? './' : undefined,
 };
 
 export default nextConfig;
-

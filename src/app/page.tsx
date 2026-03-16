@@ -396,7 +396,7 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="border-t border-border/40 py-4">
         <div className="container mx-auto px-6 text-center text-sm text-muted-foreground">
-          <p>Vault Analyser v1.0.0 • Medieval Architecture Analysis Platform</p>
+          <p>Vault Analyser v0.1.0 • Medieval Architecture Analysis Platform</p>
         </div>
       </footer>
     </div>

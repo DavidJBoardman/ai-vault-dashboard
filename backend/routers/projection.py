@@ -5,7 +5,7 @@ from typing import Optional, Literal, Dict, Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from services.projection import get_projection_service
@@ -70,9 +70,6 @@ async def create_projection(request: ProjectionRequest):
             scale=request.scale,
         )
         
-        # Get all images as base64 for frontend display
-        images = service.get_projection_images_base64(projection_id)
-        
         return ProjectionResponse(
             success=True,
             data=ProjectionResult(
@@ -81,11 +78,7 @@ async def create_projection(request: ProjectionRequest):
                 resolution=request.resolution,
                 sigma=request.sigma,
                 kernelSize=request.kernelSize,
-                images=ProjectionImages(
-                    colour=images.get("colour") if images else None,
-                    depthGrayscale=images.get("depth_grayscale") if images else None,
-                    depthPlasma=images.get("depth_plasma") if images else None,
-                ),
+                images=ProjectionImages(),
                 metadata=result.get("metadata", {}),
             ),
         )
@@ -170,10 +163,14 @@ async def get_projection_file(
     if not image_path.exists():
         raise HTTPException(status_code=404, detail="Image file not found")
     
-    return FileResponse(
-        path=image_path,
+    image_bytes = image_path.read_bytes()
+    return Response(
+        content=image_bytes,
         media_type="image/png",
-        filename=f"{projection_id}_{image_type}.png"
+        headers={
+            "Content-Length": str(len(image_bytes)),
+            "Content-Disposition": f'inline; filename="{projection_id}_{image_type}.png"',
+        },
     )
 
 

@@ -13,6 +13,7 @@ build/
 # Electron
 electron/*.js
 electron/*.js.map
+electron-dist/
 
 # Python
 __pycache__/

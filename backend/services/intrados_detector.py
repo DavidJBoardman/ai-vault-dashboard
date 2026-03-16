@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 import numpy as np
+from services.app_paths import get_data_root
 
 try:
     from PIL import Image
@@ -23,7 +24,7 @@ class IntradosDetector:
     """Detect intrados lines (rib skeletons) in projection images."""
     
     def __init__(self):
-        self.projections_dir = Path("./data/projections")
+        self.projections_dir = get_data_root() / "projections"
     
     async def detect(self, projection_id: str) -> List[Dict[str, Any]]:
         """Detect intrados lines in a projection image."""
@@ -126,4 +127,3 @@ class IntradosDetector:
         """Refine a detected line with manual adjustments."""
         # Implementation would adjust line points
         return {"success": True}
-

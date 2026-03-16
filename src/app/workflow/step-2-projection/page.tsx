@@ -10,8 +10,9 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProjectStore } from "@/lib/store";
-import { createProjection, getPointCloudPreview, PointData } from "@/lib/api";
+import { createProjection, getPointCloudPreview, getProjectionImageUrl, PointData } from "@/lib/api";
 import { 
+  AlertCircle,
   ChevronLeft, 
   ChevronRight, 
   ChevronDown,
@@ -338,7 +339,7 @@ type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
 
 export default function Step2ProjectionPage() {
   const router = useRouter();
-  const { currentProject, addProjection, removeProjection, completeStep } = useProjectStore();
+  const { currentProject, addProjection, updateProjection, removeProjection, completeStep } = useProjectStore();
   
   // Projection settings
   const [perspective, setPerspective] = useState<Perspective>("bottom");
@@ -360,6 +361,8 @@ export default function Step2ProjectionPage() {
   const [totalPointCount, setTotalPointCount] = useState(0);
   const [displayPointCount, setDisplayPointCount] = useState(100000);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [isLoadingSelectedImage, setIsLoadingSelectedImage] = useState(false);
   
   // Get selected projection for display
   const selectedProjection = useMemo(() => {
@@ -374,7 +377,9 @@ export default function Step2ProjectionPage() {
   }, [selectedProjection, selectedImageType]);
   
   // Load point cloud data
-  const loadPointCloud = async (maxPoints: number, showReloading = false) => {
+  const initialDisplayPointCountRef = useRef(displayPointCount);
+
+  const loadPointCloud = useCallback(async (maxPoints: number, showReloading = false) => {
     if (showReloading) {
       setIsReloading(true);
     } else {
@@ -393,12 +398,12 @@ export default function Step2ProjectionPage() {
       setIsLoading(false);
       setIsReloading(false);
     }
-  };
+  }, []);
   
   // Load on mount
   useEffect(() => {
-    loadPointCloud(displayPointCount);
-  }, []);
+    loadPointCloud(initialDisplayPointCountRef.current);
+  }, [loadPointCloud]);
   
   // Select first existing projection if available (but not if user is viewing preview)
   useEffect(() => {
@@ -413,6 +418,7 @@ export default function Step2ProjectionPage() {
   
   const handleGenerate = async () => {
     setIsGenerating(true);
+    setGenerationError(null);
     
     try {
       const response = await createProjection({
@@ -425,6 +431,8 @@ export default function Step2ProjectionPage() {
       });
       
       if (response.success && response.data) {
+        const colourPreview = await getProjectionImageUrl(response.data.id, "colour");
+
         addProjection({
           id: response.data.id,
           settings: { 
@@ -436,19 +444,22 @@ export default function Step2ProjectionPage() {
             scale 
           },
           images: {
-            colour: response.data.images.colour,
-            depthGrayscale: response.data.images.depthGrayscale,
-            depthPlasma: response.data.images.depthPlasma,
+            colour: colourPreview || undefined,
           },
+          previewImage: colourPreview || undefined,
           metadata: response.data.metadata,
         });
         
         // Auto-select the new projection
         setSelectedProjectionId(response.data.id);
       } else {
-        console.error("Projection failed:", response.error);
+        const errorMessage = response.error || "Projection generation failed";
+        setGenerationError(errorMessage);
+        console.error("Projection failed:", errorMessage);
       }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to generate projection";
+      setGenerationError(errorMessage);
       console.error("Failed to generate projection:", error);
     } finally {
       setIsGenerating(false);
@@ -459,6 +470,53 @@ export default function Step2ProjectionPage() {
     completeStep(2, { projections: currentProject?.projections });
     router.push("/workflow/step-3-segmentation");
   };
+
+  useEffect(() => {
+    if (!selectedProjectionId) return;
+
+    const selectedProjectionForImage = currentProject?.projections.find((proj) => proj.id === selectedProjectionId);
+    if (!selectedProjectionForImage) return;
+
+    const imageKeyMap: Record<ImageViewType, "colour" | "depth_grayscale" | "depth_plasma"> = {
+      colour: "colour",
+      depthGrayscale: "depth_grayscale",
+      depthPlasma: "depth_plasma",
+    };
+    const storeKeyMap: Record<ImageViewType, keyof NonNullable<typeof selectedProjectionForImage.images>> = {
+      colour: "colour",
+      depthGrayscale: "depthGrayscale",
+      depthPlasma: "depthPlasma",
+    };
+
+    const storeKey = storeKeyMap[selectedImageType];
+    if (selectedProjectionForImage.images?.[storeKey]) return;
+
+    let cancelled = false;
+    const loadImage = async () => {
+      setIsLoadingSelectedImage(true);
+      try {
+        const image = await getProjectionImageUrl(selectedProjectionId, imageKeyMap[selectedImageType]);
+        if (!cancelled && image) {
+          updateProjection(selectedProjectionId, {
+            images: {
+              [storeKey]: image,
+            },
+            ...(storeKey === "colour" ? { previewImage: image } : {}),
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSelectedImage(false);
+        }
+      }
+    };
+
+    void loadImage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProject?.projections, selectedImageType, selectedProjectionId, updateProjection]);
 
   return (
     <div className="space-y-6">
@@ -633,10 +691,17 @@ export default function Step2ProjectionPage() {
                   </>
                 )}
               </Button>
+
+              {generationError && (
+                <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <p>{generationError}</p>
+                </div>
+              )}
               
               {totalPointCount > 0 && (
                 <p className="text-xs text-muted-foreground text-center mt-2">
-                  Projections will use all <strong>{totalPointCount.toLocaleString()}</strong> points at full resolution
+                  Large point clouds are sampled automatically for stable projection generation.
                 </p>
               )}
             </CardContent>
@@ -879,6 +944,11 @@ export default function Step2ProjectionPage() {
                         alt={`${selectedProjection.settings.perspective} projection - ${selectedImageType}`}
                         className="w-full h-full object-contain"
                       />
+                    ) : isLoadingSelectedImage ? (
+                      <div className="w-full h-full flex items-center justify-center gap-2 text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading image...
+                      </div>
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                         Image not available

@@ -63,7 +63,7 @@ async def load_model():
     if not sam.is_available():
         return {
             "success": False,
-            "error": "SAM 3 not available. Install transformers from git.",
+            "error": sam.last_error or "SAM 3 not available in the packaged backend.",
         }
     
     # Run in thread pool to avoid blocking
@@ -94,7 +94,7 @@ async def run_segmentation(request: SegmentationRequest):
     if not sam.is_available():
         return SegmentationResponse(
             success=False,
-            error="SAM 3 not available. Install with: pip install git+https://github.com/huggingface/transformers",
+            error=sam.last_error or "SAM 3 not available in the packaged backend.",
             samAvailable=False,
         )
     
