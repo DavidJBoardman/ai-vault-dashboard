@@ -1,5 +1,4 @@
 from pathlib import Path
-import sys
 
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -7,6 +6,7 @@ from PyInstaller.utils.hooks import collect_submodules
 project_dir = Path(SPECPATH)
 hiddenimports = [
     "pye57",
+    "open3d",
     "uvicorn",
     "fastapi",
     "uvicorn.logging",
@@ -26,8 +26,6 @@ hiddenimports = [
     "torchvision.transforms",
 ]
 hiddenimports += collect_submodules("transformers.models.sam3")
-if sys.platform != "win32":
-    hiddenimports.append("open3d")
 excludes = [
     # Optional visualisation/data-science stacks pulled in around open3d are not
     # used by the packaged backend runtime and add substantial PyInstaller cost.
