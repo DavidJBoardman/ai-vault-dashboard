@@ -130,9 +130,24 @@ async function startPythonBackend() {
     console.log('Python backend started successfully');
   } catch (error) {
     console.error('Failed to start Python backend:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const logDir = path.join(app.getPath('home'), 'Vault Analyser', 'logs');
+    const logPath = path.join(logDir, 'backend-startup.log');
+
+    try {
+      fs.mkdirSync(logDir, { recursive: true });
+      fs.writeFileSync(
+        logPath,
+        `[${new Date().toISOString()}] ${errorMessage}\n`,
+        { encoding: 'utf8' }
+      );
+    } catch (writeError) {
+      console.error('Failed to write backend startup log:', writeError);
+    }
+
     dialog.showErrorBox(
       'Backend Error',
-      'Failed to start the Python backend. Some features may not work.'
+      `Failed to start the Python backend.\n\n${errorMessage}\n\nLog file: ${logPath}`
     );
   }
 }
