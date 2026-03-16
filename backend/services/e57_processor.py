@@ -13,16 +13,16 @@ HAS_OPEN3D = False
 try:
     import pye57
     HAS_PYE57 = True
-    print("✓ pye57 library available")
+    print("[OK] pye57 library available")
 except ImportError:
-    print("✗ pye57 not installed - trying Open3D for E57 support")
+    print("[WARN] pye57 not installed - trying Open3D for E57 support")
 
 try:
     import open3d as o3d
     HAS_OPEN3D = True
-    print("✓ Open3D library available")
+    print("[OK] Open3D library available")
 except ImportError:
-    print("✗ Open3D not installed")
+    print("[WARN] Open3D not installed")
 
 
 class E57Processor:
@@ -158,7 +158,7 @@ class E57Processor:
         }
         
         e57_file.close()
-        print(f"✓ Loaded {self.point_count:,} points with pye57")
+        print(f"[OK] Loaded {self.point_count:,} points with pye57")
         
         return {
             "point_count": self.point_count,
@@ -209,7 +209,7 @@ class E57Processor:
             },
         }
         
-        print(f"✓ Loaded {self.point_count:,} points with Open3D")
+        print(f"[OK] Loaded {self.point_count:,} points with Open3D")
         
         return {
             "point_count": self.point_count,
@@ -298,7 +298,7 @@ class E57Processor:
         self.has_color = True
         self.has_intensity = True
         
-        print(f"✓ Generated {self.point_count:,} demo points")
+        print(f"[OK] Generated {self.point_count:,} demo points")
         
         return {
             "point_count": self.point_count,

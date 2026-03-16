@@ -74,3 +74,4 @@ jobs:
           name: vault-analyser-windows
           path: |
             dist/win-unpacked/
+          compression-level: 0

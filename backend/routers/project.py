@@ -288,7 +288,7 @@ async def save_project(request: ProjectSaveRequest):
         if all_masks:
             combined_all_path = seg_dir / "combined_all.png"
             if create_combined_mask(all_masks, combined_all_path):
-                print(f"  ✓ Created combined_all.png ({len(all_masks)} masks)")
+                print(f"  [OK] Created combined_all.png ({len(all_masks)} masks)")
         
         # Create combined masks for each group
         group_summary = []
@@ -298,7 +298,7 @@ async def save_project(request: ProjectSaveRequest):
                 group_path = seg_dir / group_filename
                 
                 if create_combined_mask(group_data["masks"], group_path):
-                    print(f"  ✓ Created {group_filename} ({group_data['count']} masks)")
+                    print(f"  [OK] Created {group_filename} ({group_data['count']} masks)")
                 
                 group_summary.append({
                     "groupId": group_id,
@@ -342,9 +342,9 @@ async def save_project(request: ProjectSaveRequest):
                     "files": proj_info.get("files", {}),
                     "metadata": proj_info.get("metadata", {}),
                 })
-                print(f"  ✓ Copied projection {proj.id}: {len(proj_info.get('files', {}))} files")
+                print(f"  [OK] Copied projection {proj.id}: {len(proj_info.get('files', {}))} files")
             except Exception as e:
-                print(f"  ✗ Error copying projection {proj.id}: {e}")
+                print(f"  [ERROR] Error copying projection {proj.id}: {e}")
                 import traceback
                 traceback.print_exc()
                 # Still include the projection reference without local files
@@ -398,7 +398,7 @@ async def save_project(request: ProjectSaveRequest):
         with open(project_path, "w") as f:
             json.dump(project_data, f, indent=2)
         
-        print(f"✓ Project saved: {request.projectId}")
+        print(f"[OK] Project saved: {request.projectId}")
         print(f"  - {len(projection_refs)} projections")
         print(f"  - {len(segmentation_refs)} segmentations in {len(groups)} groups")
         
@@ -444,7 +444,7 @@ async def save_progress(request: SaveProgressRequest):
         with open(project_path, "w") as f:
             json.dump(project_data, f, indent=2)
         
-        print(f"✓ Progress saved: step {request.currentStep}, {len(request.steps)} completed steps")
+        print(f"[OK] Progress saved: step {request.currentStep}, {len(request.steps)} completed steps")
         
         return {
             "success": True,
@@ -627,7 +627,7 @@ async def delete_project(project_id: str):
         # Remove the entire project directory
         shutil.rmtree(project_dir)
         
-        print(f"✓ Deleted project '{project_name}' ({project_id})")
+        print(f"[OK] Deleted project '{project_name}' ({project_id})")
         
         return {"success": True, "projectId": project_id, "name": project_name}
         
@@ -953,7 +953,7 @@ async def save_roi(request: SaveROIRequest):
         with open(seg_index_path, "w") as f:
             json.dump(index_data, f, indent=2)
         
-        print(f"✓ Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f}°")
+        print(f"[OK] Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f} degrees")
         print(f"  → {inside_count} masks inside ROI, {outside_count} outside")
         
         return {
@@ -1257,7 +1257,7 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
                     "label": "",
                 })
         
-        print(f"✓ Applied masks to E57 point cloud:")
+        print("[OK] Applied masks to E57 point cloud:")
         print(f"  - Total points processed: {len(points_subset):,}")
         print(f"  - Masked points: {masked_count:,}")
         print(f"  - Unmasked points: {unmasked_count:,}")
@@ -1497,7 +1497,7 @@ async def trace_intrados(request: IntradosTraceRequest):
         with open(intrados_path, "w") as f:
             json.dump(intrados_data, f, indent=2)
         
-        print(f"✓ Traced {len(lines)} intrados lines from {len(rib_segmentations)} ribs")
+        print(f"[OK] Traced {len(lines)} intrados lines from {len(rib_segmentations)} ribs")
         print(f"  Saved to: {intrados_path}")
         
         # Verify save
