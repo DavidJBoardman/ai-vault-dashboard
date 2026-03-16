@@ -261,7 +261,7 @@ The workflow is defined in [`.github/workflows/desktop-release.yml`](/Users/yang
 Current workflow outputs:
 
 - macOS: `dist/mac*/Vault Analyser.app`
-- Windows: `dist/*.exe` and `dist/win-unpacked/`
+- Windows: `dist/win-unpacked/Vault Analyser.exe`
 
 For the current unsigned internal-build setup, no extra GitHub configuration is required beyond the existing workflow. Apple signing and notarization secrets are only needed later if you decide to distribute signed macOS builds.
 
@@ -289,6 +289,11 @@ git push origin main --tags
 
 That tag push will trigger the GitHub desktop build workflow.
 
+```
+# run it on mac without signing
+xattr -dr com.apple.quarantine "Vault Analyser.app"
+open "Vault Analyser.app"
+```
 ## License
 
 MIT
