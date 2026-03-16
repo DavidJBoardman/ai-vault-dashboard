@@ -47,28 +47,74 @@ export default function HomePage() {
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
 
-  // Check backend and fetch saved projects on mount
+  // Check backend and fetch saved projects on mount and whenever the window
+  // becomes active again, so packaged builds recover after the backend comes up.
   useEffect(() => {
-    const init = async () => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof window.setTimeout> | null = null;
+    const maxAttempts = 30;
+
+    const clearRetryTimer = () => {
+      if (retryTimer) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
+
+    const refreshProjects = async (attempt: number = 0) => {
+      clearRetryTimer();
+
       try {
+        if (!cancelled) {
+          setIsLoadingProjects(true);
+        }
+
         const isHealthy = await checkBackendHealth();
+        if (cancelled) return;
         setBackendOnline(isHealthy);
         
         if (isHealthy) {
-          setIsLoadingProjects(true);
           const response = await listProjects();
-          if (response.success && response.data) {
+          if (!cancelled && response.success && response.data) {
             setSavedProjects(response.data.projects);
           }
+          return;
+        }
+
+        if (attempt < maxAttempts) {
+          retryTimer = window.setTimeout(() => {
+            void refreshProjects(attempt + 1);
+          }, 1000);
         }
       } catch (error) {
         console.error("Failed to initialize:", error);
       } finally {
-        setIsLoadingProjects(false);
+        if (!cancelled) {
+          setIsLoadingProjects(false);
+        }
+      }
+    };
+
+    const handleWindowFocus = () => {
+      void refreshProjects();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshProjects();
       }
     };
     
-    init();
+    void refreshProjects();
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearRetryTimer();
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   const handleCreateProject = async () => {
