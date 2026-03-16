@@ -176,7 +176,7 @@ async def run_segmentation(request: SegmentationRequest):
                 error="Invalid mode or missing prompts/boxes",
             )
         
-        print(f"✓ SAM 3 segmentation complete: {len(masks)} masks")
+        print(f"[OK] SAM 3 segmentation complete: {len(masks)} masks")
         
         # Convert to response format
         mask_data = [

@@ -86,11 +86,11 @@ class SAM3Service:
                 from PIL import Image as PILImage
                 Image = PILImage
                 HAS_PIL = True
-                print("✓ PIL/Pillow imported")
+                print("[OK] PIL/Pillow imported")
             except ImportError as e:
                 HAS_PIL = False
                 self.last_error = f"Pillow import failed: {e}"
-                print(f"✗ PIL import failed: {e}")
+                print(f"[ERROR] PIL import failed: {e}")
 
         if HAS_TORCH is None:
             try:
@@ -99,17 +99,17 @@ class SAM3Service:
                 HAS_TORCH = True
                 if torch.backends.mps.is_available():
                     DEVICE = "mps"
-                    print(f"✓ PyTorch {torch.__version__} (MPS - Apple Silicon)")
+                    print(f"[OK] PyTorch {torch.__version__} (MPS - Apple Silicon)")
                 elif torch.cuda.is_available():
                     DEVICE = "cuda"
-                    print(f"✓ PyTorch {torch.__version__} (CUDA)")
+                    print(f"[OK] PyTorch {torch.__version__} (CUDA)")
                 else:
                     DEVICE = "cpu"
-                    print(f"✓ PyTorch {torch.__version__} (CPU)")
+                    print(f"[OK] PyTorch {torch.__version__} (CPU)")
             except ImportError as e:
                 HAS_TORCH = False
                 self.last_error = f"PyTorch import failed: {e}"
-                print(f"✗ PyTorch import failed: {e}")
+                print(f"[ERROR] PyTorch import failed: {e}")
 
         if HAS_SAM3 is None:
             try:
@@ -118,16 +118,16 @@ class SAM3Service:
                 Sam3Processor = Sam3ProcessorClass
                 Sam3Model = Sam3ModelClass
                 HAS_SAM3 = True
-                print("✓ SAM 3 (HuggingFace) imported successfully!")
+                print("[OK] SAM 3 (HuggingFace) imported successfully!")
             except ImportError as e:
                 HAS_SAM3 = False
                 self.last_error = f"SAM 3 HuggingFace import failed: {e}"
-                print(f"✗ SAM 3 HuggingFace import failed: {e}")
+                print(f"[ERROR] SAM 3 HuggingFace import failed: {e}")
                 print("  Install with: pip install git+https://github.com/huggingface/transformers torchvision")
             except Exception as e:
                 HAS_SAM3 = False
                 self.last_error = f"SAM 3 runtime failed to load: {type(e).__name__}: {e}"
-                print(f"✗ SAM 3 error: {type(e).__name__}: {e}")
+                print(f"[ERROR] SAM 3 error: {type(e).__name__}: {e}")
 
         return bool(HAS_PIL and HAS_TORCH and HAS_SAM3)
     
@@ -162,7 +162,7 @@ class SAM3Service:
             
             self.model.eval()  # Set to evaluation mode
             self.model_loaded = True
-            print(f"✓ SAM 3 model loaded successfully on {DEVICE}")
+            print(f"[OK] SAM 3 model loaded successfully on {DEVICE}")
             return True
             
         except Exception as e:
@@ -208,7 +208,7 @@ class SAM3Service:
             self.current_image = image
             self.current_image_id = image_id
             
-            print(f"✓ Image set for SAM 3: {image.size}")
+            print(f"[OK] Image set for SAM 3: {image.size}")
             return True
             
         except Exception as e:
@@ -332,7 +332,7 @@ class SAM3Service:
                         print(f"    → Mask {mask_idx + 1}: label='{mask_info['label']}', "
                               f"color={mask_info['color']}, area={mask_info['area']}")
             
-            print(f"✓ SAM 3 segmentation complete: {len(all_masks)} total masks")
+            print(f"[OK] SAM 3 segmentation complete: {len(all_masks)} total masks")
             return all_masks
                 
         except Exception as e:
@@ -470,7 +470,7 @@ class SAM3Service:
                     all_masks.append(mask_info)
                     print(f"    → Mask {mask_idx + 1}: area={mask_info['area']}, score={score:.2f}")
             
-            print(f"✓ Box segmentation complete: {len(all_masks)} masks")
+            print(f"[OK] Box segmentation complete: {len(all_masks)} masks")
             return all_masks
             
         except Exception as e:

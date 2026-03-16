@@ -334,6 +334,6 @@ def trace_all_rib_intrados(
             "line_length": len(intrados_3d),
         }
         
-        print(f"    ✓ Traced {len(intrados_3d)} intrados points")
+        print(f"    [OK] Traced {len(intrados_3d)} intrados points")
     
     return results
