@@ -234,7 +234,17 @@ function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: num
             }
 
             getPoint(t: number): THREE.Vector3 {
-              const angle = this.startAngle + t * (this.endAngle - this.startAngle);
+              let sweep = this.endAngle - this.startAngle;
+              const twoPi = Math.PI * 2;
+
+              // Keep traced direction, but guard against accidental multi-turn spans.
+              if (!Number.isFinite(sweep)) {
+                sweep = 0;
+              } else if (Math.abs(sweep) > twoPi) {
+                sweep = sweep % twoPi;
+              }
+
+              const angle = this.startAngle + t * sweep;
               const x = this.center.x + this.radius * (Math.cos(angle) * this.u.x + Math.sin(angle) * this.v.x);
               const y = this.center.y + this.radius * (Math.cos(angle) * this.u.y + Math.sin(angle) * this.v.y);
               const z = this.center.z + this.radius * (Math.cos(angle) * this.u.z + Math.sin(angle) * this.v.z);

@@ -314,6 +314,10 @@ export interface MeasurementResult {
   pointDistances: number[];
   segmentPoints: Array<{ x: number; y: number; z: number }>;
   arcCenter: { x: number; y: number; z: number };
+  arcBasisU: { x: number; y: number; z: number };
+  arcBasisV: { x: number; y: number; z: number };
+  arcStartAngle: number;
+  arcEndAngle: number;
 }
 
 export async function calculateMeasurements(

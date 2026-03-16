@@ -82,6 +82,10 @@ class MeasurementService:
             "point_distances": point_distances.tolist(),
             "segment_points": segment_points,
             "arc_center": arc_params["center"],
+            "arc_basis_u": arc_params["basis_u"],
+            "arc_basis_v": arc_params["basis_v"],
+            "arc_start_angle": arc_params["start_angle"],
+            "arc_end_angle": arc_params["end_angle"],
         }
 
     def calculate_impost_line(
@@ -232,6 +236,13 @@ class MeasurementService:
         coords2d = np.dot(points - centroid, np.vstack((u, v)).T)
         x = coords2d[:, 0]
         z = coords2d[:, 1]
+
+        def compute_angle_span(cx: float, cz: float) -> Tuple[float, float]:
+            rel_x = x - cx
+            rel_z = z - cz
+            angles = np.arctan2(rel_z, rel_x)
+            unwrapped = np.unwrap(angles)
+            return float(unwrapped[0]), float(unwrapped[-1])
         
         # Initial guess for circle: center at mean, radius = mean distance
         x_mean, z_mean = np.mean(x), np.mean(z)
@@ -251,6 +262,7 @@ class MeasurementService:
             
             cx, cz, radius = result.x
             error = np.sqrt(np.mean(result.fun**2))
+            start_angle, end_angle = compute_angle_span(float(cx), float(cz))
             
             # Reconstruct 3D center from 2D projection
             center_3d = centroid + cx * u + cz * v
@@ -261,6 +273,10 @@ class MeasurementService:
                 "center": {"x": float(center_3d[0]), "y": float(center_3d[1]), "z": float(center_3d[2])},
                 "center_2d": (float(cx), float(cz)),
                 "normal": normal.tolist(),
+                "basis_u": {"x": float(u[0]), "y": float(u[1]), "z": float(u[2])},
+                "basis_v": {"x": float(v[0]), "y": float(v[1]), "z": float(v[2])},
+                "start_angle": start_angle,
+                "end_angle": end_angle,
                 "error": float(error)
             }
         except Exception:
@@ -269,11 +285,16 @@ class MeasurementService:
             normal = np.cross(u, v)
             norm_len = np.linalg.norm(normal)
             normal = normal / norm_len if norm_len > 1e-9 else normal
+            start_angle, end_angle = compute_angle_span(float(x_mean), float(z_mean))
             return {
                 "radius": float(r_guess),
                 "center": {"x": float(center_3d[0]), "y": float(center_3d[1]), "z": float(center_3d[2])},
                 "center_2d": (float(x_mean), float(z_mean)),
                 "normal": normal.tolist(),
+                "basis_u": {"x": float(u[0]), "y": float(u[1]), "z": float(u[2])},
+                "basis_v": {"x": float(v[0]), "y": float(v[1]), "z": float(v[2])},
+                "start_angle": start_angle,
+                "end_angle": end_angle,
                 "error": 0.5
             }
     
