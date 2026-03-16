@@ -101,6 +101,10 @@ interface MeasurementResponse {
     pointDistances: number[];
     segmentPoints: Point3D[];
     arcCenter: Point3D;
+    arcBasisU?: Point3D;
+    arcBasisV?: Point3D;
+    arcStartAngle?: number;
+    arcEndAngle?: number;
   };
   error?: string;
 }
@@ -197,108 +201,133 @@ function createBestFitArcLines(
   segmentPoints: Point3D[],
   arcCenter: Point3D,
   arcRadius: number,
-  traceId: string
+  traceId: string,
+  fitBasisU?: Point3D,
+  fitBasisV?: Point3D,
+  fitStartAngle?: number,
+  fitEndAngle?: number,
 ): Line3D[] {
   if (segmentPoints.length < 3 || !arcCenter || arcRadius <= 0) return [];
 
   const arcColor = "rgb(100, 150, 255)";
   const lines: Line3D[] = [];
 
-  // --- 1. Compute robust normal using cross of endpoints ---
-  const pStart = segmentPoints[0];
-  const pMid = segmentPoints[Math.floor(segmentPoints.length / 2)];
-  const pEnd = segmentPoints[segmentPoints.length - 1];
+  const hasBackendArcFrame =
+    !!fitBasisU &&
+    !!fitBasisV &&
+    Number.isFinite(fitStartAngle) &&
+    Number.isFinite(fitEndAngle);
 
-  const v1 = {
-    x: pMid.x - pStart.x,
-    y: pMid.y - pStart.y,
-    z: pMid.z - pStart.z,
-  };
+  let u: Point3D;
+  let v: Point3D;
+  let startAngle: number;
+  let endAngle: number;
 
-  const v2 = {
-    x: pEnd.x - pStart.x,
-    y: pEnd.y - pStart.y,
-    z: pEnd.z - pStart.z,
-  };
+  if (hasBackendArcFrame) {
+    u = fitBasisU;
+    v = fitBasisV;
+    startAngle = fitStartAngle as number;
+    endAngle = fitEndAngle as number;
+  } else {
 
-  let normal = {
-    x: v1.y * v2.z - v1.z * v2.y,
-    y: v1.z * v2.x - v1.x * v2.z,
-    z: v1.x * v2.y - v1.y * v2.x,
-  };
+    // --- 1. Compute robust normal using cross of endpoints ---
+    const pStart = segmentPoints[0];
+    const pMid = segmentPoints[Math.floor(segmentPoints.length / 2)];
+    const pEnd = segmentPoints[segmentPoints.length - 1];
 
-  const normalLen = Math.hypot(normal.x, normal.y, normal.z);
-  if (normalLen === 0) return [];
-
-  normal = {
-    x: normal.x / normalLen,
-    y: normal.y / normalLen,
-    z: normal.z / normalLen,
-  };
-
-  // --- 2. Build basis ---
-  const firstVec = {
-    x: pStart.x - arcCenter.x,
-    y: pStart.y - arcCenter.y,
-    z: pStart.z - arcCenter.z,
-  };
-
-  const uLen = Math.hypot(firstVec.x, firstVec.y, firstVec.z);
-  if (uLen === 0) return [];
-
-  const u = {
-    x: firstVec.x / uLen,
-    y: firstVec.y / uLen,
-    z: firstVec.z / uLen,
-  };
-
-  const v = {
-    x: normal.y * u.z - normal.z * u.y,
-    y: normal.z * u.x - normal.x * u.z,
-    z: normal.x * u.y - normal.y * u.x,
-  };
-
-  // --- 3. Compute angles ---
-  let angles = segmentPoints.map((p) => {
-    const vec = {
-      x: p.x - arcCenter.x,
-      y: p.y - arcCenter.y,
-      z: p.z - arcCenter.z,
+    const v1 = {
+      x: pMid.x - pStart.x,
+      y: pMid.y - pStart.y,
+      z: pMid.z - pStart.z,
     };
 
-    const dotU = vec.x * u.x + vec.y * u.y + vec.z * u.z;
-    const dotV = vec.x * v.x + vec.y * v.y + vec.z * v.z;
+    const v2 = {
+      x: pEnd.x - pStart.x,
+      y: pEnd.y - pStart.y,
+      z: pEnd.z - pStart.z,
+    };
 
-    return Math.atan2(dotV, dotU);
-  });
+    let normal = {
+      x: v1.y * v2.z - v1.z * v2.y,
+      y: v1.z * v2.x - v1.x * v2.z,
+      z: v1.x * v2.y - v1.y * v2.x,
+    };
 
-  // --- 4. Sort + unwrap angles ---
-  angles = angles.sort((a, b) => a - b);
+    const normalLen = Math.hypot(normal.x, normal.y, normal.z);
+    if (normalLen === 0) return [];
 
-  for (let i = 1; i < angles.length; i++) {
-    while (angles[i] - angles[i - 1] > Math.PI) {
-      angles[i] -= 2 * Math.PI;
+    normal = {
+      x: normal.x / normalLen,
+      y: normal.y / normalLen,
+      z: normal.z / normalLen,
+    };
+
+    // --- 2. Build basis ---
+    const firstVec = {
+      x: pStart.x - arcCenter.x,
+      y: pStart.y - arcCenter.y,
+      z: pStart.z - arcCenter.z,
+    };
+
+    const uLen = Math.hypot(firstVec.x, firstVec.y, firstVec.z);
+    if (uLen === 0) return [];
+
+    u = {
+      x: firstVec.x / uLen,
+      y: firstVec.y / uLen,
+      z: firstVec.z / uLen,
+    };
+
+    v = {
+      x: normal.y * u.z - normal.z * u.y,
+      y: normal.z * u.x - normal.x * u.z,
+      z: normal.x * u.y - normal.y * u.x,
+    };
+
+    // --- 3. Compute angles ---
+    const angles = segmentPoints.map((p) => {
+      const vec = {
+        x: p.x - arcCenter.x,
+        y: p.y - arcCenter.y,
+        z: p.z - arcCenter.z,
+      };
+
+      const dotU = vec.x * u.x + vec.y * u.y + vec.z * u.z;
+      const dotV = vec.x * v.x + vec.y * v.y + vec.z * v.z;
+
+      return Math.atan2(dotV, dotU);
+    });
+
+    // --- 4. Unwrap in trace order to preserve the full traced extent ---
+    const unwrappedAngles: number[] = [angles[0]];
+    for (let i = 1; i < angles.length; i++) {
+      let next = angles[i];
+      const prev = unwrappedAngles[i - 1];
+      while (next - prev > Math.PI) {
+        next -= 2 * Math.PI;
+      }
+      while (next - prev < -Math.PI) {
+        next += 2 * Math.PI;
+      }
+      unwrappedAngles.push(next);
     }
-    while (angles[i] - angles[i - 1] < -Math.PI) {
-      angles[i] += 2 * Math.PI;
-    }
+
+    startAngle = unwrappedAngles[0];
+    endAngle = unwrappedAngles[unwrappedAngles.length - 1];
   }
-
-  const minAngle = angles[0];
-  const maxAngle = angles[angles.length - 1];
 
   // --- 5. Return as true mathematical arc with parameters ---
   // Sample just the endpoints for the preview spheres
   const arcPoints: Point3D[] = [
     {
-      x: arcCenter.x + arcRadius * (Math.cos(minAngle) * u.x + Math.sin(minAngle) * v.x),
-      y: arcCenter.y + arcRadius * (Math.cos(minAngle) * u.y + Math.sin(minAngle) * v.y),
-      z: arcCenter.z + arcRadius * (Math.cos(minAngle) * u.z + Math.sin(minAngle) * v.z),
+      x: arcCenter.x + arcRadius * (Math.cos(startAngle) * u.x + Math.sin(startAngle) * v.x),
+      y: arcCenter.y + arcRadius * (Math.cos(startAngle) * u.y + Math.sin(startAngle) * v.y),
+      z: arcCenter.z + arcRadius * (Math.cos(startAngle) * u.z + Math.sin(startAngle) * v.z),
     },
     {
-      x: arcCenter.x + arcRadius * (Math.cos(maxAngle) * u.x + Math.sin(maxAngle) * v.x),
-      y: arcCenter.y + arcRadius * (Math.cos(maxAngle) * u.y + Math.sin(maxAngle) * v.y),
-      z: arcCenter.z + arcRadius * (Math.cos(maxAngle) * u.z + Math.sin(maxAngle) * v.z),
+      x: arcCenter.x + arcRadius * (Math.cos(endAngle) * u.x + Math.sin(endAngle) * v.x),
+      y: arcCenter.y + arcRadius * (Math.cos(endAngle) * u.y + Math.sin(endAngle) * v.y),
+      z: arcCenter.z + arcRadius * (Math.cos(endAngle) * u.z + Math.sin(endAngle) * v.z),
     },
   ];
 
@@ -310,8 +339,8 @@ function createBestFitArcLines(
     arc: {
       center: arcCenter,
       radius: arcRadius,
-      startAngle: minAngle,
-      endAngle: maxAngle,
+      startAngle,
+      endAngle,
       u,
       v,
     },
@@ -921,7 +950,11 @@ export default function Step7MeasurementsPage() {
                 response.data.segmentPoints,
                 response.data.arcCenter,
                 response.data.arcRadius,
-                line.id
+                line.id,
+                response.data.arcBasisU,
+                response.data.arcBasisV,
+                response.data.arcStartAngle,
+                response.data.arcEndAngle,
               );
             } else {
               // Always bake base heatmap colors without selection;
