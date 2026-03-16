@@ -21,6 +21,7 @@ export class PythonManager {
     return new Promise((resolve, reject) => {
       let settled = false;
       let startupTimeout: NodeJS.Timeout | null = null;
+      let healthCheckInterval: NodeJS.Timeout | null = null;
       const stderrBuffer: string[] = [];
       const stdoutBuffer: string[] = [];
       const maxBufferedLines = 50;
@@ -30,6 +31,7 @@ export class PythonManager {
         settled = true;
         this.running = true;
         if (startupTimeout) clearTimeout(startupTimeout);
+        if (healthCheckInterval) clearInterval(healthCheckInterval);
         resolve();
       };
       const failStart = (error: Error) => {
@@ -37,6 +39,7 @@ export class PythonManager {
         settled = true;
         this.running = false;
         if (startupTimeout) clearTimeout(startupTimeout);
+        if (healthCheckInterval) clearInterval(healthCheckInterval);
         reject(error);
       };
 
@@ -109,8 +112,8 @@ export class PythonManager {
         const resourcesPath = process.resourcesPath || app.getAppPath();
         const executableName = process.platform === 'win32' ? 'vault-backend.exe' : 'vault-backend';
         const dataRoot = path.join(app.getPath('home'), 'Vault Analyser');
-        const backendCwd = dataRoot;
         pythonPath = path.join(resourcesPath, 'backend', executableName);
+        const backendCwd = path.dirname(pythonPath);
 
         if (!fs.existsSync(pythonPath)) {
           failStart(new Error(`Bundled backend executable not found at: ${pythonPath}`));
@@ -135,6 +138,29 @@ export class PythonManager {
         resolve();
         return;
       }
+
+      // Poll the actual backend health endpoint instead of relying solely on
+      // child-process log strings, which are brittle across packaged builds.
+      healthCheckInterval = setInterval(() => {
+        if (settled || this.running) {
+          return;
+        }
+
+        void fetch(`http://127.0.0.1:${this.port}/health`)
+          .then(async (response) => {
+            if (!response.ok) {
+              return;
+            }
+
+            const data = (await response.json().catch(() => null)) as { status?: string } | null;
+            if (data?.status === 'ok') {
+              markStarted();
+            }
+          })
+          .catch(() => {
+            // Ignore transient startup failures until timeout or success.
+          });
+      }, 500);
 
       this.process.stdout?.on('data', (data) => {
         const text = data.toString();
