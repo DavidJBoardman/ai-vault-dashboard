@@ -100,6 +100,10 @@ class MeasurementResult(BaseModel):
     pointDistances: List[float]
     segmentPoints: List[Point3D]
     arcCenter: Point3D
+    arcBasisU: Point3D
+    arcBasisV: Point3D
+    arcStartAngle: float
+    arcEndAngle: float
 
 
 class MeasurementResponse(BaseModel):
@@ -135,6 +139,10 @@ async def calculate_measurements(request: MeasurementRequest):
                 pointDistances=result["point_distances"],
                 segmentPoints=[Point3D(x=p[0], y=p[1], z=p[2]) for p in result["segment_points"]],
                 arcCenter=Point3D(**result["arc_center"]),
+                arcBasisU=Point3D(**result["arc_basis_u"]),
+                arcBasisV=Point3D(**result["arc_basis_v"]),
+                arcStartAngle=result["arc_start_angle"],
+                arcEndAngle=result["arc_end_angle"],
             ),
         )
     except Exception as e:
