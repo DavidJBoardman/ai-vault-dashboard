@@ -497,11 +497,43 @@ export const useProjectStore = create<ProjectStore>()(
       saveProject: async () => {
         const { currentProject } = get();
         if (!currentProject) return;
-        
+
+        const { saveProject } = await import("@/lib/api");
+        const response = await saveProject({
+          projectId: currentProject.id,
+          projectName: currentProject.name,
+          e57Path: currentProject.e57Path,
+          projections: currentProject.projections.map((projection) => ({
+            id: projection.id,
+            perspective: projection.settings.perspective,
+            resolution: projection.settings.resolution,
+            sigma: projection.settings.sigma,
+            kernelSize: projection.settings.kernelSize,
+            bottomUp: projection.settings.bottomUp,
+            scale: projection.settings.scale,
+          })),
+          segmentations: currentProject.segmentations.map((segmentation) => ({
+            id: segmentation.id,
+            label: segmentation.label,
+            color: segmentation.color,
+            maskBase64: segmentation.mask,
+            bbox: segmentation.bbox,
+            area: segmentation.area,
+            visible: segmentation.visible,
+            source: segmentation.source,
+          })),
+          selectedProjectionId: currentProject.selectedProjectionId,
+        });
+
+        if (!response.success) {
+          throw new Error(response.error || "Failed to save project");
+        }
+
         set((state) => ({
           currentProject: state.currentProject
             ? { ...state.currentProject, updatedAt: new Date() }
             : null,
+          error: null,
         }));
       },
 

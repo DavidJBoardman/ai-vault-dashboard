@@ -339,7 +339,7 @@ type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
 
 export default function Step2ProjectionPage() {
   const router = useRouter();
-  const { currentProject, addProjection, updateProjection, removeProjection, completeStep } = useProjectStore();
+  const { currentProject, addProjection, updateProjection, removeProjection, completeStep, saveProject } = useProjectStore();
   
   // Projection settings
   const [perspective, setPerspective] = useState<Perspective>("bottom");
@@ -466,7 +466,8 @@ export default function Step2ProjectionPage() {
     }
   };
   
-  const handleContinue = () => {
+  const handleContinue = async () => {
+    await saveProject();
     completeStep(2, { projections: currentProject?.projections });
     router.push("/workflow/step-3-segmentation");
   };
