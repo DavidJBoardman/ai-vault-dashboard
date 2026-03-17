@@ -34,7 +34,6 @@ websockets==12.0
 # Data handling
 numpy==1.26.4
 scipy==1.14.1
-pandas==2.2.3
 pydantic==2.9.2
 
 # Image processing & Gaussian splatting projection
@@ -50,7 +49,6 @@ rhino3dm==8.9.0
 
 # HuggingFace ecosystem (for SAM 3)
 # Note: transformers installed via git for latest SAM 3 support
-accelerate
 safetensors
 
 # Packaging (for production builds)

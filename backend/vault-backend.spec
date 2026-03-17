@@ -7,6 +7,7 @@ project_dir = Path(SPECPATH)
 hiddenimports = [
     "pye57",
     "open3d",
+    "cv2",
     "uvicorn",
     "fastapi",
     "uvicorn.logging",
@@ -51,6 +52,7 @@ a = Analysis(
     noarchive=False,
     module_collection_mode={
         "transformers": "py",
+        "cv2": "py",
     },
 )
 pyz = PYZ(a.pure)
