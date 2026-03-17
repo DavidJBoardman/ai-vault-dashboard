@@ -213,6 +213,15 @@ async def run_segmentation(request: SegmentationRequest):
             )
         
         print(f"[OK] SAM 3 segmentation complete: {len(masks)} masks")
+        if not masks and sam.last_error:
+            append_segmentation_log(
+                f"run failed projection_id={request.projectionId} mode={request.mode} error={sam.last_error}"
+            )
+            return SegmentationResponse(
+                success=False,
+                error=sam.last_error,
+            )
+
         append_segmentation_log(
             f"run complete projection_id={request.projectionId} mode={request.mode} mask_count={len(masks)}"
         )
