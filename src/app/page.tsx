@@ -51,7 +51,7 @@ export default function HomePage() {
   // becomes active again, so packaged builds recover after the backend comes up.
   useEffect(() => {
     let cancelled = false;
-    let retryTimer: ReturnType<typeof window.setTimeout> | null = null;
+    let retryTimer: number | null = null;
     const maxAttempts = 30;
 
     const clearRetryTimer = () => {
