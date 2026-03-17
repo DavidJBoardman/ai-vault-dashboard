@@ -293,7 +293,7 @@ class SAM3Service:
                 boxes = results.get("boxes", [])
                 scores = results.get("scores", [])
                 
-                print(f"  → Found {len(masks)} masks for '{prompt}'")
+                print(f"  Found {len(masks)} masks for '{prompt}'")
                 
                 # Process each mask for this prompt
                 for mask_idx, mask in enumerate(masks):
@@ -331,7 +331,7 @@ class SAM3Service:
                     
                     if mask_info:
                         all_masks.append(mask_info)
-                        print(f"    → Mask {mask_idx + 1}: label='{mask_info['label']}', "
+                        print(f"    Mask {mask_idx + 1}: label='{mask_info['label']}', "
                               f"color={mask_info['color']}, area={mask_info['area']}")
             
             print(f"[OK] SAM 3 segmentation complete: {len(all_masks)} total masks")
@@ -427,7 +427,7 @@ class SAM3Service:
             result_boxes = results.get("boxes", [])
             scores = results.get("scores", [])
             
-            print(f"  → Found {len(masks)} masks from box prompt")
+            print(f"  Found {len(masks)} masks from box prompt")
             
             # Bright colors for box-prompted masks
             color_palette = [
@@ -473,7 +473,7 @@ class SAM3Service:
                 
                 if mask_info:
                     all_masks.append(mask_info)
-                    print(f"    → Mask {mask_idx + 1}: area={mask_info['area']}, score={score:.2f}")
+                    print(f"    Mask {mask_idx + 1}: area={mask_info['area']}, score={score:.2f}")
             
             print(f"[OK] Box segmentation complete: {len(all_masks)} masks")
             return all_masks
