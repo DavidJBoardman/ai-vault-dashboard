@@ -234,6 +234,8 @@ class SAM3Service:
         Returns:
             List of mask dictionaries with id, label, color, maskBase64, etc.
         """
+        self.last_error = None
+
         if not self.model_loaded or self.current_image is None:
             print("Model not loaded or no image set")
             return []
@@ -337,6 +339,7 @@ class SAM3Service:
                 
         except Exception as e:
             print(f"Error with SAM 3 text segmentation: {e}")
+            self.last_error = f"SAM 3 text segmentation failed: {type(e).__name__}: {e}"
             import traceback
             traceback.print_exc()
             return []
@@ -361,6 +364,8 @@ class SAM3Service:
         Returns:
             List of mask dictionaries
         """
+        self.last_error = None
+
         if not self.model_loaded or self.current_image is None:
             print("Model not loaded or no image set")
             return []
@@ -475,6 +480,7 @@ class SAM3Service:
             
         except Exception as e:
             print(f"Error with box segmentation: {e}")
+            self.last_error = f"SAM 3 box segmentation failed: {type(e).__name__}: {e}"
             import traceback
             traceback.print_exc()
             return []
@@ -484,6 +490,8 @@ class SAM3Service:
         Generate masks automatically without prompts.
         Uses a generic prompt to detect all objects.
         """
+        self.last_error = None
+
         if not self.model_loaded or self.current_image is None:
             return []
         
@@ -494,6 +502,7 @@ class SAM3Service:
             
         except Exception as e:
             print(f"Error generating automatic masks: {e}")
+            self.last_error = f"SAM 3 automatic segmentation failed: {type(e).__name__}: {e}"
             return []
     
     def _process_mask(
