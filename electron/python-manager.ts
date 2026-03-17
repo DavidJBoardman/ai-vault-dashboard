@@ -102,9 +102,9 @@ export class PythonManager {
         pythonPath = foundCandidate?.path || (process.platform === 'win32' ? 'python.exe' : 'python');
 
         if (foundCandidate) {
-          console.log(`[Python] ✓ Using ${foundCandidate.source}:`, pythonPath);
+          console.log(`[Python] Using ${foundCandidate.source}:`, pythonPath);
         } else {
-          console.log('[Python] ⚠ Falling back to system python:', pythonPath);
+          console.log('[Python] Falling back to system python:', pythonPath);
         }
 
         console.log('[Python] Backend cwd:', backendDir);
@@ -119,12 +119,11 @@ export class PythonManager {
           this.port.toString(),
         ];
 
-        // Force UTF-8 and unbuffered output
-        // Fixes encoding issues in the terminal when logs print emojis or characters like "✓" and "✗"
+        // Force UTF-8 and unbuffered output for subprocess communication.
         const env = {
           ...process.env,
-          PYTHONIOENCODING: 'utf-8',  // ← Force UTF-8
-          PYTHONUNBUFFERED: '1',       // ← Force unbuffered output
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUNBUFFERED: '1',
         };
 
         this.process = spawn(pythonPath, args, {

@@ -1049,7 +1049,7 @@ async def save_roi(request: SaveROIRequest):
             json.dump(index_data, f, indent=2)
         
         print(f"[OK] Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f} degrees")
-        print(f"  → {inside_count} masks inside ROI, {outside_count} outside")
+        print(f"  {inside_count} masks inside ROI, {outside_count} outside")
         
         return {
             "success": True,
