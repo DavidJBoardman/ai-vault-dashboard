@@ -112,6 +112,9 @@ export class PythonManager {
         const resourcesPath = process.resourcesPath || app.getAppPath();
         const executableName = process.platform === 'win32' ? 'vault-backend.exe' : 'vault-backend';
         const dataRoot = path.join(app.getPath('home'), 'Vault Analyser');
+        const legacyDataRoots = [
+          path.join(app.getPath('home'), 'Vault Analyzer'),
+        ];
         pythonPath = path.join(resourcesPath, 'backend', executableName);
         const backendCwd = path.dirname(pythonPath);
 
@@ -130,6 +133,7 @@ export class PythonManager {
             PYTHONIOENCODING: 'utf-8',
             PYTHONUNBUFFERED: '1',
             VAULT_ANALYSER_DATA_ROOT: dataRoot,
+            VAULT_ANALYSER_LEGACY_DATA_ROOTS: legacyDataRoots.join(path.delimiter),
           },
         });
       }
