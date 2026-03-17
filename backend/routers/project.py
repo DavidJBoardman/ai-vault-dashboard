@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services.app_paths import get_data_root
+from services.projection import get_projection_service
 
 router = APIRouter()
 
@@ -526,6 +527,7 @@ async def load_project(project_id: str):
         proj_index_path = proj_dir / "index.json"
         
         projections = []
+        projection_service = get_projection_service()
         if proj_index_path.exists():
             with open(proj_index_path, "r") as f:
                 proj_index = json.load(f)
@@ -534,19 +536,42 @@ async def load_project(project_id: str):
             
             for proj_ref in proj_refs:
                 proj_data = proj_ref.copy()
-                
+
                 # Load images as base64 if files exist
                 files = proj_ref.get("files", {})
                 images = {}
-                
+                projection_paths: Dict[str, str] = {}
+
                 for img_type, filename in files.items():
+                    img_path = proj_dir / filename
+                    if not img_path.exists():
+                        continue
+
                     if img_type in ["colour", "depthGrayscale", "depthPlasma"]:
-                        img_path = proj_dir / filename
-                        if img_path.exists():
-                            with open(img_path, "rb") as f:
-                                img_bytes = f.read()
-                            images[img_type] = f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}"
-                
+                        with open(img_path, "rb") as f:
+                            img_bytes = f.read()
+                        images[img_type] = f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}"
+
+                    projection_paths[img_type] = str(img_path)
+
+                projection_service.register_projection(
+                    proj_ref["id"],
+                    perspective=proj_ref.get("perspective", "top"),
+                    resolution=proj_ref.get("resolution", 2048),
+                    sigma=proj_ref.get("sigma", 1.0),
+                    kernel_size=proj_ref.get("kernelSize", 5),
+                    bottom_up=proj_ref.get("bottomUp", True),
+                    metadata=proj_ref.get("metadata", {}),
+                    paths={
+                        "colour": projection_paths.get("colour", ""),
+                        "depth_grayscale": projection_paths.get("depthGrayscale", ""),
+                        "depth_plasma": projection_paths.get("depthPlasma", ""),
+                        "depth_raw": projection_paths.get("depthRaw", ""),
+                        "coordinates": projection_paths.get("coordinates", ""),
+                        "metadata": projection_paths.get("metadata", ""),
+                    },
+                )
+
                 proj_data["images"] = images
                 projections.append(proj_data)
         

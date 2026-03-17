@@ -79,6 +79,30 @@ class ProjectionService:
                     print(f"Loaded existing projection: {projection_id}")
             except Exception as e:
                 print(f"Error loading projection {metadata_file}: {e}")
+
+    def register_projection(
+        self,
+        projection_id: str,
+        *,
+        perspective: str,
+        resolution: int,
+        sigma: float,
+        kernel_size: int,
+        bottom_up: bool,
+        metadata: Optional[Dict[str, Any]] = None,
+        paths: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Register an existing projection so downstream services can reuse it."""
+        self.projections[projection_id] = {
+            "id": projection_id,
+            "perspective": perspective,
+            "resolution": resolution,
+            "sigma": sigma,
+            "kernel_size": kernel_size,
+            "bottom_up": bottom_up,
+            "paths": paths or {},
+            "metadata": metadata or {},
+        }
     
     async def create_projection(
         self,
