@@ -13,15 +13,31 @@ from services.sam_service import get_sam_service
 from services.projection import get_projection_service
 
 router = APIRouter()
+SEGMENTATION_LOG_PATH = get_data_root() / "logs" / "segmentation.log"
+MAX_LOG_BYTES = 5 * 1024 * 1024
+RETAINED_LOG_BYTES = 1 * 1024 * 1024
+
+
+def rotate_log_if_needed(log_path: Path) -> None:
+    """Trim oversized logs so packaged diagnostics stay bounded."""
+    try:
+        if not log_path.exists() or log_path.stat().st_size <= MAX_LOG_BYTES:
+            return
+        with log_path.open("rb") as handle:
+            handle.seek(max(0, log_path.stat().st_size - RETAINED_LOG_BYTES))
+            trimmed = handle.read()
+        with log_path.open("wb") as handle:
+            handle.write(trimmed)
+    except Exception:
+        pass
 
 
 def append_segmentation_log(message: str) -> None:
     """Write segmentation diagnostics to the packaged runtime data root."""
     try:
-        log_dir = get_data_root() / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / "segmentation.log"
-        with log_path.open("a", encoding="utf-8") as handle:
+        SEGMENTATION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        rotate_log_if_needed(SEGMENTATION_LOG_PATH)
+        with SEGMENTATION_LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(f"[{datetime.utcnow().isoformat()}Z] {message}\n")
     except Exception:
         # Never fail the request because debug logging could not be written.

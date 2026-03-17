@@ -18,6 +18,34 @@ router = APIRouter()
 # Project data directory
 PROJECT_DATA_DIR = get_data_root()
 PROJECTIONS_DIR = PROJECT_DATA_DIR / "projections"
+PROJECT_LOG_PATH = get_data_root() / "logs" / "project.log"
+MAX_LOG_BYTES = 5 * 1024 * 1024
+RETAINED_LOG_BYTES = 1 * 1024 * 1024
+
+
+def rotate_log_if_needed(log_path: Path) -> None:
+    """Trim oversized logs so packaged diagnostics stay bounded."""
+    try:
+        if not log_path.exists() or log_path.stat().st_size <= MAX_LOG_BYTES:
+            return
+        with log_path.open("rb") as handle:
+            handle.seek(max(0, log_path.stat().st_size - RETAINED_LOG_BYTES))
+            trimmed = handle.read()
+        with log_path.open("wb") as handle:
+            handle.write(trimmed)
+    except Exception:
+        pass
+
+
+def append_project_log(message: str) -> None:
+    """Write project list/load/save diagnostics to the runtime log folder."""
+    try:
+        PROJECT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        rotate_log_if_needed(PROJECT_LOG_PATH)
+        with PROJECT_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(f"[{datetime.utcnow().isoformat()}Z] {message}\n")
+    except Exception:
+        pass
 
 
 class SegmentationData(BaseModel):
@@ -77,6 +105,7 @@ def get_project_dir(project_id: str) -> Path:
     """Get or create project directory."""
     project_dir = PROJECT_DATA_DIR / "projects" / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
+    append_project_log(f"ensure project_dir project_id={project_id} path={project_dir}")
     return project_dir
 
 
@@ -211,6 +240,11 @@ async def save_project(request: ProjectSaveRequest):
     - segmentations/group_{group_id}.png: Combined masks per group
     """
     try:
+        append_project_log(
+            f"save start project_id={request.projectId} name={request.projectName!r} "
+            f"projection_count={len(request.projections)} segmentation_count={len(request.segmentations)} "
+            f"data_root={PROJECT_DATA_DIR}"
+        )
         from PIL import Image
         
         project_dir = get_project_dir(request.projectId)
@@ -402,6 +436,10 @@ async def save_project(request: ProjectSaveRequest):
         print(f"[OK] Project saved: {request.projectId}")
         print(f"  - {len(projection_refs)} projections")
         print(f"  - {len(segmentation_refs)} segmentations in {len(groups)} groups")
+        append_project_log(
+            f"save complete project_id={request.projectId} path={project_path} "
+            f"projection_index={proj_index_path.exists()} segmentation_index={seg_index_path.exists()}"
+        )
         
         return {
             "success": True,
@@ -413,6 +451,7 @@ async def save_project(request: ProjectSaveRequest):
         
     except Exception as e:
         print(f"Error saving project: {e}")
+        append_project_log(f"save exception project_id={request.projectId} error={type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -428,8 +467,15 @@ async def save_progress(request: SaveProgressRequest):
     try:
         project_dir = PROJECT_DATA_DIR / "projects" / request.projectId
         project_path = project_dir / "project.json"
+        append_project_log(
+            f"save-progress start project_id={request.projectId} current_step={request.currentStep} "
+            f"project_dir_exists={project_dir.exists()} project_json_exists={project_path.exists()}"
+        )
         
         if not project_path.exists():
+            append_project_log(
+                f"save-progress skipped project_id={request.projectId} reason=project.json missing path={project_path}"
+            )
             return {"success": False, "error": f"Project not found: {request.projectId}"}
         
         # Load existing project data
@@ -446,6 +492,9 @@ async def save_progress(request: SaveProgressRequest):
             json.dump(project_data, f, indent=2)
         
         print(f"[OK] Progress saved: step {request.currentStep}, {len(request.steps)} completed steps")
+        append_project_log(
+            f"save-progress complete project_id={request.projectId} current_step={request.currentStep}"
+        )
         
         return {
             "success": True,
@@ -455,6 +504,7 @@ async def save_progress(request: SaveProgressRequest):
         
     except Exception as e:
         print(f"Error saving progress: {e}")
+        append_project_log(f"save-progress exception project_id={request.projectId} error={type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
         return {"success": False, "error": str(e)}
@@ -470,8 +520,12 @@ async def load_project(project_id: str):
     try:
         project_dir = get_project_dir(project_id)
         project_path = project_dir / "project.json"
+        append_project_log(
+            f"load start project_id={project_id} project_dir={project_dir} project_json_exists={project_path.exists()}"
+        )
         
         if not project_path.exists():
+            append_project_log(f"load missing project_id={project_id} path={project_path}")
             return ProjectLoadResponse(
                 success=False,
                 error=f"Project not found: {project_id}"
@@ -574,8 +628,16 @@ async def load_project(project_id: str):
 
                 proj_data["images"] = images
                 projections.append(proj_data)
+                append_project_log(
+                    f"load projection project_id={project_id} projection_id={proj_ref['id']} "
+                    f"file_keys={sorted(files.keys())} image_keys={sorted(images.keys())}"
+                )
         
         project_data["projections"] = projections
+        append_project_log(
+            f"load complete project_id={project_id} projections={len(projections)} "
+            f"segmentations={len(segmentations)} selected_projection_id={project_data.get('selectedProjectionId')}"
+        )
         
         return ProjectLoadResponse(
             success=True,
@@ -584,6 +646,7 @@ async def load_project(project_id: str):
         
     except Exception as e:
         print(f"Error loading project: {e}")
+        append_project_log(f"load exception project_id={project_id} error={type(e).__name__}: {e}")
         return ProjectLoadResponse(
             success=False,
             error=str(e)
@@ -595,14 +658,19 @@ async def list_projects():
     """List all saved projects."""
     try:
         projects_dir = PROJECT_DATA_DIR / "projects"
+        append_project_log(f"list start projects_dir={projects_dir} exists={projects_dir.exists()}")
         
         if not projects_dir.exists():
+            append_project_log("list complete count=0 reason=projects dir missing")
             return {"projects": []}
         
         projects = []
         for project_dir in projects_dir.iterdir():
             if project_dir.is_dir():
                 project_path = project_dir / "project.json"
+                append_project_log(
+                    f"list inspect project_dir={project_dir} project_json_exists={project_path.exists()}"
+                )
                 if project_path.exists():
                     with open(project_path, "r") as f:
                         project_data = json.load(f)
@@ -615,11 +683,13 @@ async def list_projects():
         
         # Sort by updated time
         projects.sort(key=lambda p: p.get("updatedAt", ""), reverse=True)
+        append_project_log(f"list complete count={len(projects)}")
         
         return {"projects": projects}
         
     except Exception as e:
         print(f"Error listing projects: {e}")
+        append_project_log(f"list exception error={type(e).__name__}: {e}")
         return {"projects": [], "error": str(e)}
 
 
