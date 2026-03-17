@@ -12,9 +12,32 @@ export class PythonManager {
   private process: ChildProcess | null = null;
   private port: number = 8765;
   private running: boolean = false;
+  private logDir: string;
+  private backendLogPath: string;
+  private readonly maxLogBytes: number = 5 * 1024 * 1024;
+  private readonly retainedLogBytes: number = 1 * 1024 * 1024;
 
   constructor(port?: number) {
     if (port) this.port = port;
+    this.logDir = path.join(app.getPath('home'), 'Vault Analyser', 'logs');
+    this.backendLogPath = path.join(this.logDir, 'backend-runtime.log');
+  }
+
+  private appendBackendLog(message: string): void {
+    try {
+      fs.mkdirSync(this.logDir, { recursive: true });
+      if (fs.existsSync(this.backendLogPath)) {
+        const stats = fs.statSync(this.backendLogPath);
+        if (stats.size > this.maxLogBytes) {
+          const existing = fs.readFileSync(this.backendLogPath);
+          const trimmed = existing.subarray(Math.max(0, existing.length - this.retainedLogBytes));
+          fs.writeFileSync(this.backendLogPath, trimmed);
+        }
+      }
+      fs.appendFileSync(this.backendLogPath, `[${new Date().toISOString()}] ${message}\n`, { encoding: 'utf8' });
+    } catch (error) {
+      console.error('Failed to write backend runtime log:', error);
+    }
   }
 
   async start(): Promise<void> {
@@ -30,6 +53,7 @@ export class PythonManager {
         if (settled) return;
         settled = true;
         this.running = true;
+        this.appendBackendLog(`backend started port=${this.port}`);
         if (startupTimeout) clearTimeout(startupTimeout);
         if (healthCheckInterval) clearInterval(healthCheckInterval);
         resolve();
@@ -38,6 +62,7 @@ export class PythonManager {
         if (settled) return;
         settled = true;
         this.running = false;
+        this.appendBackendLog(`backend start failed error=${error.message}`);
         if (startupTimeout) clearTimeout(startupTimeout);
         if (healthCheckInterval) clearInterval(healthCheckInterval);
         reject(error);
@@ -124,6 +149,7 @@ export class PythonManager {
         }
 
         fs.mkdirSync(dataRoot, { recursive: true });
+        this.appendBackendLog(`starting packaged backend executable=${pythonPath} cwd=${backendCwd} data_root=${dataRoot}`);
 
         this.process = spawn(pythonPath, ['--port', this.port.toString()], {
           cwd: backendCwd,
@@ -171,6 +197,7 @@ export class PythonManager {
         stdoutBuffer.push(text.trim());
         if (stdoutBuffer.length > maxBufferedLines) stdoutBuffer.shift();
         console.log(`[Python] ${text}`);
+        this.appendBackendLog(`[stdout] ${text.trimEnd()}`);
         if (data.toString().includes('Application startup complete') || 
             data.toString().includes('Uvicorn running')) {
           markStarted();
@@ -182,6 +209,7 @@ export class PythonManager {
         stderrBuffer.push(text.trim());
         if (stderrBuffer.length > maxBufferedLines) stderrBuffer.shift();
         console.error(`[Python Error] ${text}`);
+        this.appendBackendLog(`[stderr] ${text.trimEnd()}`);
         // Uvicorn logs startup info to stderr
         if (data.toString().includes('Application startup complete') ||
             data.toString().includes('Uvicorn running')) {
@@ -191,11 +219,13 @@ export class PythonManager {
 
       this.process.on('error', (error) => {
         console.error('Failed to start Python process:', error);
+        this.appendBackendLog(`process error error=${error.message}`);
         failStart(error);
       });
 
       this.process.on('exit', (code) => {
         console.log(`Python process exited with code ${code}`);
+        this.appendBackendLog(`process exited code=${code ?? 'null'}`);
         const exitedDuringStartup = !settled && !this.running;
         this.running = false;
         this.process = null;
