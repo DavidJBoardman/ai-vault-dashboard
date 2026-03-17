@@ -426,7 +426,7 @@ async def save_progress(request: SaveProgressRequest):
     This updates project.json with currentStep and steps state.
     """
     try:
-        project_dir = get_project_dir(request.projectId)
+        project_dir = PROJECT_DATA_DIR / "projects" / request.projectId
         project_path = project_dir / "project.json"
         
         if not project_path.exists():
