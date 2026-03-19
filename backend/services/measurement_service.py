@@ -614,6 +614,385 @@ class MeasurementService:
             "arc_center_z": float(arc_params["center"]["z"]),
         }
 
+    # ------------------------------------------------------------------
+    # Apex & Span helpers
+    # ------------------------------------------------------------------
+
+    def _assign_ribs_to_bosses(
+        self,
+        bosses: List[Dict[str, Any]],
+        max_distance: float = 2.0,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Assign each rib to its nearest boss by endpoint proximity.
+
+        For every rib the **upper** endpoint (nearest to any boss) is
+        identified.  If the distance is below *max_distance* the rib is
+        assigned to that boss.
+
+        Returns
+        -------
+        mapping : dict
+            ``{boss_id: [{ rib_id, boss_end_idx (0 or -1),
+                           springing_point (3,),
+                           outward_vector_xy (2,) }, ...]}``
+
+            ``outward_vector_xy`` is the unit XY direction **from the boss
+            toward the springing point** — i.e. the direction the rib
+            extends outward from the boss in plan view.
+        """
+        boss_positions = {
+            b["id"]: np.array([b["x"], b["y"], b["z"]], dtype=float)
+            for b in bosses
+        }
+
+        mapping: Dict[str, List[Dict[str, Any]]] = {bid: [] for bid in boss_positions}
+
+        for rib_id, pts in self.traces.items():
+            if len(pts) < 3:
+                continue
+
+            first = pts[0]
+            last = pts[-1]
+
+            best_dist = float("inf")
+            best_boss_id: Optional[str] = None
+            best_end_idx: int = 0
+
+            for bid, bpos in boss_positions.items():
+                d0 = float(np.linalg.norm(first - bpos))
+                d1 = float(np.linalg.norm(last - bpos))
+                if d0 < d1 and d0 < best_dist:
+                    best_dist = d0
+                    best_boss_id = bid
+                    best_end_idx = 0
+                elif d1 <= d0 and d1 < best_dist:
+                    best_dist = d1
+                    best_boss_id = bid
+                    best_end_idx = -1
+
+            if best_boss_id is not None and best_dist <= max_distance:
+                springing = pts[-1] if best_end_idx == 0 else pts[0]
+                boss_pt = boss_positions[best_boss_id]
+                # Outward direction: from boss toward the rib's springing point
+                outward = springing - boss_pt
+                outward_xy = np.array([outward[0], outward[1]])
+                norm = np.linalg.norm(outward_xy)
+                if norm > 1e-12:
+                    outward_xy = outward_xy / norm
+                else:
+                    outward_xy = np.array([0.0, 0.0])
+
+                mapping[best_boss_id].append({
+                    "rib_id": rib_id,
+                    "boss_end_idx": best_end_idx,
+                    "springing_point": springing,
+                    "outward_vector_xy": outward_xy,
+                })
+
+        return mapping
+
+    def _pair_ribs_at_boss(
+        self,
+        rib_entries: List[Dict[str, Any]],
+        symmetry_angle_tol_deg: float = 30.0,
+    ) -> List[Tuple[str, str]]:
+        """Pair ribs at a boss by axis symmetry.
+
+        Two ribs form a valid pair when the XY direction from the boss
+        toward one rib's springing point, **reflected about the global X
+        or Y axis**, is approximately parallel to the other rib's outward
+        direction.
+
+        This captures ribs that together form a pointed arch through the
+        boss — for example a rib from the NW corner paired with one from
+        the SW corner (X-axis symmetric) or NW paired with NE (Y-axis
+        symmetric).  Diagonal opposites like NW↔SE are explicitly *not*
+        matched because they are symmetric about a diagonal, not X or Y.
+
+        Parameters
+        ----------
+        rib_entries
+            List of entries produced by ``_assign_ribs_to_bosses()`` for a
+            single boss.  Each must contain ``outward_vector_xy`` (unit
+            2-vector, boss → springing in XY).
+        symmetry_angle_tol_deg
+            Maximum angle (degrees) between a reflected outward vector and
+            its candidate partner for the pair to be accepted.
+
+        Returns
+        -------
+        pairs : list[(rib_a_id, rib_b_id)]
+        """
+        if len(rib_entries) < 2:
+            return []
+
+        cos_tol = float(np.cos(np.radians(symmetry_angle_tol_deg)))
+
+        used: set = set()
+        pairs: List[Tuple[str, str]] = []
+
+        for i, ea in enumerate(rib_entries):
+            if ea["rib_id"] in used:
+                continue
+            va = ea["outward_vector_xy"]  # shape (2,)
+            if np.linalg.norm(va) < 1e-12:
+                continue
+
+            best_j: Optional[int] = None
+            best_score = -2.0  # higher = more perfectly symmetric (max 1.0)
+
+            for j, eb in enumerate(rib_entries):
+                if j <= i or eb["rib_id"] in used:
+                    continue
+                vb = eb["outward_vector_xy"]
+                if np.linalg.norm(vb) < 1e-12:
+                    continue
+
+                # X-axis symmetry: reflect vb about X axis (negate Y component)
+                dot_x = float(va[0] * vb[0] + va[1] * (-vb[1]))
+                # Y-axis symmetry: reflect vb about Y axis (negate X component)
+                dot_y = float(va[0] * (-vb[0]) + va[1] * vb[1])
+
+                score = max(dot_x, dot_y)
+
+                if score < cos_tol:
+                    continue  # not sufficiently symmetric about either axis
+
+                if score > best_score:
+                    best_score = score
+                    best_j = j
+
+            if best_j is not None:
+                used.add(ea["rib_id"])
+                used.add(rib_entries[best_j]["rib_id"])
+                pairs.append((ea["rib_id"], rib_entries[best_j]["rib_id"]))
+
+        return pairs
+
+    @staticmethod
+    def _arc_arc_intersection(
+        arc_a: Dict[str, Any],
+        arc_b: Dict[str, Any],
+    ) -> Optional[List[np.ndarray]]:
+        """Find the intersection points of two 3D circles.
+
+        Each arc dict must contain ``center`` ({x,y,z}), ``radius``,
+        ``basis_u`` ({x,y,z}), ``basis_v`` ({x,y,z}).
+
+        The two circles are projected to a **common plane** (average of
+        their planes), then a standard 2D circle-circle intersection is
+        performed, and the result is lifted back to 3D.
+
+        Returns ``None`` if the circles do not intersect (too far apart or
+        concentric) or up to 2 intersection points as numpy arrays.
+        """
+        c_a = np.array([arc_a["center"]["x"], arc_a["center"]["y"], arc_a["center"]["z"]])
+        c_b = np.array([arc_b["center"]["x"], arc_b["center"]["y"], arc_b["center"]["z"]])
+        r_a = arc_a["radius"]
+        r_b = arc_b["radius"]
+
+        # Build common plane from the averaged normal of both arcs
+        u_a = np.array([arc_a["basis_u"]["x"], arc_a["basis_u"]["y"], arc_a["basis_u"]["z"]])
+        v_a = np.array([arc_a["basis_v"]["x"], arc_a["basis_v"]["y"], arc_a["basis_v"]["z"]])
+        n_a = np.cross(u_a, v_a)
+        n_a_len = np.linalg.norm(n_a)
+        if n_a_len > 1e-12:
+            n_a = n_a / n_a_len
+
+        u_b = np.array([arc_b["basis_u"]["x"], arc_b["basis_u"]["y"], arc_b["basis_u"]["z"]])
+        v_b = np.array([arc_b["basis_v"]["x"], arc_b["basis_v"]["y"], arc_b["basis_v"]["z"]])
+        n_b = np.cross(u_b, v_b)
+        n_b_len = np.linalg.norm(n_b)
+        if n_b_len > 1e-12:
+            n_b = n_b / n_b_len
+
+        # Ensure normals point the same way for averaging
+        if np.dot(n_a, n_b) < 0:
+            n_b = -n_b
+
+        n = (n_a + n_b) / 2.0
+        n_len = np.linalg.norm(n)
+        if n_len < 1e-12:
+            return None
+        n = n / n_len
+
+        # Build an orthonormal frame for the common plane
+        # Choose the common-plane U axis as unit(c_b - c_a) projected onto plane
+        d = c_b - c_a
+        d_proj = d - np.dot(d, n) * n
+        d_proj_len = np.linalg.norm(d_proj)
+        if d_proj_len < 1e-12:
+            return None  # coincident centres projected — no unique intersection
+        e1 = d_proj / d_proj_len
+        e2 = np.cross(n, e1)
+
+        # Project both centres to 2D in this frame
+        origin = (c_a + c_b) / 2.0  # arbitrary origin on the plane
+        def to2d(p: np.ndarray) -> np.ndarray:
+            v = p - origin
+            return np.array([np.dot(v, e1), np.dot(v, e2)])
+
+        ca2 = to2d(c_a)
+        cb2 = to2d(c_b)
+
+        # Standard 2D circle-circle intersection
+        dx = cb2[0] - ca2[0]
+        dy = cb2[1] - ca2[1]
+        dist = np.sqrt(dx * dx + dy * dy)
+
+        if dist > r_a + r_b + 1e-9:
+            return None  # too far apart
+        if dist < abs(r_a - r_b) - 1e-9:
+            return None  # one circle inside the other
+        if dist < 1e-12:
+            return None  # concentric
+
+        a = (r_a * r_a - r_b * r_b + dist * dist) / (2.0 * dist)
+        h_sq = r_a * r_a - a * a
+        if h_sq < 0:
+            h_sq = 0.0
+        h = np.sqrt(h_sq)
+
+        mx = ca2[0] + a * dx / dist
+        my = ca2[1] + a * dy / dist
+
+        pts_2d = []
+        pts_2d.append(np.array([mx + h * dy / dist, my - h * dx / dist]))
+        if h > 1e-12:
+            pts_2d.append(np.array([mx - h * dy / dist, my + h * dx / dist]))
+
+        # Lift back to 3D
+        pts_3d = []
+        for p2 in pts_2d:
+            p3 = origin + p2[0] * e1 + p2[1] * e2
+            pts_3d.append(p3)
+
+        return pts_3d
+
+    def calculate_apex_span(
+        self,
+        bosses: List[Dict[str, Any]],
+        max_boss_distance: float = 2.0,
+        symmetry_angle_tol_deg: float = 30.0,
+        impost_height: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Compute architectural apex per boss and span per rib.
+
+        Parameters
+        ----------
+        bosses
+            ``[{id, x, y, z, label}, ...]`` — 3D boss positions.
+        max_boss_distance
+            Maximum distance from a rib endpoint to a boss for assignment.
+        symmetry_angle_tol_deg
+            Tolerance (degrees) for the axis-symmetry check when pairing
+            ribs.  Two ribs are paired if reflecting one's outward direction
+            about the global X **or** Y axis yields a vector within this
+            angle of the other's outward direction.
+        impost_height
+            If provided, used as the Z of the springing plane for span
+            projection.  Otherwise each rib's own springing Z is used.
+
+        Returns
+        -------
+        dict with keys ``bosses`` (list) and ``ribs`` (dict).
+        """
+        # 1. Assign ribs to bosses
+        mapping = self._assign_ribs_to_bosses(bosses, max_boss_distance)
+
+        # Pre-compute arc fits for every rib (cached per call)
+        arc_cache: Dict[str, Dict[str, Any]] = {}
+        for rid, pts in self.traces.items():
+            if len(pts) >= 3:
+                arc_cache[rid] = self._fit_arc(pts)
+
+        boss_results: List[Dict[str, Any]] = []
+        rib_results: Dict[str, Dict[str, Any]] = {}
+
+        for boss in bosses:
+            bid = boss["id"]
+            entries = mapping.get(bid, [])
+            assigned_ids = [e["rib_id"] for e in entries]
+
+            # 2. Pair ribs at this boss (axis-symmetry pairing)
+            pairs = self._pair_ribs_at_boss(entries, symmetry_angle_tol_deg)
+
+            # 3. Compute apex per pair via arc-arc intersection
+            pair_details: List[Dict[str, Any]] = []
+            apex_candidates: List[np.ndarray] = []
+
+            for rid_a, rid_b in pairs:
+                arc_a = arc_cache.get(rid_a)
+                arc_b = arc_cache.get(rid_b)
+                if arc_a is None or arc_b is None:
+                    continue
+
+                inter_pts = self._arc_arc_intersection(arc_a, arc_b)
+                if inter_pts is None or len(inter_pts) == 0:
+                    continue
+
+                # Pick the intersection with the larger Z (crown side)
+                best = max(inter_pts, key=lambda p: p[2])
+                apex_candidates.append(best)
+                pair_details.append({
+                    "ribA": rid_a,
+                    "ribB": rid_b,
+                    "intersection": {
+                        "x": float(best[0]),
+                        "y": float(best[1]),
+                        "z": float(best[2]),
+                    },
+                })
+
+            # 4. Average apex (or fall back to boss position)
+            if apex_candidates:
+                avg = np.mean(apex_candidates, axis=0)
+                apex_3d = {"x": float(avg[0]), "y": float(avg[1]), "z": float(avg[2])}
+            else:
+                # Fallback: use the boss's own 3D position
+                apex_3d = {"x": boss["x"], "y": boss["y"], "z": boss["z"]}
+
+            boss_results.append({
+                "bossId": bid,
+                "bossLabel": boss.get("label", bid),
+                "bossPosition": {"x": boss["x"], "y": boss["y"], "z": boss["z"]},
+                "apex": apex_3d,
+                "ribPairs": pair_details,
+                "assignedRibs": assigned_ids,
+            })
+
+            # 5. Compute span per rib at this boss
+            for entry in entries:
+                rid = entry["rib_id"]
+                spring = entry["springing_point"]  # numpy (3,)
+                spring_z = float(impost_height) if impost_height is not None else float(spring[2])
+
+                # Project apex down to the springing-Z plane
+                proj_apex = np.array([apex_3d["x"], apex_3d["y"], spring_z])
+
+                # Horizontal distance from springing point to projected apex
+                dx = proj_apex[0] - spring[0]
+                dy = proj_apex[1] - spring[1]
+                span = float(np.sqrt(dx * dx + dy * dy))
+
+                rib_results[rid] = {
+                    "ribId": rid,
+                    "bossId": bid,
+                    "span": span,
+                    "springingPoint": {
+                        "x": float(spring[0]),
+                        "y": float(spring[1]),
+                        "z": float(spring[2]),
+                    },
+                    "projectedApex": {
+                        "x": float(proj_apex[0]),
+                        "y": float(proj_apex[1]),
+                        "z": float(proj_apex[2]),
+                    },
+                }
+
+        return {"bosses": boss_results, "ribs": rib_results}
+
     async def save_hypothesis(
         self,
         name: str,
