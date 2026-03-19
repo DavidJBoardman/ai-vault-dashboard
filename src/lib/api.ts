@@ -418,6 +418,60 @@ export async function calculateCustomRibGroups(
   });
 }
 
+// Apex & Span Calculation
+export interface BossPositionInput {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  label: string;
+}
+
+export interface ApexSpanRequest {
+  ribs: Array<{ id: string; points: Array<[number, number, number]> }>;
+  bosses: BossPositionInput[];
+  maxBossDistance?: number;
+  symmetryAngleTolerance?: number;
+  impostHeight?: number;
+}
+
+export interface RibPairIntersection {
+  ribA: string;
+  ribB: string;
+  intersection: { x: number; y: number; z: number };
+}
+
+export interface BossApexResult {
+  bossId: string;
+  bossLabel: string;
+  bossPosition: { x: number; y: number; z: number };
+  apex: { x: number; y: number; z: number };
+  ribPairs: RibPairIntersection[];
+  assignedRibs: string[];
+}
+
+export interface RibSpanResult {
+  ribId: string;
+  bossId: string;
+  span: number;
+  springingPoint: { x: number; y: number; z: number };
+  projectedApex: { x: number; y: number; z: number };
+}
+
+export interface ApexSpanResult {
+  bosses: BossApexResult[];
+  ribs: Record<string, RibSpanResult>;
+}
+
+export async function calculateApexSpan(
+  params: ApexSpanRequest,
+): Promise<ApiResponse<ApexSpanResult>> {
+  return apiRequest<ApexSpanResult>("/api/geometry/measurements/apex-span", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 export interface MeasurementCustomGroup {
   id: string;
   name: string;

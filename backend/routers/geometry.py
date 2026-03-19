@@ -394,3 +394,121 @@ async def calculate_custom_rib_groups_endpoint(request: CalculateCustomRibGroups
     except Exception as e:
         return DetectRibGroupsResponse(success=False, error=str(e))
 
+
+# ---------------------------------------------------------------------------
+# Apex & Span Calculation
+# ---------------------------------------------------------------------------
+
+class BossPosition(BaseModel):
+    id: str
+    x: float
+    y: float
+    z: float
+    label: str = ""
+
+
+class ApexSpanRequest(BaseModel):
+    ribs: List[RibForGrouping]
+    bosses: List[BossPosition]
+    maxBossDistance: float = 2.0
+    symmetryAngleTolerance: float = 30.0
+    impostHeight: Optional[float] = None
+
+
+class RibPairIntersection(BaseModel):
+    ribA: str
+    ribB: str
+    intersection: Point3D
+
+
+class BossApexResult(BaseModel):
+    bossId: str
+    bossLabel: str
+    bossPosition: Point3D
+    apex: Point3D
+    ribPairs: List[RibPairIntersection]
+    assignedRibs: List[str]
+
+
+class RibSpanResult(BaseModel):
+    ribId: str
+    bossId: str
+    span: float
+    springingPoint: Point3D
+    projectedApex: Point3D
+
+
+class ApexSpanResult(BaseModel):
+    bosses: List[BossApexResult]
+    ribs: dict  # {rib_id: RibSpanResult}
+
+
+class ApexSpanResponse(BaseModel):
+    success: bool
+    data: Optional[ApexSpanResult] = None
+    error: Optional[str] = None
+
+
+@router.post("/measurements/apex-span", response_model=ApexSpanResponse)
+async def calculate_apex_span_endpoint(request: ApexSpanRequest):
+    """Compute architectural apex per boss and span per rib.
+
+    The apex for each boss is the intersection point of extended arcs from
+    opposite symmetrical ribs converging at that boss.  Span is the
+    horizontal distance from each rib's springing point to the apex
+    projected down onto the springing plane.
+    """
+    try:
+        service = MeasurementService()
+
+        for rib in request.ribs:
+            points = np.array(rib.points)
+            if len(points) >= 3:
+                service.traces[rib.id] = points
+
+        if not service.traces:
+            return ApexSpanResponse(success=False, error="No valid rib traces provided")
+
+        bosses_raw = [
+            {"id": b.id, "x": b.x, "y": b.y, "z": b.z, "label": b.label}
+            for b in request.bosses
+        ]
+
+        import asyncio as _asyncio
+        loop = _asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: service.calculate_apex_span(
+                bosses=bosses_raw,
+                max_boss_distance=request.maxBossDistance,
+                symmetry_angle_tol_deg=request.symmetryAngleTolerance,
+                impost_height=request.impostHeight,
+            ),
+        )
+
+        return ApexSpanResponse(
+            success=True,
+            data=ApexSpanResult(
+                bosses=[
+                    BossApexResult(
+                        bossId=b["bossId"],
+                        bossLabel=b["bossLabel"],
+                        bossPosition=Point3D(**b["bossPosition"]),
+                        apex=Point3D(**b["apex"]),
+                        ribPairs=[
+                            RibPairIntersection(
+                                ribA=p["ribA"],
+                                ribB=p["ribB"],
+                                intersection=Point3D(**p["intersection"]),
+                            )
+                            for p in b["ribPairs"]
+                        ],
+                        assignedRibs=b["assignedRibs"],
+                    )
+                    for b in result["bosses"]
+                ],
+                ribs=result["ribs"],
+            ),
+        )
+    except Exception as e:
+        return ApexSpanResponse(success=False, error=str(e))
