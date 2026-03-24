@@ -97,6 +97,8 @@ interface PointCloudViewerProps {
   /** 3D sphere markers for boss stones / keystones (purely visual, for orientation) */
   bossStoneMarkers?: BossStoneMarker[];
   showBossStones?: boolean;
+  /** When false, hides only the text labels; spheres remain visible */
+  showBossStoneLabels?: boolean;
   selectedBossStoneId?: string | null;
   onBossStoneClick?: (id: string) => void;
 }
@@ -527,11 +529,13 @@ function ExclusionBoxVisual({
 function BossStoneMarkers3D({
   markers,
   sphereRadius,
+  showLabels = true,
   selectedId,
   onBossStoneClick,
 }: {
   markers: BossStoneMarker[];
   sphereRadius: number;
+  showLabels?: boolean;
   selectedId?: string | null;
   onBossStoneClick?: (id: string) => void;
 }) {
@@ -559,7 +563,7 @@ function BossStoneMarkers3D({
               <sphereGeometry args={[radius, 16, 12]} />
               <meshBasicMaterial color={color} transparent opacity={isSelected ? 1.0 : isHovered ? 0.95 : 0.9} />
             </mesh>
-            <Html
+            {showLabels && <Html
               position={labelPos}
               center
               distanceFactor={8}
@@ -584,7 +588,7 @@ function BossStoneMarkers3D({
               >
                 {marker.label}
               </div>
-            </Html>
+            </Html>}
           </group>
         );
       })}
@@ -716,6 +720,7 @@ export function PointCloudViewer({
   ribPaths,
   bossStoneMarkers,
   showBossStones = true,
+  showBossStoneLabels = true,
   selectedBossStoneId,
   onBossStoneClick,
 }: PointCloudViewerProps) {
@@ -840,10 +845,11 @@ export function PointCloudViewer({
           />
         )}
 
-        {showBossStones && bossStoneMarkers && bossStoneMarkers.length > 0 && (
+        {bossStoneMarkers && bossStoneMarkers.length > 0 && (
           <BossStoneMarkers3D
             markers={bossStoneMarkers}
             sphereRadius={bossStoneRadius}
+            showLabels={showBossStoneLabels}
             selectedId={selectedBossStoneId}
             onBossStoneClick={onBossStoneClick}
           />

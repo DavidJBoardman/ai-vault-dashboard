@@ -32,7 +32,9 @@ import {
   CheckSquare,
   Check,
   X,
-  Wand2
+  Wand2,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -374,14 +376,23 @@ export default function Step7MeasurementsPage() {
   const [baseTraceLines, setBaseTraceLines] = useState<Line3D[]>([]);
   const [viewMode, setViewMode] = useState<"errorHeatmap" | "bestFitArc">("errorHeatmap");
   const [showLabels, setShowLabels] = useState(false);
-  // Derive display traces: apply selection highlight in memory with no API calls
+
+  // Visibility toggles for boss stones and ribs in the 3D viewer
+  const [hiddenBossStones, setHiddenBossStones] = useState<Set<string>>(new Set());
+  const [hiddenRibs, setHiddenRibs] = useState<Set<string>>(new Set());
+
+  // Derive display traces: apply selection highlight and visibility filtering
   const traceLines = useMemo(() => {
-    if (viewMode !== "errorHeatmap" || !selectedRib) return baseTraceLines;
+    const hiddenArr = Array.from(hiddenRibs);
+    const isHidden = (lineId: string) =>
+      hiddenArr.some(ribId => lineId.startsWith(ribId + "-"));
+    const visible = baseTraceLines.filter(line => !isHidden(line.id));
+    if (viewMode !== "errorHeatmap" || !selectedRib) return visible;
     const prefix = `${selectedRib}-segment-`;
-    return baseTraceLines.map(line =>
+    return visible.map(line =>
       line.id.startsWith(prefix) ? { ...line, color: "rgb(180, 180, 180)" } : line
     );
-  }, [baseTraceLines, selectedRib, viewMode]);
+  }, [baseTraceLines, selectedRib, viewMode, hiddenRibs]);
   
   // Impost line data
   const [impostLineData, setImpostLineData] = useState<ImpostLineResult | null>(null);
@@ -1104,36 +1115,42 @@ export default function Step7MeasurementsPage() {
     return intradosLines.map(intradosToMeasurement);
   }, [intradosLines, measurementConfig.ribNameById]);
 
-  // Compute rib label positions at each rib's apex point
+  // Compute rib label positions at each rib's apex point (filtered by visibility)
   const ribLabels = useMemo((): RibLabel[] => {
-    return intradosLines.map(line => {
-      const pts = line.points3d;
-      const apexIdx = pts.reduce((maxI, p, i, arr) => p[2] > arr[maxI][2] ? i : maxI, 0);
-      return {
-        id: line.id,
-        label: measurementConfig.ribNameById[line.id] ?? line.label,
-        position: { x: pts[apexIdx][0], y: pts[apexIdx][1], z: pts[apexIdx][2] },
-      };
-    });
-  }, [intradosLines, measurementConfig.ribNameById]);
+    return intradosLines
+      .filter(line => !hiddenRibs.has(line.id))
+      .map(line => {
+        const pts = line.points3d;
+        const apexIdx = pts.reduce((maxI, p, i, arr) => p[2] > arr[maxI][2] ? i : maxI, 0);
+        return {
+          id: line.id,
+          label: measurementConfig.ribNameById[line.id] ?? line.label,
+          position: { x: pts[apexIdx][0], y: pts[apexIdx][1], z: pts[apexIdx][2] },
+        };
+      });
+  }, [intradosLines, measurementConfig.ribNameById, hiddenRibs]);
 
-  // Full rib paths for click hit-areas in the 3D viewer (one tube per rib)
+  // Full rib paths for click hit-areas in the 3D viewer (filtered by visibility)
   const ribPaths = useMemo(() =>
-    intradosLines.map(line => ({
-      id: line.id,
-      points: line.points3d.map(p => ({ x: p[0], y: p[1], z: p[2] })),
-    })),
-  [intradosLines]);
+    intradosLines
+      .filter(line => !hiddenRibs.has(line.id))
+      .map(line => ({
+        id: line.id,
+        points: line.points3d.map(p => ({ x: p[0], y: p[1], z: p[2] })),
+      })),
+  [intradosLines, hiddenRibs]);
 
-  // Merge custom names into markers and project corner stones to impost line height
+  // Merge custom names into markers, project corner stones to impost line height, filter by visibility
   const displayBossStoneMarkers = useMemo(() => {
     const impostZ = impostLineData?.impost_height;
-    return bossStoneMarkers.map(m => ({
-      ...m,
-      label: measurementConfig.bossStoneNameById[m.id] ?? m.label,
-      z: (impostZ != null && m.groupId === "roi_corner") ? impostZ : m.z,
-    }));
-  }, [bossStoneMarkers, measurementConfig.bossStoneNameById, impostLineData]);
+    return bossStoneMarkers
+      .filter(m => !hiddenBossStones.has(m.id))
+      .map(m => ({
+        ...m,
+        label: measurementConfig.bossStoneNameById[m.id] ?? m.label,
+        z: (impostZ != null && m.groupId === "roi_corner") ? impostZ : m.z,
+      }));
+  }, [bossStoneMarkers, measurementConfig.bossStoneNameById, impostLineData, hiddenBossStones]);
   
   // Update measurements when loaded data changes
   useEffect(() => {
@@ -1308,7 +1325,7 @@ export default function Step7MeasurementsPage() {
                           ribPaths={ribPaths}
                           onLineClick={setSelectedRib}
                           bossStoneMarkers={displayBossStoneMarkers}
-                          showBossStones={showBossStones}
+                          showBossStoneLabels={showBossStones}
                           selectedBossStoneId={selectedBossStone}
                           onBossStoneClick={setSelectedBossStone}
                         />
@@ -1357,7 +1374,7 @@ export default function Step7MeasurementsPage() {
                               size="sm"
                               onClick={() => setShowBossStones(v => !v)}
                               className="gap-1 h-7"
-                              title={showBossStones ? "Hide boss stones" : "Show boss stones"}
+                              title={showBossStones ? "Hide boss stone labels" : "Show boss stone labels"}
                             >
                               <Circle className="w-3.5 h-3.5" />
                               <span className="text-xs">Bosses</span>
@@ -1510,16 +1527,35 @@ export default function Step7MeasurementsPage() {
                                               </button>
                                               <span className="text-sm truncate">{m?.name ?? ribId}</span>
                                             </div>
-                                            <button
-                                              className="p-0.5 rounded hover:bg-muted"
-                                              title="Rename rib"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                startRenameRib(ribId, m?.name ?? ribId);
-                                              }}
-                                            >
-                                              <Pencil className="w-3.5 h-3.5" />
-                                            </button>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                              <button
+                                                className="p-0.5 rounded hover:bg-muted"
+                                                title={hiddenRibs.has(ribId) ? "Show in 3D" : "Hide in 3D"}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setHiddenRibs(prev => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(ribId)) next.delete(ribId);
+                                                    else next.add(ribId);
+                                                    return next;
+                                                  });
+                                                }}
+                                              >
+                                                {hiddenRibs.has(ribId)
+                                                  ? <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
+                                                  : <Eye className="w-3.5 h-3.5" />}
+                                              </button>
+                                              <button
+                                                className="p-0.5 rounded hover:bg-muted"
+                                                title="Rename rib"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  startRenameRib(ribId, m?.name ?? ribId);
+                                                }}
+                                              >
+                                                <Pencil className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
                                           </div>
                                         </div>
                                       );
@@ -1572,6 +1608,23 @@ export default function Step7MeasurementsPage() {
                                       <Pencil className="w-3.5 h-3.5" />
                                     </button>
                                   )}
+                                  <button
+                                    className="p-0.5 rounded hover:bg-muted"
+                                    title={hiddenRibs.has(primaryId) ? "Show in 3D" : "Hide in 3D"}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setHiddenRibs(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(primaryId)) next.delete(primaryId);
+                                        else next.add(primaryId);
+                                        return next;
+                                      });
+                                    }}
+                                  >
+                                    {hiddenRibs.has(primaryId)
+                                      ? <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
+                                      : <Eye className="w-3.5 h-3.5" />}
+                                  </button>
                                   <button
                                     className="p-0.5 rounded hover:bg-muted"
                                     title="Rename rib"
@@ -1679,13 +1732,32 @@ export default function Step7MeasurementsPage() {
                                       />
                                       <span className="text-sm font-medium truncate">{displayName}</span>
                                     </div>
-                                    <button
-                                      className="p-0.5 rounded hover:bg-muted shrink-0"
-                                      title="Rename"
-                                      onClick={(e) => { e.stopPropagation(); startRenameBossStone(marker.id, displayName); }}
-                                    >
-                                      <Pencil className="w-3.5 h-3.5" />
-                                    </button>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <button
+                                        className="p-0.5 rounded hover:bg-muted"
+                                        title={hiddenBossStones.has(marker.id) ? "Show in 3D" : "Hide in 3D"}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setHiddenBossStones(prev => {
+                                            const next = new Set(prev);
+                                            if (next.has(marker.id)) next.delete(marker.id);
+                                            else next.add(marker.id);
+                                            return next;
+                                          });
+                                        }}
+                                      >
+                                        {hiddenBossStones.has(marker.id)
+                                          ? <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
+                                          : <Eye className="w-3.5 h-3.5" />}
+                                      </button>
+                                      <button
+                                        className="p-0.5 rounded hover:bg-muted"
+                                        title="Rename"
+                                        onClick={(e) => { e.stopPropagation(); startRenameBossStone(marker.id, displayName); }}
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -1818,7 +1890,7 @@ export default function Step7MeasurementsPage() {
                           ribPaths={ribPaths}
                           onLineClick={setSelectedRib}
                           bossStoneMarkers={displayBossStoneMarkers}
-                          showBossStones={showBossStones}
+                          showBossStoneLabels={showBossStones}
                           selectedBossStoneId={selectedBossStone}
                           onBossStoneClick={setSelectedBossStone}
                         />
@@ -1867,7 +1939,7 @@ export default function Step7MeasurementsPage() {
                               size="sm"
                               onClick={() => setShowBossStones(v => !v)}
                               className="gap-1 h-7"
-                              title={showBossStones ? "Hide boss stones" : "Show boss stones"}
+                              title={showBossStones ? "Hide boss stone labels" : "Show boss stone labels"}
                             >
                               <Circle className="w-3.5 h-3.5" />
                               <span className="text-xs">Bosses</span>
