@@ -541,7 +541,14 @@ export function useStep4Geometry2DController() {
   const [isRunningReconstruction, setIsRunningReconstruction] = useState(false);
   const [isSavingReconstructionManualEdges, setIsSavingReconstructionManualEdges] = useState(false);
 
-  const [roi, setRoi] = useState<ROIState>(DEFAULT_ROI);
+  const [roi, setRoi] = useState<ROIState>(() => {
+    const project = useProjectStore.getState().currentProject;
+    const step3Roi = project?.steps?.[3]?.data?.roi as ROIState | undefined;
+    if (step3Roi && step3Roi.x !== undefined) {
+      return { x: step3Roi.x, y: step3Roi.y, width: step3Roi.width, height: step3Roi.height, rotation: step3Roi.rotation || 0 };
+    }
+    return DEFAULT_ROI;
+  });
   const [showROI, setShowROI] = useState(true);
   const [showBaseImage, setShowBaseImage] = useState(true);
   const [showRoiCornerGuides, setShowRoiCornerGuides] = useState(true);
@@ -1934,22 +1941,8 @@ export function useStep4Geometry2DController() {
       });
     }
 
-    const step4Roi = geometry2dData?.roi;
-    if (step4Roi && step4Roi.x !== undefined) {
-      const nextRoi = {
-        x: step4Roi.x,
-        y: step4Roi.y,
-        width: step4Roi.width,
-        height: step4Roi.height,
-        rotation: step4Roi.rotation || 0,
-      };
-      setRoi((prev) => (isSameRoi(prev, nextRoi) ? prev : nextRoi));
-      return;
-    }
-
     const step3Roi = currentProject?.steps?.[3]?.data?.roi as ROIState | undefined;
     if (step3Roi && step3Roi.x !== undefined) {
-      updateStep4Geometry2D({ roi: step3Roi });
       const nextRoi = {
         x: step3Roi.x,
         y: step3Roi.y,
@@ -2104,6 +2097,11 @@ export function useStep4Geometry2DController() {
     return !!roiSaveResult || !!savedRoiStats;
   }, [currentProject?.steps, roiSaveResult]);
 
+  const step3Roi = useMemo(() => {
+    const raw = currentProject?.steps?.[3]?.data?.roi as ROIState | undefined;
+    return raw?.x !== undefined ? raw : null;
+  }, [currentProject?.steps]);
+
   const handleExportCSV = () => {
     if (!result) return;
 
@@ -2193,6 +2191,7 @@ export function useStep4Geometry2DController() {
     isSavingROI,
     roiSaveResult,
     hasSavedRoi,
+    step3Roi,
 
     templatePoints,
     templateDetectedPoints,

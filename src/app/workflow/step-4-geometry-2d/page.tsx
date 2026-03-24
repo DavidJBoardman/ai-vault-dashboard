@@ -238,6 +238,7 @@ export default function Step4Geometry2DPage() {
                   isSavingROI={controller.isSavingROI}
                   hasSegmentations={controller.hasSegmentations}
                   roiSaveResult={controller.roiSaveResult}
+                  isRoiImportedFromStep3={!controller.hasSavedRoi && !!controller.step3Roi}
                 />
               ) : stageToolTab === "controls" && !isNodesStage && !isMatchingStage && !isReconstructStage ? (
                 <RoiAccessCard
