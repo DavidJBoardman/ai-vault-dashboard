@@ -1072,8 +1072,6 @@ async def save_roi(request: SaveROIRequest):
         
         # Update each segmentation with insideRoi flag
         segmentations = index_data.get("segmentations", [])
-        inside_count = 0
-        outside_count = 0
         
         for seg in segmentations:
             # Prefer robust pixel-overlap classification using mask image.
@@ -1083,11 +1081,31 @@ async def save_roi(request: SaveROIRequest):
                 overlap_inside = bbox_overlaps_roi(bbox, roi_dict) if bbox else False
 
             seg["insideRoi"] = bool(overlap_inside)
-            if seg["insideRoi"]:
-                inside_count += 1
+
+        # Permanently delete rib segmentations outside the ROI (mask files + index entries)
+        ribs_deleted = 0
+        kept_segmentations = []
+        for seg in segmentations:
+            if seg.get("groupId") == "rib" and not seg.get("insideRoi", True):
+                mask_file = seg.get("maskFile")
+                if mask_file:
+                    mask_path = seg_dir / mask_file
+                    if mask_path.exists():
+                        try:
+                            mask_path.unlink()
+                        except Exception as del_err:
+                            print(f"  Warning: could not delete rib mask file {mask_file}: {del_err}")
+                ribs_deleted += 1
             else:
-                outside_count += 1
-        
+                kept_segmentations.append(seg)
+
+        if ribs_deleted:
+            print(f"  → Permanently deleted {ribs_deleted} rib segmentation(s) outside ROI")
+            segmentations = kept_segmentations
+
+        inside_count = sum(1 for s in segmentations if s.get("insideRoi", False))
+        outside_count = sum(1 for s in segmentations if not s.get("insideRoi", True))
+
         index_data["segmentations"] = segmentations
         
         # Also update group summaries with counts
@@ -1105,12 +1123,13 @@ async def save_roi(request: SaveROIRequest):
             json.dump(index_data, f, indent=2)
         
         print(f"✓ Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f}°")
-        print(f"  → {inside_count} masks inside ROI, {outside_count} outside")
+        print(f"  → {inside_count} masks inside ROI, {outside_count} outside, {ribs_deleted} rib(s) permanently removed")
         
         return {
             "success": True,
             "insideCount": inside_count,
             "outsideCount": outside_count,
+            "ribsDeleted": ribs_deleted,
         }
         
     except Exception as e:
@@ -1734,52 +1753,223 @@ def _is_boss_stone(text: str) -> bool:
     return any(k in slug for k in known)
 
 
+def _denormalize_xyz(norm_xyz, min_vals: list, range_vals: list, centroid: list):
+    """Denormalise a normalised centred coordinate to real-world E57 space."""
+    x = float(norm_xyz[0] * range_vals[0] + min_vals[0] + centroid[0])
+    y = float(norm_xyz[1] * range_vals[1] + min_vals[1] + centroid[1])
+    z = float(norm_xyz[2] * range_vals[2] + min_vals[2] + centroid[2])
+    return x, y, z
+
+
+def _boss_markers_from_reference_points(
+    project_dir,
+    coords,
+    min_vals: list,
+    range_vals: list,
+    centroid: list,
+    impost_z: Optional[float],
+) -> list:
+    """Return boss stone markers derived from step 4B reference points (node_points.json).
+
+    Only points with ``pointType == "boss"`` are used — ROI corner reference points
+    are excluded.  Each point's pixel coordinates (x, y) directly index the
+    projection's ``_coordinates.npy`` array, which uses the same pixel space.
+
+    Returns an empty list if the file does not exist or contains no boss points,
+    allowing the caller to fall back to segmentation-mask-based extraction.
+    """
+    import numpy as np
+
+    node_points_path = Path(project_dir) / "2d_geometry" / "node_points.json"
+    if not node_points_path.exists():
+        return []
+
+    try:
+        with open(node_points_path, "r") as f:
+            node_data = json.load(f)
+    except Exception as e:
+        print(f"  Warning: could not load node_points.json: {e}")
+        return []
+
+    points = node_data.get("points", [])
+    boss_points = [p for p in points if p.get("pointType", "boss") == "boss"]
+
+    if not boss_points:
+        return []
+
+    coord_valid = np.any(coords != 0, axis=2)
+    markers = []
+
+    for point in boss_points:
+        try:
+            px = int(round(float(point["x"])))
+            py = int(round(float(point["y"])))
+            py = max(0, min(py, coords.shape[0] - 1))
+            px = max(0, min(px, coords.shape[1] - 1))
+
+            norm_xyz = coords[py, px]
+
+            if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
+                # Reference point pixel is in unscanned space — find the nearest
+                # valid pixel for XY and use impost Z as the vertical position.
+                all_valid_ys, all_valid_xs = np.where(coord_valid)
+                if len(all_valid_ys) == 0:
+                    print(f"  Warning: no valid coordinate data for ref point {point.get('id')}")
+                    continue
+                dists = (all_valid_ys - py) ** 2 + (all_valid_xs - px) ** 2
+                best_idx = int(np.argmin(dists))
+                norm_xyz = coords[all_valid_ys[best_idx], all_valid_xs[best_idx]]
+                x, y, _z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                z = impost_z if impost_z is not None else _z
+            else:
+                x, y, z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+
+            point_id = point.get("id")
+            label = str(point.get("label") or f"Boss {point_id}")
+
+            markers.append({
+                "id": f"boss-ref-{point_id}",
+                "label": label,
+                "groupId": "boss_stone",
+                "color": "#FFD700",
+                "x": x,
+                "y": y,
+                "z": z,
+            })
+        except Exception as e:
+            print(f"  Warning: could not process reference point {point.get('id')}: {e}")
+
+    return markers
+
+
+def _boss_markers_from_segmentations(
+    boss_segs: list,
+    seg_dir,
+    coords,
+    min_vals: list,
+    range_vals: list,
+    centroid: list,
+    impost_z: Optional[float],
+    group_lookup: dict,
+) -> list:
+    """Extract boss stone markers from segmentation masks (legacy / fallback path).
+
+    For each boss segmentation, the centroid pixel of its alpha mask is looked up
+    in the projection's ``_coordinates.npy`` and denormalised to real-world XYZ.
+    """
+    import numpy as np
+    from PIL import Image
+
+    seg_dir = Path(seg_dir)
+    coord_valid = np.any(coords != 0, axis=2)
+    markers = []
+
+    for seg in boss_segs:
+        mask_file = seg.get("maskFile")
+        if not mask_file:
+            continue
+
+        mask_path = seg_dir / mask_file
+        if not mask_path.exists():
+            continue
+
+        # Load mask and extract alpha channel
+        mask_img = Image.open(mask_path)
+        if mask_img.mode == "RGBA":
+            alpha = np.array(mask_img)[:, :, 3]
+        elif mask_img.mode == "LA":
+            alpha = np.array(mask_img)[:, :, 1]
+        else:
+            alpha = np.array(mask_img.convert("L"))
+
+        ys, xs = np.where(alpha > 127)
+        if len(ys) == 0:
+            continue
+
+        cy = int(np.mean(ys))
+        cx = int(np.mean(xs))
+        cy = min(cy, coords.shape[0] - 1)
+        cx = min(cx, coords.shape[1] - 1)
+
+        norm_xyz = coords[cy, cx]
+
+        if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
+            valid_mask = (alpha > 127) & coord_valid
+            valid_ys, valid_xs = np.where(valid_mask)
+            if len(valid_ys) == 0:
+                # No scan data inside the mask at all — fall back to nearest valid
+                # pixel in the whole image and use impost Z for the vertical.
+                if impost_z is None:
+                    continue
+                all_valid_ys, all_valid_xs = np.where(coord_valid)
+                if len(all_valid_ys) == 0:
+                    continue
+                dists = (all_valid_ys - cy) ** 2 + (all_valid_xs - cx) ** 2
+                best_idx = int(np.argmin(dists))
+                norm_xyz = coords[all_valid_ys[best_idx], all_valid_xs[best_idx]]
+                x, y, _ = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                z = impost_z
+                group_id = seg.get("groupId") or extract_group_id(seg.get("label", ""))
+                group_info = group_lookup.get(group_id, {})
+                color = seg.get("color") or group_info.get("color") or "#FFD700"
+                markers.append({
+                    "id": seg.get("id", ""),
+                    "label": seg.get("label", group_id),
+                    "groupId": group_id,
+                    "color": color,
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                })
+                continue
+            cy = int(np.mean(valid_ys))
+            cx = int(np.mean(valid_xs))
+            cy = min(cy, coords.shape[0] - 1)
+            cx = min(cx, coords.shape[1] - 1)
+            norm_xyz = coords[cy, cx]
+
+        x, y, z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+        group_id = seg.get("groupId") or extract_group_id(seg.get("label", ""))
+        group_info = group_lookup.get(group_id, {})
+        color = seg.get("color") or group_info.get("color") or "#FFD700"
+
+        markers.append({
+            "id": seg.get("id", ""),
+            "label": seg.get("label", group_id),
+            "groupId": group_id,
+            "color": color,
+            "x": x,
+            "y": y,
+            "z": z,
+        })
+
+    return markers
+
+
 @router.get("/{project_id}/boss-stone-markers")
 async def get_boss_stone_markers(project_id: str):
-    """Get 3D centroid positions for boss stone / keystone masks.
+    """Get 3D centroid positions for boss stone / keystone markers.
 
-    For every segmentation whose groupId or label is recognised as a boss stone,
-    the centroid pixel of its mask is looked up in the projection's
-    ``_coordinates.npy`` (shape H×W×3, normalised) and the normalised coordinate
-    is denormalised to real-world XYZ using ``min_vals`` / ``range_vals`` from
-    the projection metadata.
+    Preferred source: step 4B reference points (node_points.json).  Each boss-type
+    reference point's pixel coordinates are looked up in the projection's
+    ``_coordinates.npy`` and denormalised to real-world XYZ.
+
+    Fallback: if no step 4B reference points exist, uses segmentation masks — for
+    every segmentation whose groupId or label is recognised as a boss stone the
+    centroid pixel of its alpha mask is used instead.
 
     Returns a list of markers::
         [{ id, label, groupId, color, x, y, z }, ...]
     """
     import numpy as np
-    from PIL import Image
 
     try:
         project_dir = get_project_dir(project_id)
         seg_dir = project_dir / "segmentations"
-        seg_index_path = seg_dir / "index.json"
 
-        if not seg_index_path.exists():
-            return {"success": True, "data": {"markers": []}}
-
-        with open(seg_index_path, "r") as f:
-            seg_index = json.load(f)
-
-        if isinstance(seg_index, list):
-            seg_refs = seg_index
-            groups = []
-        else:
-            seg_refs = seg_index.get("segmentations", [])
-            groups = seg_index.get("groups", [])
-
-        group_lookup = {g["groupId"]: g for g in groups}
-
-        # Filter segmentations that belong to boss stone / keystone groups
-        boss_segs = [
-            s for s in seg_refs
-            if _is_boss_stone(s.get("groupId", "")) or _is_boss_stone(s.get("label", ""))
-        ]
-
-        if not boss_segs:
-            return {"success": True, "data": {"markers": []}}
-
-        # Load projection index to find coordinates file
+        # ------------------------------------------------------------------
+        # Load projection coordinates & metadata (shared by both paths)
+        # ------------------------------------------------------------------
         proj_dir = project_dir / "projections"
         proj_index_path = proj_dir / "index.json"
 
@@ -1805,7 +1995,6 @@ async def get_boss_stone_markers(project_id: str):
             print(f"  Coordinates file not found: {coord_path}")
             return {"success": True, "data": {"markers": []}}
 
-        # Load projection metadata for denormalisation
         meta_file = files.get("metadata")
         meta_path = proj_dir / meta_file if meta_file else None
 
@@ -1817,80 +2006,150 @@ async def get_boss_stone_markers(project_id: str):
 
         min_vals = metadata.get("min_vals", [0.0, 0.0, 0.0])
         range_vals = metadata.get("range_vals", [1.0, 1.0, 1.0])
-        # Projection was computed on centroid-centred points, so coordinates stored in
-        # _coordinates.npy are in centred space.  Add the centroid back to recover
-        # real-world E57 coordinates (same system as the reprojection preview points).
         centroid = metadata.get("centroid", [0.0, 0.0, 0.0])
 
-        # Load the coordinates array once (H, W, 3), values in [0, 1]
         coords = np.load(str(coord_path))
 
-        markers = []
-        for seg in boss_segs:
-            mask_file = seg.get("maskFile")
-            if not mask_file:
-                continue
+        # Derive impost Z from intrados lines (used as fallback vertical for
+        # points that fall in unscanned space).
+        impost_z: Optional[float] = None
+        intrados_path = seg_dir / "intrados_lines.json"
+        if intrados_path.exists():
+            try:
+                with open(intrados_path, "r") as _f:
+                    _intrados = json.load(_f)
+                _min_zs = []
+                for _line in _intrados.get("lines", []):
+                    _pts = _line.get("points3d", [])
+                    _zs = [
+                        _p["value"][2]
+                        for _p in _pts
+                        if isinstance(_p, dict)
+                        and isinstance(_p.get("value"), list)
+                        and len(_p["value"]) >= 3
+                    ]
+                    if _zs:
+                        _min_zs.append(min(_zs))
+                if _min_zs:
+                    impost_z = float(np.median(_min_zs))
+                    print(f"  Impost Z derived from intrados lines: {impost_z:.4f}")
+            except Exception as _e:
+                print(f"  Warning: could not derive impost Z from intrados lines: {_e}")
 
-            mask_path = seg_dir / mask_file
-            if not mask_path.exists():
-                continue
+        # ------------------------------------------------------------------
+        # Primary: step 4B reference points
+        # ------------------------------------------------------------------
+        markers = _boss_markers_from_reference_points(
+            project_dir, coords, min_vals, range_vals, centroid, impost_z
+        )
 
-            # Load mask and extract alpha channel
-            mask_img = Image.open(mask_path)
-            if mask_img.mode == "RGBA":
-                alpha = np.array(mask_img)[:, :, 3]
-            elif mask_img.mode == "LA":
-                alpha = np.array(mask_img)[:, :, 1]
+        if markers:
+            print(f"Boss stone markers for {project_id}: {len(markers)} from step 4B reference points")
+        else:
+            # ------------------------------------------------------------------
+            # Fallback: segmentation masks
+            # ------------------------------------------------------------------
+            seg_index_path = seg_dir / "index.json"
+            if not seg_index_path.exists():
+                return {"success": True, "data": {"markers": []}}
+
+            with open(seg_index_path, "r") as f:
+                seg_index = json.load(f)
+
+            if isinstance(seg_index, list):
+                seg_refs = seg_index
+                groups = []
             else:
-                alpha = np.array(mask_img.convert("L"))
+                seg_refs = seg_index.get("segmentations", [])
+                groups = seg_index.get("groups", [])
 
-            # Find all foreground pixels
-            ys, xs = np.where(alpha > 127)
-            if len(ys) == 0:
-                continue
+            group_lookup = {g["groupId"]: g for g in groups}
 
-            # Compute centroid pixel
-            cy = int(np.mean(ys))
-            cx = int(np.mean(xs))
-            cy = min(cy, coords.shape[0] - 1)
-            cx = min(cx, coords.shape[1] - 1)
+            boss_segs = [
+                s for s in seg_refs
+                if _is_boss_stone(s.get("groupId", "")) or _is_boss_stone(s.get("label", ""))
+            ]
 
-            norm_xyz = coords[cy, cx]
+            # ROI corners stored in the segmentation index
+            stored_roi = seg_index.get("roi") if not isinstance(seg_index, list) else None
+            roi_corners = stored_roi.get("corners", []) if stored_roi else []
 
-            # If centroid falls on an empty pixel, use the mean of valid mask pixels instead
-            if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
-                coord_valid = np.any(coords != 0, axis=2)
-                valid_mask = (alpha > 127) & coord_valid
-                valid_ys, valid_xs = np.where(valid_mask)
-                if len(valid_ys) == 0:
-                    continue
-                cy = int(np.mean(valid_ys))
-                cx = int(np.mean(valid_xs))
-                cy = min(cy, coords.shape[0] - 1)
-                cx = min(cx, coords.shape[1] - 1)
-                norm_xyz = coords[cy, cx]
+            markers = _boss_markers_from_segmentations(
+                boss_segs, seg_dir, coords, min_vals, range_vals, centroid, impost_z, group_lookup
+            )
 
-            # Denormalise centred coords: centred = norm * range + min
-            # Then add centroid to recover real-world E57 coordinates
-            x = float(norm_xyz[0] * range_vals[0] + min_vals[0] + centroid[0])
-            y = float(norm_xyz[1] * range_vals[1] + min_vals[1] + centroid[1])
-            z = float(norm_xyz[2] * range_vals[2] + min_vals[2] + centroid[2])
+            # Add ROI corner reference points as 3D markers
+            _corner_labels = ["Corner TL", "Corner TR", "Corner BR", "Corner BL"]
+            _corner_search_radius = 20
+            for i, corner in enumerate(roi_corners[:4]):
+                try:
+                    cx_px = int(corner[0])
+                    cy_px = int(corner[1])
+                    cy_clamped = max(0, min(cy_px, coords.shape[0] - 1))
+                    cx_clamped = max(0, min(cx_px, coords.shape[1] - 1))
+                    norm_xyz = coords[cy_clamped, cx_clamped]
+                    _corner_fallback = False
+                    if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
+                        _corner_fallback = True
+                        r = _corner_search_radius
+                        cy_start = max(0, cy_clamped - r)
+                        cy_end = min(coords.shape[0], cy_clamped + r + 1)
+                        cx_start = max(0, cx_clamped - r)
+                        cx_end = min(coords.shape[1], cx_clamped + r + 1)
+                        patch = coords[cy_start:cy_end, cx_start:cx_end]
+                        valid_patch = np.any(patch != 0, axis=2)
+                        valid_ys, valid_xs = np.where(valid_patch)
+                        if len(valid_ys) == 0:
+                            if impost_z is None:
+                                continue
+                            coord_valid_full = np.any(coords != 0, axis=2)
+                            all_valid_ys, all_valid_xs = np.where(coord_valid_full)
+                            if len(all_valid_ys) == 0:
+                                continue
+                            dists = (all_valid_ys - cy_clamped) ** 2 + (all_valid_xs - cx_clamped) ** 2
+                            best_idx_full = int(np.argmin(dists))
+                            norm_xyz = coords[all_valid_ys[best_idx_full], all_valid_xs[best_idx_full]]
+                            x, y, _ = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                            z = impost_z
+                            corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
+                            markers.append({
+                                "id": f"roi-corner-{i}",
+                                "label": corner_label,
+                                "groupId": "roi_corner",
+                                "color": "#FFFFFF",
+                                "x": x,
+                                "y": y,
+                                "z": z,
+                            })
+                            continue
+                        origin_y = cy_clamped - cy_start
+                        origin_x = cx_clamped - cx_start
+                        dists = (valid_ys - origin_y) ** 2 + (valid_xs - origin_x) ** 2
+                        best = int(np.argmin(dists))
+                        norm_xyz = patch[valid_ys[best], valid_xs[best]]
+                    x, y, _z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                    # ROI corners are 2D semantic markers — always place them at
+                    # impost height when available, even if the pixel has valid
+                    # but floor-level point cloud data.
+                    z = impost_z if impost_z is not None else _z
+                    corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
+                    markers.append({
+                        "id": f"roi-corner-{i}",
+                        "label": corner_label,
+                        "groupId": "roi_corner",
+                        "color": "#FFFFFF",
+                        "x": x,
+                        "y": y,
+                        "z": z,
+                    })
+                except Exception as corner_err:
+                    print(f"  Warning: could not resolve 3D position for ROI corner {i}: {corner_err}")
 
-            group_id = seg.get("groupId") or extract_group_id(seg.get("label", ""))
-            group_info = group_lookup.get(group_id, {})
-            color = seg.get("color") or group_info.get("color") or "#FFD700"
+            print(
+                f"Boss stone markers for {project_id}: {len(markers)} from segmentation masks "
+                f"({len(roi_corners)} ROI corners included)"
+            )
 
-            markers.append({
-                "id": seg.get("id", ""),
-                "label": seg.get("label", group_id),
-                "groupId": group_id,
-                "color": color,
-                "x": x,
-                "y": y,
-                "z": z,
-            })
-
-        print(f"Boss stone markers for {project_id}: {len(markers)} found")
         return {"success": True, "data": {"markers": markers}}
 
     except Exception as e:
