@@ -618,6 +618,61 @@ class MeasurementService:
     # Apex & Span helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _polyline_z_intersection(
+        pts: np.ndarray,
+        z: float,
+        from_end: bool = True,
+    ) -> Optional[np.ndarray]:
+        """Find where a 3-D polyline crosses a horizontal plane at *z*.
+
+        Walks consecutive segments and returns the linearly-interpolated
+        3-D point of the first crossing found.
+
+        Parameters
+        ----------
+        pts : (N, 3) array
+            Ordered polyline vertices.
+        z : float
+            Target Z elevation.
+        from_end : bool
+            If *True* walk from ``pts[-1]`` toward ``pts[0]`` (i.e. from
+            the springing end toward the boss).  Otherwise walk forward.
+
+        Returns
+        -------
+        np.ndarray or None
+            Interpolated ``[x, y, z]`` at the crossing, or *None* if the
+            polyline never crosses *z*.
+        """
+        if len(pts) < 2:
+            return None
+
+        indices = range(len(pts) - 1, 0, -1) if from_end else range(len(pts) - 1)
+
+        for i in indices:
+            if from_end:
+                a, b = pts[i], pts[i - 1]
+            else:
+                a, b = pts[i], pts[i + 1]
+
+            z_a, z_b = float(a[2]), float(b[2])
+
+            # Check if the segment straddles or touches z
+            if (z_a - z) * (z_b - z) > 0:
+                continue  # both on same side
+
+            dz = z_b - z_a
+            if abs(dz) < 1e-12:
+                # Segment is essentially horizontal at z — return midpoint
+                return (a + b) / 2.0
+
+            t = (z - z_a) / dz
+            t = max(0.0, min(1.0, t))
+            return a + t * (b - a)
+
+        return None
+
     def _assign_ribs_to_bosses(
         self,
         bosses: List[Dict[str, Any]],
@@ -970,9 +1025,28 @@ class MeasurementService:
                 # Project apex down to the springing-Z plane
                 proj_apex = np.array([apex_3d["x"], apex_3d["y"], spring_z])
 
-                # Horizontal distance from springing point to projected apex
-                dx = proj_apex[0] - spring[0]
-                dy = proj_apex[1] - spring[1]
+                # Project springing corner to the impost plane too
+                proj_spring = spring.copy()
+                if impost_height is not None:
+                    # Walk the polyline from the springing end to find
+                    # the XY where the rib crosses Z = impost_height
+                    pts = self.traces.get(rid)
+                    if pts is not None and len(pts) >= 2:
+                        # boss_end_idx 0 → springing is at end; -1 → at start
+                        from_end = entry["boss_end_idx"] == 0
+                        hit = self._polyline_z_intersection(pts, impost_height, from_end=from_end)
+                        if hit is not None:
+                            proj_spring = hit
+                        else:
+                            # Rib doesn't cross the plane — keep XY, set Z
+                            proj_spring = np.array([spring[0], spring[1], spring_z])
+                    else:
+                        proj_spring = np.array([spring[0], spring[1], spring_z])
+                # else: no impost height → keep physical springing point
+
+                # Horizontal distance from projected springing to projected apex
+                dx = proj_apex[0] - proj_spring[0]
+                dy = proj_apex[1] - proj_spring[1]
                 span = float(np.sqrt(dx * dx + dy * dy))
 
                 rib_results[rid] = {
@@ -980,9 +1054,9 @@ class MeasurementService:
                     "bossId": bid,
                     "span": span,
                     "springingPoint": {
-                        "x": float(spring[0]),
-                        "y": float(spring[1]),
-                        "z": float(spring[2]),
+                        "x": float(proj_spring[0]),
+                        "y": float(proj_spring[1]),
+                        "z": float(proj_spring[2]),
                     },
                     "projectedApex": {
                         "x": float(proj_apex[0]),

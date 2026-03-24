@@ -1125,13 +1125,15 @@ export default function Step7MeasurementsPage() {
     })),
   [intradosLines]);
 
-  // Merge custom names into markers so the 3D labels stay in sync
-  const displayBossStoneMarkers = useMemo(() =>
-    bossStoneMarkers.map(m => ({
+  // Merge custom names into markers and project corner stones to impost line height
+  const displayBossStoneMarkers = useMemo(() => {
+    const impostZ = impostLineData?.impost_height;
+    return bossStoneMarkers.map(m => ({
       ...m,
       label: measurementConfig.bossStoneNameById[m.id] ?? m.label,
-    })),
-  [bossStoneMarkers, measurementConfig.bossStoneNameById]);
+      z: (impostZ != null && m.groupId === "roi_corner") ? impostZ : m.z,
+    }));
+  }, [bossStoneMarkers, measurementConfig.bossStoneNameById, impostLineData]);
   
   // Update measurements when loaded data changes
   useEffect(() => {
