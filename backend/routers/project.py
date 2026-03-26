@@ -1780,7 +1780,13 @@ def _boss_markers_from_reference_points(
     """
     import numpy as np
 
-    node_points_path = Path(project_dir) / "2d_geometry" / "node_points.json"
+    # Canonical location written by CutTypologyMatchingService
+    cut_dir = Path(project_dir) / "2d_geometry" / "cut_typology_matching"
+    old_path = cut_dir / "boss_points.json"
+    node_points_path = cut_dir / "node_points.json"
+    # Handle legacy rename (matches CutTypologyMatchingService._node_points_path)
+    if old_path.exists() and not node_points_path.exists():
+        old_path.rename(node_points_path)
     if not node_points_path.exists():
         return []
 
@@ -1825,7 +1831,7 @@ def _boss_markers_from_reference_points(
                 x, y, z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
 
             point_id = point.get("id")
-            label = str(point.get("label") or f"Boss {point_id}")
+            label = f"Boss {point_id}"
 
             markers.append({
                 "id": f"boss-ref-{point_id}",
@@ -2070,85 +2076,95 @@ async def get_boss_stone_markers(project_id: str):
                 if _is_boss_stone(s.get("groupId", "")) or _is_boss_stone(s.get("label", ""))
             ]
 
-            # ROI corners stored in the segmentation index
-            stored_roi = seg_index.get("roi") if not isinstance(seg_index, list) else None
-            roi_corners = stored_roi.get("corners", []) if stored_roi else []
-
             markers = _boss_markers_from_segmentations(
                 boss_segs, seg_dir, coords, min_vals, range_vals, centroid, impost_z, group_lookup
             )
 
-            # Add ROI corner reference points as 3D markers
-            _corner_labels = ["Corner TL", "Corner TR", "Corner BR", "Corner BL"]
-            _corner_search_radius = 20
-            for i, corner in enumerate(roi_corners[:4]):
-                try:
-                    cx_px = int(corner[0])
-                    cy_px = int(corner[1])
-                    cy_clamped = max(0, min(cy_px, coords.shape[0] - 1))
-                    cx_clamped = max(0, min(cx_px, coords.shape[1] - 1))
-                    norm_xyz = coords[cy_clamped, cx_clamped]
-                    _corner_fallback = False
-                    if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
-                        _corner_fallback = True
-                        r = _corner_search_radius
-                        cy_start = max(0, cy_clamped - r)
-                        cy_end = min(coords.shape[0], cy_clamped + r + 1)
-                        cx_start = max(0, cx_clamped - r)
-                        cx_end = min(coords.shape[1], cx_clamped + r + 1)
-                        patch = coords[cy_start:cy_end, cx_start:cx_end]
-                        valid_patch = np.any(patch != 0, axis=2)
-                        valid_ys, valid_xs = np.where(valid_patch)
-                        if len(valid_ys) == 0:
-                            if impost_z is None:
-                                continue
-                            coord_valid_full = np.any(coords != 0, axis=2)
-                            all_valid_ys, all_valid_xs = np.where(coord_valid_full)
-                            if len(all_valid_ys) == 0:
-                                continue
-                            dists = (all_valid_ys - cy_clamped) ** 2 + (all_valid_xs - cx_clamped) ** 2
-                            best_idx_full = int(np.argmin(dists))
-                            norm_xyz = coords[all_valid_ys[best_idx_full], all_valid_xs[best_idx_full]]
-                            x, y, _ = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
-                            z = impost_z
-                            corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
-                            markers.append({
-                                "id": f"roi-corner-{i}",
-                                "label": corner_label,
-                                "groupId": "roi_corner",
-                                "color": "#FFFFFF",
-                                "x": x,
-                                "y": y,
-                                "z": z,
-                            })
-                            continue
-                        origin_y = cy_clamped - cy_start
-                        origin_x = cx_clamped - cx_start
-                        dists = (valid_ys - origin_y) ** 2 + (valid_xs - origin_x) ** 2
-                        best = int(np.argmin(dists))
-                        norm_xyz = patch[valid_ys[best], valid_xs[best]]
-                    x, y, _z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
-                    # ROI corners are 2D semantic markers — always place them at
-                    # impost height when available, even if the pixel has valid
-                    # but floor-level point cloud data.
-                    z = impost_z if impost_z is not None else _z
-                    corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
-                    markers.append({
-                        "id": f"roi-corner-{i}",
-                        "label": corner_label,
-                        "groupId": "roi_corner",
-                        "color": "#FFFFFF",
-                        "x": x,
-                        "y": y,
-                        "z": z,
-                    })
-                except Exception as corner_err:
-                    print(f"  Warning: could not resolve 3D position for ROI corner {i}: {corner_err}")
-
             print(
-                f"Boss stone markers for {project_id}: {len(markers)} from segmentation masks "
-                f"({len(roi_corners)} ROI corners included)"
+                f"Boss stone markers for {project_id}: {len(markers)} from segmentation masks"
             )
+
+        # ------------------------------------------------------------------
+        # Always append ROI corner markers (both primary & fallback paths)
+        # ------------------------------------------------------------------
+        roi_corners = []
+        seg_index_path = seg_dir / "index.json"
+        if seg_index_path.exists():
+            try:
+                with open(seg_index_path, "r") as f:
+                    _seg_idx = json.load(f)
+                if isinstance(_seg_idx, dict):
+                    stored_roi = _seg_idx.get("roi")
+                    if stored_roi:
+                        roi_corners = stored_roi.get("corners", [])
+            except Exception:
+                pass
+
+        _corner_labels = ["Corner TL", "Corner TR", "Corner BR", "Corner BL"]
+        _corner_search_radius = 20
+        for i, corner in enumerate(roi_corners[:4]):
+            try:
+                cx_px = int(corner[0])
+                cy_px = int(corner[1])
+                cy_clamped = max(0, min(cy_px, coords.shape[0] - 1))
+                cx_clamped = max(0, min(cx_px, coords.shape[1] - 1))
+                norm_xyz = coords[cy_clamped, cx_clamped]
+                _corner_fallback = False
+                if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
+                    _corner_fallback = True
+                    r = _corner_search_radius
+                    cy_start = max(0, cy_clamped - r)
+                    cy_end = min(coords.shape[0], cy_clamped + r + 1)
+                    cx_start = max(0, cx_clamped - r)
+                    cx_end = min(coords.shape[1], cx_clamped + r + 1)
+                    patch = coords[cy_start:cy_end, cx_start:cx_end]
+                    valid_patch = np.any(patch != 0, axis=2)
+                    valid_ys, valid_xs = np.where(valid_patch)
+                    if len(valid_ys) == 0:
+                        if impost_z is None:
+                            continue
+                        coord_valid_full = np.any(coords != 0, axis=2)
+                        all_valid_ys, all_valid_xs = np.where(coord_valid_full)
+                        if len(all_valid_ys) == 0:
+                            continue
+                        dists = (all_valid_ys - cy_clamped) ** 2 + (all_valid_xs - cx_clamped) ** 2
+                        best_idx_full = int(np.argmin(dists))
+                        norm_xyz = coords[all_valid_ys[best_idx_full], all_valid_xs[best_idx_full]]
+                        x, y, _ = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                        z = impost_z
+                        corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
+                        markers.append({
+                            "id": f"roi-corner-{i}",
+                            "label": corner_label,
+                            "groupId": "roi_corner",
+                            "color": "#FFFFFF",
+                            "x": x,
+                            "y": y,
+                            "z": z,
+                        })
+                        continue
+                    origin_y = cy_clamped - cy_start
+                    origin_x = cx_clamped - cx_start
+                    dists = (valid_ys - origin_y) ** 2 + (valid_xs - origin_x) ** 2
+                    best = int(np.argmin(dists))
+                    norm_xyz = patch[valid_ys[best], valid_xs[best]]
+                x, y, _z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                z = impost_z if impost_z is not None else _z
+                corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
+                markers.append({
+                    "id": f"roi-corner-{i}",
+                    "label": corner_label,
+                    "groupId": "roi_corner",
+                    "color": "#FFFFFF",
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                })
+            except Exception as corner_err:
+                print(f"  Warning: could not resolve 3D position for ROI corner {i}: {corner_err}")
+
+        if roi_corners:
+            print(f"  + {len([m for m in markers if m['groupId'] == 'roi_corner'])} ROI corner markers")
 
         return {"success": True, "data": {"markers": markers}}
 
