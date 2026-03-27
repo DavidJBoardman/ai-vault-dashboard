@@ -16,6 +16,9 @@ except ImportError:
     print("Warning: rhino3dm not installed. 3DM export/import will not be available.")
 
 
+TRACE_IMPORT_LAYER_NAME = "Trace"
+
+
 def export_intrados_to_3dm(
     intrados_lines: List[Dict[str, Any]],
     output_path: str,
@@ -147,8 +150,8 @@ def import_3dm_curves(
             layer_idx = obj.Attributes.LayerIndex
             obj_layer = layer_names.get(layer_idx, "Default")
             
-            # Apply layer filter if specified
-            if layer_filter and layer_filter.lower() not in obj_layer.lower():
+            # Apply exact, case-insensitive layer filter when requested.
+            if layer_filter and obj_layer.strip().lower() != layer_filter.strip().lower():
                 continue
             
             # Extract points from curve

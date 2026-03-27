@@ -2293,9 +2293,9 @@ class Import3dmRequest(BaseModel):
 @router.post("/{project_id}/import-3dm")
 async def import_3dm_traces(project_id: str, request: Import3dmRequest):
     """
-    Import curves from a Rhino 3DM file as manual traces.
+    Import curves from the Rhino Trace layer as manual traces.
     """
-    from services.rhino_exporter import import_3dm_curves, RHINO3DM_AVAILABLE
+    from services.rhino_exporter import import_3dm_curves, RHINO3DM_AVAILABLE, TRACE_IMPORT_LAYER_NAME
     
     if not RHINO3DM_AVAILABLE:
         return {
@@ -2314,7 +2314,7 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
         # Import curves
         result = import_3dm_curves(
             file_path=request.filePath,
-            layer_filter=request.layerFilter
+            layer_filter=TRACE_IMPORT_LAYER_NAME
         )
         
         if result["success"]:
@@ -2337,7 +2337,7 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
                     "curves": result["curves"],
                     "curveCount": result.get("curveCount", 0),
                     "layers": result.get("layers", []),
-                    "message": f"Imported {result.get('curveCount', 0)} curves",
+                    "message": f"Imported {result.get('curveCount', 0)} curves from the {TRACE_IMPORT_LAYER_NAME} layer",
                     "source": request.filePath,
                     "importedAt": datetime.now().isoformat(),
                 }
