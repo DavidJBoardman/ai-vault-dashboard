@@ -90,6 +90,7 @@ interface PointCloudViewerProps {
   showExclusionBox?: boolean;
   ribLabels?: RibLabel[];
   selectedLabelId?: string | null;
+  selectedLabelIds?: string[];
   onLabelClick?: (id: string) => void;
   onLineClick?: (ribId: string) => void;
   /** Full rib paths used for click hit-areas (one tube per rib, not per segment) */
@@ -196,6 +197,9 @@ function PointCloud({
 }
 
 function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: number }) {
+  const getTubeSegments = (pointCount: number, maxSegments: number = 128) =>
+    Math.min(maxSegments, Math.max(8, pointCount * 2));
+
   return (
     <group>
       {lines.map((line) => {
@@ -291,7 +295,7 @@ function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: num
           (p) => new THREE.Vector3(p.x, p.z, p.y) // Swap Y/Z for correct orientation
         );
         const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5);
-        const segments = Math.max(8, line.points.length * 2);
+        const segments = getTubeSegments(line.points.length);
 
         return (
           <group key={line.id}>
@@ -340,6 +344,8 @@ function RibHitAreas({
   onLineClick?: (ribId: string) => void;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const getTubeSegments = (pointCount: number, maxSegments: number = 96) =>
+    Math.min(maxSegments, Math.max(8, pointCount * 2));
 
   return (
     <group>
@@ -347,7 +353,7 @@ function RibHitAreas({
         if (rib.points.length < 2) return null;
         const pts = rib.points.map((p) => new THREE.Vector3(p.x, p.z, p.y));
         const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
-        const segs = Math.max(8, rib.points.length * 2);
+        const segs = getTubeSegments(rib.points.length);
         const isHovered = hoveredId === rib.id;
         return (
           <mesh
@@ -598,50 +604,55 @@ function BossStoneMarkers3D({
 
 function RibLabelsOverlay({
   labels,
-  selectedId,
+  selectedIds,
   onLabelClick,
 }: {
   labels: RibLabel[];
-  selectedId?: string | null;
+  selectedIds?: string[];
   onLabelClick?: (id: string) => void;
 }) {
+  const selectedIdSet = useMemo(() => new Set(selectedIds ?? []), [selectedIds]);
+
   return (
     <>
-      {labels.map((label) => (
-        <Html
-          key={label.id}
-          position={[label.position.x, label.position.z, label.position.y]}
-          center
-          distanceFactor={8}
-          zIndexRange={[100, 0]}
-        >
-          <div
-            onClick={() => onLabelClick?.(label.id)}
-            style={{
-              cursor: "pointer",
-              padding: "2px 8px",
-              borderRadius: "9999px",
-              fontSize: "11px",
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              userSelect: "none",
-              background: selectedId === label.id
-                ? "rgba(255,255,255,0.95)"
-                : "rgba(10,15,26,0.75)",
-              color: selectedId === label.id ? "#0a0f1a" : "#e2e8f0",
-              border: selectedId === label.id
-                ? "1.5px solid rgba(255,255,255,1)"
-                : "1px solid rgba(255,255,255,0.25)",
-              boxShadow: selectedId === label.id
-                ? "0 0 0 3px rgba(255,255,255,0.2)"
-                : "none",
-              transition: "all 0.15s ease",
-            }}
+      {labels.map((label) => {
+        const isSelected = selectedIdSet.has(label.id);
+        return (
+          <Html
+            key={label.id}
+            position={[label.position.x, label.position.z, label.position.y]}
+            center
+            distanceFactor={8}
+            zIndexRange={[100, 0]}
           >
-            {label.label}
-          </div>
-        </Html>
-      ))}
+            <div
+              onClick={() => onLabelClick?.(label.id)}
+              style={{
+                cursor: "pointer",
+                padding: "2px 8px",
+                borderRadius: "9999px",
+                fontSize: "11px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                userSelect: "none",
+                background: isSelected
+                  ? "rgba(255,255,255,0.95)"
+                  : "rgba(10,15,26,0.75)",
+                color: isSelected ? "#0a0f1a" : "#e2e8f0",
+                border: isSelected
+                  ? "1.5px solid rgba(255,255,255,1)"
+                  : "1px solid rgba(255,255,255,0.25)",
+                boxShadow: isSelected
+                  ? "0 0 0 3px rgba(255,255,255,0.2)"
+                  : "none",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {label.label}
+            </div>
+          </Html>
+        );
+      })}
     </>
   );
 }
@@ -715,6 +726,7 @@ export function PointCloudViewer({
   showExclusionBox = false,
   ribLabels,
   selectedLabelId,
+  selectedLabelIds,
   onLabelClick,
   onLineClick,
   ribPaths,
@@ -727,6 +739,18 @@ export function PointCloudViewer({
   const [localColorMode, setLocalColorMode] = useState(colorMode);
   const [localPointSize, setLocalPointSize] = useState(pointSize);
   const [resetKey, setResetKey] = useState(0);
+  const resolvedSelectedLabelIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (selectedLabelId) {
+      ids.add(selectedLabelId);
+    }
+    selectedLabelIds?.forEach((id) => {
+      if (id) {
+        ids.add(id);
+      }
+    });
+    return Array.from(ids);
+  }, [selectedLabelId, selectedLabelIds]);
   
   // Calculate center for camera target
   const { center, cameraDistance, gridPos, minZ, bossStoneRadius } = useMemo(() => {
@@ -840,7 +864,7 @@ export function PointCloudViewer({
         {ribLabels && ribLabels.length > 0 && (
           <RibLabelsOverlay
             labels={ribLabels}
-            selectedId={selectedLabelId}
+            selectedIds={resolvedSelectedLabelIds}
             onLabelClick={onLabelClick}
           />
         )}

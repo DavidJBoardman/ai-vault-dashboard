@@ -334,6 +334,8 @@ export interface RibImpostData {
   springing_z: number;
   springing_point: { x: number; y: number; z: number };
   impost_distance: number;
+  arc_center_z: number;
+  arc_center: { x: number; y: number; z: number };
 }
 
 export interface ImpostLineResult {
@@ -478,12 +480,20 @@ export interface MeasurementCustomGroup {
   ribIds: string[];
 }
 
+export interface RibPairing {
+  id: string;
+  name: string;
+  /** Two entries — each is either a rib ID or a group ID */
+  sides: [string, string];
+}
+
 export interface MeasurementConfig {
   ribNameById: Record<string, string>;
   customGroups: MeasurementCustomGroup[];
   disabledAutoGroupIds: string[];
   groupNameById: Record<string, string>;
   bossStoneNameById: Record<string, string>;
+  ribPairings: RibPairing[];
 }
 
 export async function getMeasurementConfig(
@@ -829,6 +839,8 @@ export interface Import3dmResponse {
   curveCount: number;
   layers: string[];
   message: string;
+  source?: string;
+  importedAt?: string;
 }
 
 export interface File3dmInfo {
