@@ -77,6 +77,13 @@ class MeasurementCustomGroup(BaseModel):
     ribIds: List[str]
 
 
+class RibPairing(BaseModel):
+    """User-defined symmetric pairing between ribs or rib groups."""
+    id: str
+    name: str
+    sides: List[str]
+
+
 class MeasurementConfig(BaseModel):
     """Persistent measurement configuration for Step 7."""
     ribNameById: Dict[str, str] = {}
@@ -84,6 +91,7 @@ class MeasurementConfig(BaseModel):
     disabledAutoGroupIds: List[str] = []
     groupNameById: Dict[str, str] = {}
     bossStoneNameById: Dict[str, str] = {}
+    ribPairings: List[RibPairing] = []
 
 
 class MeasurementConfigResponse(BaseModel):
@@ -120,6 +128,7 @@ def _sanitize_measurement_config(raw: Dict[str, Any], valid_rib_ids: set) -> Dic
     custom_groups_raw = raw.get("customGroups", []) if isinstance(raw.get("customGroups", []), list) else []
     disabled_auto_group_ids = raw.get("disabledAutoGroupIds", []) if isinstance(raw.get("disabledAutoGroupIds", []), list) else []
     group_name_by_id = raw.get("groupNameById", {}) if isinstance(raw.get("groupNameById", {}), dict) else {}
+    rib_pairings_raw = raw.get("ribPairings", []) if isinstance(raw.get("ribPairings", []), list) else []
 
     # Keep only valid rib ids and non-empty names
     clean_rib_names: Dict[str, str] = {}
@@ -175,12 +184,33 @@ def _sanitize_measurement_config(raw: Dict[str, Any], valid_rib_ids: set) -> Dic
         if str(k).strip() and str(v).strip()
     }
 
+    clean_pairings: List[Dict[str, Any]] = []
+    for pairing in rib_pairings_raw:
+        if not isinstance(pairing, dict):
+            continue
+        pairing_id = str(pairing.get("id", "")).strip()
+        pairing_name = str(pairing.get("name", "")).strip()[:100]
+        sides_raw = pairing.get("sides", [])
+        if not pairing_id or not pairing_name or not isinstance(sides_raw, list):
+            continue
+
+        normalized_sides = [str(side).strip() for side in sides_raw if str(side).strip()]
+        if len(normalized_sides) != 2 or normalized_sides[0] == normalized_sides[1]:
+            continue
+
+        clean_pairings.append({
+            "id": pairing_id,
+            "name": pairing_name,
+            "sides": normalized_sides,
+        })
+
     return {
         "ribNameById": clean_rib_names,
         "customGroups": clean_groups,
         "disabledAutoGroupIds": clean_disabled_ids,
         "groupNameById": clean_group_names,
         "bossStoneNameById": clean_boss_stone_names,
+        "ribPairings": clean_pairings,
     }
 
 
@@ -2303,10 +2333,14 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
             
             return {
                 "success": True,
-                "curves": result["curves"],
-                "curveCount": result.get("curveCount", 0),
-                "layers": result.get("layers", []),
-                "message": f"Imported {result.get('curveCount', 0)} curves"
+                "data": {
+                    "curves": result["curves"],
+                    "curveCount": result.get("curveCount", 0),
+                    "layers": result.get("layers", []),
+                    "message": f"Imported {result.get('curveCount', 0)} curves",
+                    "source": request.filePath,
+                    "importedAt": datetime.now().isoformat(),
+                }
             }
         else:
             return result
