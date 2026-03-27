@@ -155,20 +155,10 @@ def import_3dm_curves(
             points = []
             
             # Try to get as polyline first
-            is_polyline, polyline = geometry.TryGetPolyline()
-            
-            if is_polyline and polyline:
-                for i in range(polyline.Count):
-                    pt = polyline[i]
-                    points.append([pt.X, pt.Y, pt.Z])
-            else:
-                # Sample the curve at regular intervals
-                domain = geometry.Domain
-                num_samples = max(50, int(geometry.GetLength() / 0.1))
-                for i in range(num_samples + 1):
-                    t = domain.T0 + (domain.T1 - domain.T0) * (i / num_samples)
-                    pt = geometry.PointAt(t)
-                    points.append([pt.X, pt.Y, pt.Z])
+            points = _extract_polyline_points(geometry.TryGetPolyline())
+
+            if not points:
+                points = _sample_curve_points(geometry)
             
             if len(points) >= 2:
                 curves.append({
@@ -193,6 +183,106 @@ def import_3dm_curves(
             "success": False,
             "error": str(e)
         }
+
+
+def _extract_polyline_points(polyline_result: Any) -> List[List[float]]:
+    """Normalize rhino3dm TryGetPolyline results across Python binding variants."""
+    if not polyline_result:
+        return []
+
+    candidates: List[Any]
+    if isinstance(polyline_result, tuple):
+        candidates = list(polyline_result)
+    else:
+        candidates = [polyline_result]
+
+    for candidate in candidates:
+        if candidate is None or isinstance(candidate, bool):
+            continue
+
+        point_count = getattr(candidate, "Count", None)
+        if not isinstance(point_count, int):
+            point_count = getattr(candidate, "PointCount", None)
+        if not isinstance(point_count, int):
+            try:
+                point_count = len(candidate)
+            except Exception:
+                point_count = None
+
+        if isinstance(point_count, int) and point_count > 0:
+            points: List[List[float]] = []
+            try:
+                for index in range(point_count):
+                    point = candidate[index]
+                    points.append([point.X, point.Y, point.Z])
+            except Exception:
+                points = []
+
+            if points:
+                return points
+
+        if hasattr(candidate, "__iter__"):
+            try:
+                points = [
+                    [point.X, point.Y, point.Z]
+                    for point in candidate
+                    if hasattr(point, "X") and hasattr(point, "Y") and hasattr(point, "Z")
+                ]
+            except Exception:
+                points = []
+
+            if points:
+                return points
+
+    return []
+
+
+def _sample_curve_points(curve: Any, segment_count: int = 100) -> List[List[float]]:
+    """Sample a rhino3dm curve without relying on GetLength being available."""
+    if curve is None or segment_count < 1:
+        return []
+
+    points: List[List[float]] = []
+
+    point_at_normalized_length = getattr(curve, "PointAtNormalizedLength", None)
+    if callable(point_at_normalized_length):
+        try:
+            for index in range(segment_count + 1):
+                point = point_at_normalized_length(index / segment_count)
+                if hasattr(point, "X") and hasattr(point, "Y") and hasattr(point, "Z"):
+                    points.append([point.X, point.Y, point.Z])
+        except Exception:
+            points = []
+
+    if points:
+        return points
+
+    domain = getattr(curve, "Domain", None)
+    if domain is None:
+        return []
+
+    domain_start = getattr(domain, "T0", None)
+    domain_end = getattr(domain, "T1", None)
+    if domain_start is None or domain_end is None:
+        if isinstance(domain, (list, tuple)) and len(domain) >= 2:
+            domain_start, domain_end = domain[0], domain[1]
+        else:
+            return []
+
+    point_at = getattr(curve, "PointAt", None)
+    if not callable(point_at):
+        return []
+
+    try:
+        for index in range(segment_count + 1):
+            parameter = domain_start + (domain_end - domain_start) * (index / segment_count)
+            point = point_at(parameter)
+            if hasattr(point, "X") and hasattr(point, "Y") and hasattr(point, "Z"):
+                points.append([point.X, point.Y, point.Z])
+    except Exception:
+        return []
+
+    return points
 
 
 def get_3dm_info(file_path: str) -> Dict[str, Any]:
