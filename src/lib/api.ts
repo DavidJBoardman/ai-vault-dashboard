@@ -872,14 +872,12 @@ export async function exportIntrados3dm(
 
 export async function import3dmTraces(
   projectId: string,
-  filePath: string,
-  layerFilter?: string
+  filePath: string
 ): Promise<ApiResponse<Import3dmResponse>> {
   return apiRequest(`/api/project/${projectId}/import-3dm`, {
     method: "POST",
     body: JSON.stringify({ 
-      filePath,
-      layerFilter
+      filePath
     }),
   });
 }
