@@ -2,26 +2,25 @@
 
 Download the packaged application and run it directly. You do not need to build the project from source.
 
-## Download the latest build
+## Download the latest version
 
 Start here:
 
-[Desktop Release workflow runs](https://github.com/DavidJBoardman/ai-vault-dashboard/actions)
+[Download from GitHub Releases](https://github.com/DavidJBoardman/ai-vault-dashboard/releases)
 
 For most users, the process is:
 
-1. open the GitHub Actions page
-2. open the latest successful `Desktop Release` workflow run
-3. scroll to the `Artifacts` section near the bottom of the page
-4. download the file for your operating system
-5. unzip the downloaded file
-6. move the extracted application to the folder where you want to keep it
-7. run the application directly
+1. open the Releases page
+2. choose the latest version at the top
+3. download the file for your operating system
+4. unzip the downloaded file
+5. move the extracted application to the folder where you want to keep it
+6. run the application directly
 
-Current artifact names are expected to look like:
+Current download files are expected to look like:
 
-- `vault-analyser-windows`
-- `vault-analyser-macos`
+- `vault-analyser-windows.zip`
+- `vault-analyser-macos.zip`
 
 ## Windows
 
@@ -54,6 +53,5 @@ The application also stores related working folders there, including uploads, pr
 
 ## Notes
 
-- GitHub Actions artifacts are the current download location for packaged builds
-- if you cannot find the files, check that the workflow run completed successfully
-- if a newer build is needed, use the latest successful `Desktop Release` run
+- packaged builds are published on the GitHub Releases page
+- if you cannot find the files, check that the latest release completed successfully
