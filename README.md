@@ -115,6 +115,17 @@ uv run mkdocs build -f ../mkdocs.yml
 
 The repository includes a GitHub Actions workflow at `.github/workflows/deploy-docs.yml` that builds and deploys the documentation site to GitHub Pages.
 
+The docs workflow is manual and independent from the desktop release workflow.
+
+Recommended publishing flow:
+
+1. push and review documentation changes locally
+2. create the release tag you want to publish documentation for
+3. open the `Deploy Docs` workflow in GitHub Actions
+4. use `Run workflow` and choose the target tag
+
+This keeps documentation deployment separate from the main desktop release workflow while still allowing the published docs to match a release version.
+
 ## Prerequisites
 
 - Node.js 22+
