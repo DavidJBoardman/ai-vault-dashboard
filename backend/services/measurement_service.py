@@ -1,6 +1,7 @@
 """Measurement service for 3D geometric calculations."""
 
 import asyncio
+import math
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
@@ -825,6 +826,49 @@ class MeasurementService:
         return pairs
 
     @staticmethod
+    def _arc_point_at_z(
+        arc: Dict[str, Any],
+        target_z: float,
+    ) -> Optional[np.ndarray]:
+        """Find the 3D point on the arc extension closest to its end angle
+        that reaches the given Z height.
+
+        The arc is parameterised as P(t) = center + R*(cos t * u + sin t * v),
+        so P_z(t) = c_z + R*(cos t * u_z + sin t * v_z) = target_z.
+        This is A*cos t + B*sin t = C with closed-form solutions.
+        We pick the solution nearest the arc's end angle (the crown side).
+        """
+        c = np.array([arc["center"]["x"], arc["center"]["y"], arc["center"]["z"]])
+        r = float(arc["radius"])
+        u = np.array([arc["basis_u"]["x"], arc["basis_u"]["y"], arc["basis_u"]["z"]])
+        v = np.array([arc["basis_v"]["x"], arc["basis_v"]["y"], arc["basis_v"]["z"]])
+        end_angle = float(arc["end_angle"])
+
+        A = r * u[2]
+        B = r * v[2]
+        C = target_z - c[2]
+        amp = math.sqrt(A * A + B * B)
+        if amp < 1e-12:
+            return None
+        ratio = C / amp
+        if abs(ratio) > 1.0:
+            if abs(ratio) > 1.0 + 1e-6:
+                return None
+            ratio = max(-1.0, min(1.0, ratio))
+
+        base = math.atan2(B, A)
+        delta = math.acos(ratio)
+        candidates = [base + delta, base - delta]
+
+        def angle_dist(theta: float) -> float:
+            d = (theta - end_angle) % (2 * math.pi)
+            return min(d, 2 * math.pi - d)
+
+        best_theta = min(candidates, key=angle_dist)
+        pt = c + r * (math.cos(best_theta) * u + math.sin(best_theta) * v)
+        return pt
+
+    @staticmethod
     def _arc_arc_intersection(
         arc_a: Dict[str, Any],
         arc_b: Dict[str, Any],
@@ -924,12 +968,42 @@ class MeasurementService:
 
         return pts_3d
 
+    def _fit_pairing_side_arc(
+        self,
+        rib_ids: List[str],
+        arc_cache: Dict[str, Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Fit one shared arc for a pairing side from one or more ribs."""
+        valid_ids: List[str] = []
+        for rib_id in rib_ids:
+            if rib_id in valid_ids:
+                continue
+            pts = self.traces.get(rib_id)
+            if pts is None or len(pts) < 3:
+                continue
+            valid_ids.append(rib_id)
+
+        if not valid_ids:
+            return None
+
+        if len(valid_ids) == 1:
+            cached = arc_cache.get(valid_ids[0])
+            if cached is not None:
+                return cached
+            return self._fit_arc(self.traces[valid_ids[0]])
+
+        merged_points = np.vstack([self.traces[rib_id] for rib_id in valid_ids])
+        if len(merged_points) < 3:
+            return None
+        return self._fit_arc(merged_points)
+
     def calculate_apex_span(
         self,
         bosses: List[Dict[str, Any]],
         max_boss_distance: float = 2.0,
         symmetry_angle_tol_deg: float = 30.0,
         impost_height: Optional[float] = None,
+        pairings: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Compute architectural apex per boss and span per rib.
 
@@ -947,6 +1021,11 @@ class MeasurementService:
         impost_height
             If provided, used as the Z of the springing plane for span
             projection.  Otherwise each rib's own springing Z is used.
+        pairings
+            Optional user-defined pairings. Each pairing must contain two
+            sides, where each side provides one or more rib ids. A single
+            best-fit arc is calculated per side and intersected in a common
+            2D projection plane.
 
         Returns
         -------
@@ -963,6 +1042,7 @@ class MeasurementService:
 
         boss_results: List[Dict[str, Any]] = []
         rib_results: Dict[str, Dict[str, Any]] = {}
+        pairing_results: List[Dict[str, Any]] = []
 
         for boss in bosses:
             bid = boss["id"]
@@ -1065,7 +1145,139 @@ class MeasurementService:
                     },
                 }
 
-        return {"bosses": boss_results, "ribs": rib_results}
+        if pairings:
+            for pairing in pairings:
+                if not isinstance(pairing, dict):
+                    continue
+
+                pairing_id = str(pairing.get("pairingId", "")).strip()
+                if not pairing_id:
+                    continue
+
+                pairing_name = str(pairing.get("pairingName", "")).strip() or pairing_id
+                sides_raw = pairing.get("sides", [])
+
+                if not isinstance(sides_raw, list) or len(sides_raw) != 2:
+                    pairing_results.append({
+                        "pairingId": pairing_id,
+                        "pairingName": pairing_name,
+                        "sideLabels": [],
+                        "apex": None,
+                        "apexHeight": None,
+                        "status": "insufficient-data",
+                        "warning": "Pairing must contain exactly two sides.",
+                    })
+                    continue
+
+                side_labels: List[str] = []
+                side_arcs: List[Optional[Dict[str, Any]]] = []
+
+                for idx, side in enumerate(sides_raw):
+                    if isinstance(side, dict):
+                        side_label = (
+                            str(side.get("sideLabel", "")).strip()
+                            or str(side.get("sideId", "")).strip()
+                            or f"Side {idx + 1}"
+                        )
+                        rib_ids_raw = side.get("ribIds", [])
+                    else:
+                        side_label = f"Side {idx + 1}"
+                        rib_ids_raw = []
+
+                    side_labels.append(side_label)
+
+                    normalized_rib_ids: List[str] = []
+                    if isinstance(rib_ids_raw, list):
+                        for rib_id in rib_ids_raw:
+                            rid = str(rib_id).strip()
+                            if not rid or rid in normalized_rib_ids:
+                                continue
+                            normalized_rib_ids.append(rid)
+
+                    side_arcs.append(self._fit_pairing_side_arc(normalized_rib_ids, arc_cache))
+
+                if side_arcs[0] is None or side_arcs[1] is None:
+                    pairing_results.append({
+                        "pairingId": pairing_id,
+                        "pairingName": pairing_name,
+                        "sideLabels": side_labels,
+                        "apex": None,
+                        "apexHeight": None,
+                        "status": "insufficient-data",
+                        "warning": "Insufficient rib data to fit both pairing-side arcs.",
+                    })
+                    continue
+
+                inter_pts = self._arc_arc_intersection(side_arcs[0], side_arcs[1])
+                if inter_pts is None or len(inter_pts) == 0:
+                    pairing_results.append({
+                        "pairingId": pairing_id,
+                        "pairingName": pairing_name,
+                        "sideLabels": side_labels,
+                        "apex": None,
+                        "apexHeight": None,
+                        "status": "no-intersection",
+                        "warning": "No intersection found in the shared 2D projection.",
+                    })
+                    continue
+
+                best = max(inter_pts, key=lambda p: p[2])
+                apex = {
+                    "x": float(best[0]),
+                    "y": float(best[1]),
+                    "z": float(best[2]),
+                }
+                pairing_results.append({
+                    "pairingId": pairing_id,
+                    "pairingName": pairing_name,
+                    "sideLabels": side_labels,
+                    "apex": apex,
+                    "apexHeight": apex["z"],
+                    "status": "ok",
+                    "warning": None,
+                })
+
+        # Recompute span for ribs belonging to a pairing: horizontal distance
+        # from the springing point to where the rib's best-fit arc extension
+        # reaches the pairing apex Z.
+        for pr in pairing_results:
+            if pr["status"] != "ok" or pr["apex"] is None:
+                continue
+            apex_z = pr["apex"]["z"]
+            # Find the original pairing input to get rib IDs per side
+            sides_raw = None
+            for pairing in (pairings or []):
+                if not isinstance(pairing, dict):
+                    continue
+                if str(pairing.get("pairingId", "")).strip() == pr["pairingId"]:
+                    sides_raw = pairing.get("sides", [])
+                    break
+            if not sides_raw:
+                continue
+            for side in sides_raw:
+                if not isinstance(side, dict):
+                    continue
+                for rid_raw in (side.get("ribIds", []) if isinstance(side.get("ribIds"), list) else []):
+                    rid = str(rid_raw).strip()
+                    if rid not in rib_results or rid not in arc_cache:
+                        continue
+                    arc = arc_cache[rid]
+                    arc_pt = self._arc_point_at_z(arc, apex_z)
+                    if arc_pt is None:
+                        continue
+                    existing = rib_results[rid]
+                    sp = existing["springingPoint"]
+                    dx = float(arc_pt[0]) - sp["x"]
+                    dy = float(arc_pt[1]) - sp["y"]
+                    new_span = float(np.sqrt(dx * dx + dy * dy))
+                    rib_results[rid]["span"] = new_span
+                    rib_results[rid]["projectedApex"] = {
+                        "x": float(arc_pt[0]),
+                        "y": float(arc_pt[1]),
+                        "z": float(arc_pt[2]),
+                    }
+
+        return {"bosses": boss_results, "ribs": rib_results, "pairingApex": pairing_results}
 
     async def save_hypothesis(
         self,

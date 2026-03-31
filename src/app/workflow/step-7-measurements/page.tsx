@@ -37,7 +37,8 @@ import {
   Eye,
   EyeOff,
   Trash2,
-  ArrowLeftRight
+  ArrowLeftRight,
+  AlertTriangle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -68,6 +69,7 @@ import {
   resolveAvailableTraceSource,
   toWorkflowTraceLineFromImportedCurve,
   toWorkflowTraceLineFromIntrados,
+  MAX_DISPLAY_TRACE_POINTS,
   type TraceSourceSelection,
   type WorkflowTraceLine,
 } from "@/lib/traces";
@@ -305,6 +307,31 @@ function errorToColor(normalizedError: number): string {
 }
 
 /**
+ * Uniformly downsample paired point/distance arrays for display only.
+ * Full-precision arrays are preserved for measurement calculations.
+ */
+function decimateSegmentsForDisplay(
+  segmentPoints: Point3D[],
+  pointDistances: number[],
+  maxPoints: number,
+): { points: Point3D[]; distances: number[] } {
+  if (segmentPoints.length <= maxPoints || maxPoints < 2) {
+    return { points: segmentPoints, distances: pointDistances };
+  }
+  const step = (segmentPoints.length - 1) / (maxPoints - 1);
+  const points: Point3D[] = [];
+  const distances: number[] = [];
+  for (let i = 0; i < maxPoints - 1; i++) {
+    const idx = Math.round(i * step);
+    points.push(segmentPoints[idx]);
+    distances.push(pointDistances[idx]);
+  }
+  points.push(segmentPoints[segmentPoints.length - 1]);
+  distances.push(pointDistances[pointDistances.length - 1]);
+  return { points, distances };
+}
+
+/**
  * Create colored line segments from trace points and error distances
  */
 function createColoredTraceLines(
@@ -534,7 +561,7 @@ export default function Step7MeasurementsPage() {
   const [impostLineData, setImpostLineData] = useState<ImpostLineResult | null>(null);
   const [isLoadingImpost, setIsLoadingImpost] = useState(false);
   const [impostMode, setImpostMode] = useState<"auto" | "floorPlane">("floorPlane");
-  const step5FloorPlaneZ = currentProject?.stepData?.[5]?.floorPlaneZ as number | undefined;
+  const step5ImpostLineZ = currentProject?.stepData?.[5]?.impostLineZ as number | undefined;
 
   // Rib grouping state
   const [ribGroups, setRibGroups] = useState<RibGroup[] | null>(null);
@@ -738,7 +765,7 @@ export default function Step7MeasurementsPage() {
       }
       
       // In floor plane mode, require a valid value from step 5
-      if (impostMode === "floorPlane" && step5FloorPlaneZ === undefined) return;
+      if (impostMode === "floorPlane" && step5ImpostLineZ === undefined) return;
       
       setIsLoadingImpost(true);
       setImpostLineData(null);
@@ -748,7 +775,7 @@ export default function Step7MeasurementsPage() {
           points: line.points3d,
         }));
         
-        const impostHeight = impostMode === "floorPlane" ? step5FloorPlaneZ : undefined;
+        const impostHeight = impostMode === "floorPlane" ? step5ImpostLineZ : undefined;
         
         const response = await calculateImpostLine({
           ribs: ribsData,
@@ -768,7 +795,7 @@ export default function Step7MeasurementsPage() {
     };
     
     loadImpostLine();
-  }, [intradosLines, impostMode, step5FloorPlaneZ]);
+  }, [intradosLines, impostMode, step5ImpostLineZ]);
 
   // Detect rib groups whenever intrados lines or threshold changes
   useEffect(() => {
@@ -794,42 +821,6 @@ export default function Step7MeasurementsPage() {
     };
     detectGroups();
   }, [intradosLines, proximityThreshold]);
-
-  // Calculate apex & span when boss markers and rib groups are available
-  useEffect(() => {
-    const loadApexSpan = async () => {
-      if (intradosLines.length === 0 || bossStoneMarkers.length === 0) {
-        setApexSpanResult(null);
-        return;
-      }
-      setIsLoadingApexSpan(true);
-      try {
-        const ribs = intradosLines.map(line => ({ id: line.id, points: line.points3d }));
-        const bosses = bossStoneMarkers.map(m => ({
-          id: m.id,
-          x: m.x,
-          y: m.y,
-          z: m.z,
-          label: m.label ?? m.id,
-        }));
-        const impostHeight = impostLineData?.impost_height;
-        const response = await calculateApexSpan({
-          ribs,
-          bosses,
-          maxBossDistance: proximityThreshold,
-          impostHeight: impostHeight ?? undefined,
-        });
-        if (response.success && response.data) {
-          setApexSpanResult(response.data);
-        }
-      } catch (err) {
-        console.error("Error calculating apex/span:", err);
-      } finally {
-        setIsLoadingApexSpan(false);
-      }
-    };
-    loadApexSpan();
-  }, [intradosLines, bossStoneMarkers, impostLineData, proximityThreshold]);
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -1215,6 +1206,8 @@ export default function Step7MeasurementsPage() {
     computeCustomGroupMetrics();
   }, [intradosLines, measurementConfig.customGroups, resolveGroupName]);
 
+  const availableRibIdSet = useMemo(() => new Set(intradosLines.map(line => line.id)), [intradosLines]);
+
   const displayGroups = useMemo((): DisplayGroup[] => {
     const result: DisplayGroup[] = [];
     const assigned = new Set<string>();
@@ -1294,6 +1287,75 @@ export default function Step7MeasurementsPage() {
     }
     return composeGroupName(g.ribIds) ?? `Group (${g.ribIds.length} ribs)`;
   }, [composeGroupName, displayGroups, getRibDisplayName]);
+
+  const displayGroupById = useMemo(() => {
+    const byId = new Map<string, DisplayGroup>();
+    displayGroups.forEach(group => {
+      byId.set(group.groupId, group);
+    });
+    return byId;
+  }, [displayGroups]);
+
+  const pairingApexInputs = useMemo(() => {
+    return (measurementConfig.ribPairings ?? []).map(pairing => ({
+      pairingId: pairing.id,
+      pairingName: pairing.name,
+      sides: pairing.sides.map(sideId => {
+        const group = displayGroupById.get(sideId);
+        const sideRibIds = group ? group.ribIds : [sideId];
+        return {
+          sideId,
+          sideLabel: pairingDisplayName(sideId),
+          ribIds: sideRibIds.filter(ribId => availableRibIdSet.has(ribId)),
+        };
+      }),
+    }));
+  }, [measurementConfig.ribPairings, displayGroupById, pairingDisplayName, availableRibIdSet]);
+
+  // Calculate boss apex/span and user-defined pairing apex heights.
+  useEffect(() => {
+    const loadApexSpan = async () => {
+      if (intradosLines.length === 0) {
+        setApexSpanResult(null);
+        return;
+      }
+      if (bossStoneMarkers.length === 0 && pairingApexInputs.length === 0) {
+        setApexSpanResult(null);
+        return;
+      }
+
+      setIsLoadingApexSpan(true);
+      try {
+        const ribs = intradosLines.map(line => ({ id: line.id, points: line.points3d }));
+        const bosses = bossStoneMarkers.map(m => ({
+          id: m.id,
+          x: m.x,
+          y: m.y,
+          z: m.z,
+          label: m.label ?? m.id,
+        }));
+        const impostHeight = impostLineData?.impost_height;
+        const response = await calculateApexSpan({
+          ribs,
+          bosses,
+          maxBossDistance: proximityThreshold,
+          impostHeight: impostHeight ?? undefined,
+          pairings: pairingApexInputs.length > 0 ? pairingApexInputs : undefined,
+        });
+        if (response.success && response.data) {
+          setApexSpanResult(response.data);
+        } else {
+          setApexSpanResult(null);
+        }
+      } catch (err) {
+        console.error("Error calculating apex/span:", err);
+        setApexSpanResult(null);
+      } finally {
+        setIsLoadingApexSpan(false);
+      }
+    };
+    loadApexSpan();
+  }, [intradosLines, bossStoneMarkers, impostLineData, proximityThreshold, pairingApexInputs]);
 
   const selectedGroup = useMemo(
     () => (selectedGroupId ? displayGroups.find(g => g.groupId === selectedGroupId) ?? null : null),
@@ -1437,9 +1499,14 @@ export default function Step7MeasurementsPage() {
               response.data.arcEndAngle,
             );
           } else {
-            lineTraces = createColoredTraceLines(
+            const decimated = decimateSegmentsForDisplay(
               response.data.segmentPoints,
               response.data.pointDistances,
+              MAX_DISPLAY_TRACE_POINTS,
+            );
+            lineTraces = createColoredTraceLines(
+              decimated.points,
+              decimated.distances,
               line.id,
               false
             );
@@ -1772,7 +1839,7 @@ export default function Step7MeasurementsPage() {
           </div>
         )}
 
-        {/* â”€â”€ 7A: LABELLING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* 7A: LABELLING*/}
         <TabsContent value="labelling" className="mt-4">
           <div className="flex flex-col gap-6">
             <div className="grid lg:grid-cols-3 gap-6">
@@ -1871,12 +1938,15 @@ export default function Step7MeasurementsPage() {
               <div className="flex flex-col gap-4">
 
                 {/* Rib groups & labels card */}
-                <Card>
-                  <CardHeader className="pb-2 shrink-0 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "groups" ? null : "groups")}>
+                <Card className="order-3">
+                  <CardHeader className="p-4 shrink-0 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "groups" ? null : "groups")}>
                     <div className="flex items-center justify-between">
                       <div>
-                        <CardTitle className="text-lg font-display">Rib Groups &amp; Labels</CardTitle>
-                        <CardDescription>Organise ribs into groups and assign labels</CardDescription>
+                        <CardTitle className="text-base font-display flex items-center gap-2">
+                          <Tag className="w-4 h-4 text-violet-400" />
+                          Rib Groups &amp; Labels
+                        </CardTitle>
+                        <CardDescription className="text-xs">Organise ribs into groups and assign labels</CardDescription>
                       </div>
                       {labellingPanel === "groups"
                         ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -2156,8 +2226,8 @@ export default function Step7MeasurementsPage() {
 
                 {/* Boss Stones panel â€” rename & auto-label */}
                 {bossStoneMarkers.length > 0 && (
-                  <Card>
-                    <CardHeader className="pb-2 shrink-0 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "bossStones" ? null : "bossStones")}>
+                  <Card className="order-2">
+                    <CardHeader className="p-4 shrink-0 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "bossStones" ? null : "bossStones")}>
                       <div className="flex items-center justify-between">
                         <div>
                           <CardTitle className="text-base font-display flex items-center gap-2">
@@ -2277,8 +2347,8 @@ export default function Step7MeasurementsPage() {
                 )}
 
                 {/* Rib Pairings – symmetrical rib/group pairs */}
-                <Card>
-                  <CardHeader className="pb-2 shrink-0 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "pairings" ? null : "pairings")}>
+                <Card className="order-4">
+                  <CardHeader className="p-4 shrink-0 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "pairings" ? null : "pairings")}>
                     <div className="flex items-center justify-between">
                       <div>
                         <CardTitle className="text-base font-display flex items-center gap-2">
@@ -2414,12 +2484,16 @@ export default function Step7MeasurementsPage() {
                 </Card>
 
                 {/* Impost Line */}
-                <Card>
-                  <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "impost" ? null : "impost")}>
+                <Card className="order-1">
+                  <CardHeader className="p-4 shrink-0 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "impost" ? null : "impost")}>
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-lg font-display">Impost Line</CardTitle>
-                        {isLoadingImpost && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                      <div>
+                        <CardTitle className="text-base font-display flex items-center gap-2">
+                          <Ruler className="w-4 h-4 text-orange-400" />
+                          Impost Line
+                          {isLoadingImpost && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+                        </CardTitle>
+                        <CardDescription className="text-xs">Set the springing line height for arc measurements</CardDescription>
                       </div>
                       {labellingPanel === "impost"
                         ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -2435,7 +2509,7 @@ export default function Step7MeasurementsPage() {
                         className="flex-1 text-xs h-7"
                         onClick={() => setImpostMode("floorPlane")}
                       >
-                        Floor Plane
+                        Step 5
                       </Button>
                       <Button
                         variant={impostMode === "auto" ? "default" : "ghost"}
@@ -2449,16 +2523,16 @@ export default function Step7MeasurementsPage() {
 
                     {impostMode === "floorPlane" && (
                       <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs">
-                        {step5FloorPlaneZ !== undefined ? (
+                        {step5ImpostLineZ !== undefined ? (
                           <p className="text-muted-foreground">
-                            Floor plane Z from Step 5:{" "}
+                            Impost line Z from Step 5:{" "}
                             <span className="font-mono font-semibold text-foreground">
-                              {step5FloorPlaneZ.toFixed(3)}m
+                              {step5ImpostLineZ.toFixed(3)}m
                             </span>
                           </p>
                         ) : (
                           <p className="text-amber-600 dark:text-amber-400">
-                            Floor plane not set in Step 5. Switch to <strong>Auto</strong> mode.
+                            Impost line height not set in Step 5. Switch to <strong>Auto</strong> mode.
                           </p>
                         )}
                       </div>
@@ -2793,7 +2867,7 @@ export default function Step7MeasurementsPage() {
                                       </div>
                                       <div className="p-1 rounded bg-muted/40 text-center">
                                         <p className="text-muted-foreground">Apex Z</p>
-                                        <p className="font-mono">{boss.apex.z.toFixed(2)}</p>
+                                        <p className="font-mono">{(boss.apex.z - (impostLineData?.impost_height ?? 0)).toFixed(2)}</p>
                                       </div>
                                     </div>
                                     {boss.ribPairs.length > 0 && (
@@ -2866,6 +2940,36 @@ export default function Step7MeasurementsPage() {
                                 <p className="text-xs text-muted-foreground">Span</p>
                               </div>
                             )}
+                            {(() => {
+                              const pairing = (measurementConfig.ribPairings ?? []).find(p =>
+                                p.sides.some(sideId => {
+                                  const group = displayGroupById.get(sideId);
+                                  const sideRibIds = group ? group.ribIds : [sideId];
+                                  return sideRibIds.includes(selectedRib!);
+                                })
+                              );
+                              if (!pairing) return null;
+                              const pairingResult = apexSpanResult?.pairingApex?.find(
+                                r => r.pairingId === pairing.id
+                              );
+                              const apexH = pairingResult?.apexHeight;
+                              const impostH = impostLineData?.impost_height ?? 0;
+                              const hasApex = pairingResult?.status === "ok" && typeof apexH === "number";
+                              return (
+                                <div className="p-2 rounded-lg bg-muted/50 text-center">
+                                  <ArrowLeftRight className="w-3.5 h-3.5 mx-auto mb-0.5 text-emerald-400" />
+                                  {isLoadingApexSpan ? (
+                                    <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
+                                  ) : hasApex ? (
+                                    <p className="text-sm font-bold">{(apexH - impostH).toFixed(3)}m</p>
+                                  ) : (
+                                    <p className="text-sm font-bold text-amber-500">N/A</p>
+                                  )}
+                                  <p className="text-xs text-muted-foreground">Apex Height</p>
+                                  <p className="text-[9px] text-muted-foreground truncate">{pairing.name}</p>
+                                </div>
+                              );
+                            })()}
                             {measurementData && (
                               <div className="p-2 rounded-lg bg-muted/50 text-center">
                                 <p className="text-sm font-bold">{measurementData.fitError.toFixed(4)}m</p>
@@ -2957,7 +3061,7 @@ export default function Step7MeasurementsPage() {
                                   </div>
                                   {bossApex && (
                                     <span className="text-xs font-mono text-muted-foreground shrink-0">
-                                      Z: {bossApex.apex.z.toFixed(2)}m
+                                      Z: {(bossApex.apex.z - (impostLineData?.impost_height ?? 0)).toFixed(2)}m
                                     </span>
                                   )}
                                 </div>
@@ -2969,6 +3073,8 @@ export default function Step7MeasurementsPage() {
                     </CardContent>
                   </Card>
                 )}
+
+
 
               </div>
             </div>
