@@ -254,7 +254,7 @@ Notes:
 
 GitHub Actions is the current artifact build path for unsigned test releases.
 
-The workflow is defined in [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) and can be triggered in two ways:
+The workflow is defined in `[.github/workflows/desktop-release.yml](.github/workflows/desktop-release.yml)` and can be triggered in two ways:
 
 1. Manually from the `Actions` tab using `Desktop Release` and `Run workflow`
 2. Automatically by pushing a Git tag that matches `v*`
@@ -270,25 +270,30 @@ For the current unsigned internal-build setup, no extra GitHub configuration is 
 
 Before creating a release tag, update the software version in the source:
 
-- [`package.json`](./package.json)
-- [`src/app/page.tsx`](./src/app/page.tsx)
-- [`backend/main.py`](./backend/main.py)
+- `[package.json](./package.json)`
+- `[src/app/page.tsx](./src/app/page.tsx)`
+- `[backend/main.py](./backend/main.py)`
 
 Then commit and push a matching tag:
 
 ```bash
 git add package.json package-lock.json src/app/page.tsx backend/main.py
 git commit -m "Release v0.1.0"
-
-# Only if the tag already exists locally/remotely
-git tag -d v0.1.0
-git push origin :refs/tags/v0.1.0
-
+git push origin main
 git tag v0.1.0
-git push origin main --tags
+git push origin v0.1.0
 ```
 
-That tag push will trigger the GitHub desktop build workflow.
+If you need to replace an existing tag, remove it locally and remotely first:
+
+```bash
+git tag -d v0.1.0
+git push origin :refs/tags/v0.1.0
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+hat tag push will trigger the GitHub desktop build workflow and publish the packaged apps to the matching GitHub Release.
 
 ```
 # run it on mac without signing

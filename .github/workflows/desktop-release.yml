@@ -109,11 +109,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             release-assets/vault-analyser-macos.zip \
             release-assets/vault-analyser-windows.zip \
           || gh release upload "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
             release-assets/vault-analyser-macos.zip \
             release-assets/vault-analyser-windows.zip \
             --clobber
