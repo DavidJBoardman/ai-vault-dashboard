@@ -34,16 +34,27 @@ async function apiRequest<T>(
     }
 
     const data = await response.json();
-    
-    // Handle backend responses that already have success/data structure
-    if (data && typeof data === 'object' && 'success' in data && 'data' in data) {
+
+    // Many backend endpoints return { success: boolean, ... } without nesting under `data`.
+    // Preserve that success flag so callers don't treat failures as success.
+    if (data && typeof data === "object" && "success" in data) {
+      const anyData = data as any;
+      // If backend uses { success, data, error }, unwrap as before.
+      if ("data" in anyData) {
+        return {
+          success: !!anyData.success,
+          data: anyData.data as T,
+          error: anyData.error,
+        };
+      }
+      // Otherwise, treat the whole payload as the data.
       return {
-        success: data.success,
-        data: data.data as T,
-        error: data.error,
+        success: !!anyData.success,
+        data: data as T,
+        error: anyData.error,
       };
     }
-    
+
     return { success: true, data };
   } catch (error) {
     return {
@@ -663,17 +674,41 @@ export interface File3dmInfo {
   };
 }
 
+export type IntradosExportFormat = "3dm" | "obj" | "dxf";
+
+export interface IntradosVectorExportResponse {
+  filePath: string;
+  fileName: string;
+  curvesExported: number;
+  message: string;
+  format?: IntradosExportFormat;
+}
+
+/** Export intrados polylines to 3DM, OBJ, or DXF (writes under project exports/). */
+export async function exportIntradosVectors(
+  projectId: string,
+  format: IntradosExportFormat = "3dm",
+  layerName: string = "Intrados Lines",
+  outputPath?: string
+): Promise<ApiResponse<IntradosVectorExportResponse>> {
+  return apiRequest<IntradosVectorExportResponse>("/api/export/intrados", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      format,
+      layerName,
+      outputPath,
+    }),
+  });
+}
+
 export async function exportIntrados3dm(
   projectId: string,
   layerName: string = "Intrados Lines"
 ): Promise<ApiResponse<Export3dmResponse>> {
-  return apiRequest(`/api/project/${projectId}/export-3dm`, {
-    method: "POST",
-    body: JSON.stringify({ 
-      projectId,
-      layerName
-    }),
-  });
+  return exportIntradosVectors(projectId, "3dm", layerName) as Promise<
+    ApiResponse<Export3dmResponse>
+  >;
 }
 
 export async function import3dmTraces(

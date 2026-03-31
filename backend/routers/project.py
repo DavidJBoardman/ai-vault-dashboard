@@ -1445,65 +1445,25 @@ class Export3dmRequest(BaseModel):
 @router.post("/{project_id}/export-3dm")
 async def export_intrados_3dm(project_id: str, request: Export3dmRequest):
     """
-    Export intrados lines to a Rhino 3DM file.
-    Returns the file path for download.
+    Export intrados lines to a Rhino 3DM file (legacy path; same as POST /api/export/intrados format=3dm).
     """
-    from services.rhino_exporter import export_intrados_to_3dm, RHINO3DM_AVAILABLE
-    
-    if not RHINO3DM_AVAILABLE:
-        return {
-            "success": False, 
-            "error": "rhino3dm library not installed. Run: pip install rhino3dm"
-        }
-    
+    from services.intrados_export import export_intrados_for_project
+
     try:
-        # Load intrados lines
-        project_dir = get_project_dir(project_id)
-        intrados_path = project_dir / "segmentations" / "intrados_lines.json"
-        
-        if not intrados_path.exists():
-            return {
-                "success": False,
-                "error": "No intrados lines found. Generate them first on the Reprojection page."
-            }
-        
-        with open(intrados_path, "r") as f:
-            data = json.load(f)
-        
-        lines = data.get("lines", [])
-        if not lines:
-            return {
-                "success": False,
-                "error": "No intrados lines to export."
-            }
-        
-        # Create exports directory
-        exports_dir = project_dir / "exports"
-        exports_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_filename = f"intrados_traces_{timestamp}.3dm"
-        output_path = exports_dir / output_filename
-        
-        # Export to 3DM
-        result = export_intrados_to_3dm(
-            intrados_lines=lines,
-            output_path=str(output_path),
-            layer_name=request.layerName
+        result = export_intrados_for_project(
+            project_id=project_id,
+            fmt="3dm",
+            layer_name=request.layerName,
         )
-        
-        if result["success"]:
+        if result.get("success"):
             return {
                 "success": True,
-                "filePath": str(output_path),
-                "fileName": output_filename,
+                "filePath": result["filePath"],
+                "fileName": result["fileName"],
                 "curvesExported": result.get("curvesExported", 0),
-                "message": f"Exported {result.get('curvesExported', 0)} intrados curves"
+                "message": result.get("message", "Exported"),
             }
-        else:
-            return result
-            
+        return result
     except Exception as e:
         print(f"Error exporting 3DM: {e}")
         import traceback
