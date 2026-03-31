@@ -6,7 +6,6 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 
 - [Features](#features)
 - [Architecture](#architecture)
-- [Documentation](#documentation)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Development](#development)
@@ -14,6 +13,7 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 - [Workflow Steps](#workflow-steps)
 - [Technologies](#technologies)
 - [Build and Release](#build-and-release)
+- [Documentation](#documentation)
 - [License](#license)
 
 ## Features
@@ -53,78 +53,6 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 │  └──────────┘  └──────────┘  └──────────────┘  │
 └─────────────────────────────────────────────────┘
 ```
-
-## Documentation
-
-Hosted project documentation should live under `docs/` and be published with MkDocs to GitHub Pages.
-
-### Local preview from the repository root
-
-```bash
-source backend/.venv/bin/activate
-uv pip install -r requirements-docs.txt
-uv run mkdocs serve -f mkdocs.yml
-```
-
-### Local preview when your shell is already in `backend/`
-
-```bash
-source .venv/bin/activate
-uv pip install -r ../requirements-docs.txt
-uv run mkdocs serve -f ../mkdocs.yml
-```
-
-Then open `http://127.0.0.1:8000`.
-
-### Contributing to the documentation
-
-- user-facing pages live in `docs/`
-- screenshots live in `docs/images/`
-- keep the structure simple: overview, installation, workflow chapters, and one final system chapter
-- use one folder per workflow step for screenshots
-- keep screenshots close to the instruction they support
-
-See `docs/images/CONTRIBUTING.txt` for the screenshot naming and placement convention.
-
-### Debugging documentation locally
-
-If the docs do not start locally, check the following first:
-
-- make sure you are pointing to the repo config file with `-f mkdocs.yml` from the repo root or `-f ../mkdocs.yml` from `backend/`
-- reinstall the docs dependencies with `uv pip install -r requirements-docs.txt` or `uv pip install -r ../requirements-docs.txt`
-- if a page shows a broken image, check that the referenced file exists under `docs/images/`
-- if `mkdocs` reports YAML errors, inspect `mkdocs.yml` for unquoted titles containing `:`
-
-### Build the documentation locally
-
-From the repository root:
-
-```bash
-source backend/.venv/bin/activate
-uv run mkdocs build -f mkdocs.yml
-```
-
-From `backend/`:
-
-```bash
-source .venv/bin/activate
-uv run mkdocs build -f ../mkdocs.yml
-```
-
-### Publishing
-
-The repository includes a GitHub Actions workflow at `.github/workflows/deploy-docs.yml` that builds and deploys the documentation site to GitHub Pages.
-
-The docs workflow is manual and independent from the desktop release workflow.
-
-Recommended publishing flow:
-
-1. push and review documentation changes locally
-2. create the release tag you want to publish documentation for
-3. open the `Deploy Docs` workflow in GitHub Actions
-4. use `Run workflow` and choose the target tag
-
-This keeps documentation deployment separate from the main desktop release workflow while still allowing the published docs to match a release version.
 
 ## Prerequisites
 
@@ -367,6 +295,79 @@ That tag push will trigger the GitHub desktop build workflow.
 xattr -dr com.apple.quarantine "Vault Analyser.app"
 open "Vault Analyser.app"
 ```
+
+## Documentation
+
+Hosted project documentation lives under `docs/` and is built with MkDocs.
+
+### Local preview from the repository root
+
+```bash
+source backend/.venv/bin/activate
+uv pip install -r requirements-docs.txt
+uv run mkdocs serve -f mkdocs.yml
+```
+
+### Local preview when your shell is already in `backend/`
+
+```bash
+source .venv/bin/activate
+uv pip install -r ../requirements-docs.txt
+uv run mkdocs serve -f ../mkdocs.yml
+```
+
+Then open `http://127.0.0.1:8000`.
+
+### Contributing to the documentation
+
+- user-facing pages live in `docs/`
+- screenshots live in `docs/images/`
+- keep the structure simple: overview, installation, workflow chapters, and one final system section
+- use one folder per workflow step for screenshots
+- keep screenshots close to the instruction they support
+
+See `docs/images/CONTRIBUTING.txt` for the screenshot naming and placement convention.
+
+### Debugging documentation locally
+
+If the docs do not start locally, check the following first:
+
+- make sure you are pointing to the repo config file with `-f mkdocs.yml` from the repo root or `-f ../mkdocs.yml` from `backend/`
+- reinstall the docs dependencies with `uv pip install -r requirements-docs.txt` or `uv pip install -r ../requirements-docs.txt`
+- if a page shows a broken image, check that the referenced file exists under `docs/images/`
+- if `mkdocs` reports YAML errors, inspect `mkdocs.yml` for unquoted titles containing `:`
+
+### Build the documentation locally
+
+From the repository root:
+
+```bash
+source backend/.venv/bin/activate
+uv run mkdocs build -f mkdocs.yml
+```
+
+From `backend/`:
+
+```bash
+source .venv/bin/activate
+uv run mkdocs build -f ../mkdocs.yml
+```
+
+### Publishing
+
+The repository includes a GitHub Actions workflow at `.github/workflows/deploy-docs.yml` that builds and deploys the documentation site to GitHub Pages.
+
+The docs workflow is manual and independent from the desktop release workflow.
+
+Recommended publishing flow:
+
+1. push and review documentation changes locally
+2. create the release tag you want to publish documentation for
+3. open the `Deploy Docs` workflow in GitHub Actions
+4. use `Run workflow` and choose the target tag
+
+This keeps documentation deployment separate from the main desktop release workflow while still allowing the published docs to match a release version.
+
 ## License
 
 MIT
