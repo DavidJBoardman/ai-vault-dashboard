@@ -407,12 +407,25 @@ class BossPosition(BaseModel):
     label: str = ""
 
 
+class PairingApexSideInput(BaseModel):
+    sideId: str
+    sideLabel: str = ""
+    ribIds: List[str] = []
+
+
+class PairingApexInput(BaseModel):
+    pairingId: str
+    pairingName: str
+    sides: List[PairingApexSideInput]
+
+
 class ApexSpanRequest(BaseModel):
     ribs: List[RibForGrouping]
     bosses: List[BossPosition]
     maxBossDistance: float = 2.0
     symmetryAngleTolerance: float = 30.0
     impostHeight: Optional[float] = None
+    pairings: Optional[List[PairingApexInput]] = None
 
 
 class RibPairIntersection(BaseModel):
@@ -438,9 +451,20 @@ class RibSpanResult(BaseModel):
     projectedApex: Point3D
 
 
+class PairingApexResult(BaseModel):
+    pairingId: str
+    pairingName: str
+    sideLabels: List[str]
+    apex: Optional[Point3D] = None
+    apexHeight: Optional[float] = None
+    status: Literal["ok", "no-intersection", "insufficient-data"] = "insufficient-data"
+    warning: Optional[str] = None
+
+
 class ApexSpanResult(BaseModel):
     bosses: List[BossApexResult]
     ribs: dict  # {rib_id: RibSpanResult}
+    pairingApex: List[PairingApexResult] = []
 
 
 class ApexSpanResponse(BaseModel):
@@ -473,6 +497,23 @@ async def calculate_apex_span_endpoint(request: ApexSpanRequest):
             {"id": b.id, "x": b.x, "y": b.y, "z": b.z, "label": b.label}
             for b in request.bosses
         ]
+        pairings_raw = None
+        if request.pairings:
+            pairings_raw = [
+                {
+                    "pairingId": pairing.pairingId,
+                    "pairingName": pairing.pairingName,
+                    "sides": [
+                        {
+                            "sideId": side.sideId,
+                            "sideLabel": side.sideLabel,
+                            "ribIds": side.ribIds,
+                        }
+                        for side in pairing.sides
+                    ],
+                }
+                for pairing in request.pairings
+            ]
 
         import asyncio as _asyncio
         loop = _asyncio.get_event_loop()
@@ -483,6 +524,7 @@ async def calculate_apex_span_endpoint(request: ApexSpanRequest):
                 max_boss_distance=request.maxBossDistance,
                 symmetry_angle_tol_deg=request.symmetryAngleTolerance,
                 impost_height=request.impostHeight,
+                pairings=pairings_raw,
             ),
         )
 
@@ -508,6 +550,18 @@ async def calculate_apex_span_endpoint(request: ApexSpanRequest):
                     for b in result["bosses"]
                 ],
                 ribs=result["ribs"],
+                pairingApex=[
+                    PairingApexResult(
+                        pairingId=p["pairingId"],
+                        pairingName=p["pairingName"],
+                        sideLabels=p.get("sideLabels", []),
+                        apex=Point3D(**p["apex"]) if p.get("apex") else None,
+                        apexHeight=p.get("apexHeight"),
+                        status=p.get("status", "insufficient-data"),
+                        warning=p.get("warning"),
+                    )
+                    for p in result.get("pairingApex", [])
+                ],
             ),
         )
     except Exception as e:

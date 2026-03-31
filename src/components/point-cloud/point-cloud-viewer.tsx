@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useEffect, useState, useCallback } from "react";
+import React, { useRef, useMemo, useEffect, useState, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Grid, Stats, Html } from "@react-three/drei";
 import * as THREE from "three";
@@ -196,139 +196,196 @@ function PointCloud({
   );
 }
 
-function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: number }) {
-  const getTubeSegments = (pointCount: number, maxSegments: number = 128) =>
-    Math.min(maxSegments, Math.max(8, pointCount * 2));
+/**
+ * Parametric arc curve — defined once at module scope so it is never
+ * re-created inside the render loop.
+ */
+class ArcCurve extends THREE.Curve<THREE.Vector3> {
+  center: { x: number; y: number; z: number };
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+  u: { x: number; y: number; z: number };
+  v: { x: number; y: number; z: number };
 
+  constructor(
+    center: { x: number; y: number; z: number },
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    u: { x: number; y: number; z: number },
+    v: { x: number; y: number; z: number }
+  ) {
+    super();
+    this.center = center;
+    this.radius = radius;
+    this.startAngle = startAngle;
+    this.endAngle = endAngle;
+    this.u = u;
+    this.v = v;
+  }
+
+  getPoint(t: number): THREE.Vector3 {
+    let sweep = this.endAngle - this.startAngle;
+    const twoPi = Math.PI * 2;
+    if (!Number.isFinite(sweep)) {
+      sweep = 0;
+    } else if (Math.abs(sweep) > twoPi) {
+      sweep = sweep % twoPi;
+    }
+    const angle = this.startAngle + t * sweep;
+    const x = this.center.x + this.radius * (Math.cos(angle) * this.u.x + Math.sin(angle) * this.v.x);
+    const y = this.center.y + this.radius * (Math.cos(angle) * this.u.y + Math.sin(angle) * this.v.y);
+    const z = this.center.z + this.radius * (Math.cos(angle) * this.u.z + Math.sin(angle) * this.v.z);
+    return new THREE.Vector3(x, z, y); // Swap Y/Z for orientation
+  }
+}
+
+/** Shared sphere geometry — allocated once, reused by every endpoint marker. */
+const SHARED_SPHERE_GEO = new THREE.SphereGeometry(1, 16, 16);
+
+function getTubeSegments(pointCount: number, maxSegments: number = 128) {
+  return Math.min(maxSegments, Math.max(8, pointCount * 2));
+}
+
+/**
+ * Renders a single Line3D. Wrapped in React.memo so unchanged lines skip
+ * geometry reconstruction when sibling lines change (e.g. colour on selection).
+ */
+const MemoizedLine = React.memo(function MemoizedLine({
+  line,
+  lineWidth,
+}: {
+  line: Line3D;
+  lineWidth: number;
+}) {
+  // Segment lines (part of an error-heatmap trace) don't need endpoint spheres
+  // because they overlap with their neighbours.
+  const isSegment = line.id.includes("-segment-");
+  const sphereRadius = lineWidth * 2;
+
+  const color = useMemo(() => new THREE.Color(line.color), [line.color]);
+
+  const { mainGeo, glowGeo, startPos, endPos } = useMemo(() => {
+    if (line.arc) {
+      const { center, radius, startAngle, endAngle, u, v } = line.arc;
+      const arcCurve = new ArcCurve(center, radius, startAngle, endAngle, u, v);
+      return {
+        mainGeo: new THREE.TubeGeometry(arcCurve, 64, lineWidth, 8, false),
+        glowGeo: new THREE.TubeGeometry(arcCurve, 64, lineWidth * 1.5, 8, false),
+        startPos: new THREE.Vector3(line.points[0].x, line.points[0].z, line.points[0].y),
+        endPos: new THREE.Vector3(
+          line.points[line.points.length - 1].x,
+          line.points[line.points.length - 1].z,
+          line.points[line.points.length - 1].y,
+        ),
+      };
+    }
+
+    const pts = line.points.map((p) => new THREE.Vector3(p.x, p.z, p.y));
+    const curve = new THREE.CatmullRomCurve3(pts, false, "catmullrom", 0.5);
+    const segs = getTubeSegments(line.points.length);
+    return {
+      mainGeo: new THREE.TubeGeometry(curve, segs, lineWidth, 8, false),
+      glowGeo: new THREE.TubeGeometry(curve, segs, lineWidth * 1.5, 8, false),
+      startPos: new THREE.Vector3(line.points[0].x, line.points[0].z, line.points[0].y),
+      endPos: new THREE.Vector3(
+        line.points[line.points.length - 1].x,
+        line.points[line.points.length - 1].z,
+        line.points[line.points.length - 1].y,
+      ),
+    };
+  }, [line.points, line.arc, lineWidth]);
+
+  // Dispose previous geometries when they are replaced or the component unmounts.
+  useEffect(() => {
+    return () => {
+      mainGeo.dispose();
+      glowGeo.dispose();
+    };
+  }, [mainGeo, glowGeo]);
+
+  return (
+    <group>
+      <mesh geometry={mainGeo}>
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <mesh geometry={glowGeo}>
+        <meshBasicMaterial color={color} transparent opacity={0.3} />
+      </mesh>
+      {!isSegment && (
+        <>
+          <mesh position={startPos} scale={sphereRadius}>
+            <primitive object={SHARED_SPHERE_GEO} attach="geometry" />
+            <meshBasicMaterial color={color} />
+          </mesh>
+          <mesh position={endPos} scale={sphereRadius}>
+            <primitive object={SHARED_SPHERE_GEO} attach="geometry" />
+            <meshBasicMaterial color={color} />
+          </mesh>
+        </>
+      )}
+    </group>
+  );
+});
+
+function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: number }) {
   return (
     <group>
       {lines.map((line) => {
         if (line.points.length < 2) return null;
-        
-        // Parse hex color to THREE.Color
-        const color = new THREE.Color(line.color);
-        const sphereRadius = lineWidth * 2;
-        
-        // If arc parameters are provided, render a true mathematical arc
-        if (line.arc) {
-          const { center, radius, startAngle, endAngle, u, v } = line.arc;
-          
-          // Create a parametric curve for the arc
-          class ArcCurve extends THREE.Curve<THREE.Vector3> {
-            center: { x: number; y: number; z: number };
-            radius: number;
-            startAngle: number;
-            endAngle: number;
-            u: { x: number; y: number; z: number };
-            v: { x: number; y: number; z: number };
-
-            constructor(
-              center: { x: number; y: number; z: number },
-              radius: number,
-              startAngle: number,
-              endAngle: number,
-              u: { x: number; y: number; z: number },
-              v: { x: number; y: number; z: number }
-            ) {
-              super();
-              this.center = center;
-              this.radius = radius;
-              this.startAngle = startAngle;
-              this.endAngle = endAngle;
-              this.u = u;
-              this.v = v;
-            }
-
-            getPoint(t: number): THREE.Vector3 {
-              let sweep = this.endAngle - this.startAngle;
-              const twoPi = Math.PI * 2;
-
-              // Keep traced direction, but guard against accidental multi-turn spans.
-              if (!Number.isFinite(sweep)) {
-                sweep = 0;
-              } else if (Math.abs(sweep) > twoPi) {
-                sweep = sweep % twoPi;
-              }
-
-              const angle = this.startAngle + t * sweep;
-              const x = this.center.x + this.radius * (Math.cos(angle) * this.u.x + Math.sin(angle) * this.v.x);
-              const y = this.center.y + this.radius * (Math.cos(angle) * this.u.y + Math.sin(angle) * this.v.y);
-              const z = this.center.z + this.radius * (Math.cos(angle) * this.u.z + Math.sin(angle) * this.v.z);
-              return new THREE.Vector3(x, z, y); // Swap Y/Z for orientation
-            }
-          }
-          
-          const arcCurve = new ArcCurve(center, radius, startAngle, endAngle, u, v);
-          
-          return (
-            <group key={line.id}>
-              {/* Main arc tube */}
-              <mesh>
-                <tubeGeometry args={[arcCurve, 64, lineWidth, 8, false]} />
-                <meshBasicMaterial color={color} />
-              </mesh>
-              {/* Glow effect */}
-              <mesh>
-                <tubeGeometry args={[arcCurve, 64, lineWidth * 1.5, 8, false]} />
-                <meshBasicMaterial color={color} transparent opacity={0.3} />
-              </mesh>
-              {/* Start sphere */}
-              <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
-                <sphereGeometry args={[sphereRadius, 16, 16]} />
-                <meshBasicMaterial color={color} />
-              </mesh>
-              {/* End sphere */}
-              <mesh position={[
-                line.points[line.points.length - 1].x,
-                line.points[line.points.length - 1].z,
-                line.points[line.points.length - 1].y
-              ]}>
-                <sphereGeometry args={[sphereRadius, 16, 16]} />
-                <meshBasicMaterial color={color} />
-              </mesh>
-            </group>
-          );
-        }
-        
-        // Fallback: use CatmullRomCurve3 for regular line rendering
-        const points: THREE.Vector3[] = line.points.map(
-          (p) => new THREE.Vector3(p.x, p.z, p.y) // Swap Y/Z for correct orientation
-        );
-        const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5);
-        const segments = getTubeSegments(line.points.length);
-
-        return (
-          <group key={line.id}>
-            {/* Main line using tube geometry for thickness */}
-            <mesh>
-              <tubeGeometry args={[curve, segments, lineWidth, 8, false]} />
-              <meshBasicMaterial color={color} />
-            </mesh>
-            {/* Glow/highlight effect */}
-            <mesh>
-              <tubeGeometry args={[curve, segments, lineWidth * 1.5, 8, false]} />
-              <meshBasicMaterial color={color} transparent opacity={0.3} />
-            </mesh>
-            {/* Start sphere */}
-            <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
-              <sphereGeometry args={[sphereRadius, 16, 16]} />
-              <meshBasicMaterial color={color} />
-            </mesh>
-            {/* End sphere */}
-            <mesh position={[
-              line.points[line.points.length - 1].x,
-              line.points[line.points.length - 1].z,
-              line.points[line.points.length - 1].y
-            ]}>
-              <sphereGeometry args={[sphereRadius, 16, 16]} />
-              <meshBasicMaterial color={color} />
-            </mesh>
-          </group>
-        );
+        return <MemoizedLine key={line.id} line={line} lineWidth={lineWidth} />;
       })}
     </group>
   );
 }
+
+/**
+ * Memoized single hit-area tube per rib — avoids recreating curve geometry
+ * when sibling ribs change.
+ */
+const MemoizedHitArea = React.memo(function MemoizedHitArea({
+  rib,
+  lineWidth,
+  isHovered,
+  onLineClick,
+  onHover,
+  onUnhover,
+}: {
+  rib: { id: string; points: Array<{ x: number; y: number; z: number }> };
+  lineWidth: number;
+  isHovered: boolean;
+  onLineClick?: (ribId: string) => void;
+  onHover: (id: string) => void;
+  onUnhover: () => void;
+}) {
+  const geo = useMemo(() => {
+    const pts = rib.points.map((p) => new THREE.Vector3(p.x, p.z, p.y));
+    const curve = new THREE.CatmullRomCurve3(pts, false, "catmullrom", 0.5);
+    const segs = getTubeSegments(rib.points.length, 96);
+    return new THREE.TubeGeometry(curve, segs, lineWidth * 6, 6, false);
+  }, [rib.points, lineWidth]);
+
+  useEffect(() => {
+    return () => { geo.dispose(); };
+  }, [geo]);
+
+  return (
+    <mesh
+      geometry={geo}
+      onClick={(e) => { e.stopPropagation(); onLineClick?.(rib.id); }}
+      onPointerOver={(e) => { e.stopPropagation(); onHover(rib.id); document.body.style.cursor = "pointer"; }}
+      onPointerOut={() => { onUnhover(); document.body.style.cursor = "default"; }}
+    >
+      <meshBasicMaterial
+        transparent
+        opacity={isHovered ? 0.18 : 0}
+        color="#ffffff"
+        depthWrite={false}
+      />
+    </mesh>
+  );
+});
 
 /**
  * One invisible wide tube per rib — the only raycasting targets for click/hover.
@@ -344,32 +401,23 @@ function RibHitAreas({
   onLineClick?: (ribId: string) => void;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const getTubeSegments = (pointCount: number, maxSegments: number = 96) =>
-    Math.min(maxSegments, Math.max(8, pointCount * 2));
+  const handleHover = useCallback((id: string) => setHoveredId(id), []);
+  const handleUnhover = useCallback(() => setHoveredId(null), []);
 
   return (
     <group>
       {ribPaths.map((rib) => {
         if (rib.points.length < 2) return null;
-        const pts = rib.points.map((p) => new THREE.Vector3(p.x, p.z, p.y));
-        const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
-        const segs = getTubeSegments(rib.points.length);
-        const isHovered = hoveredId === rib.id;
         return (
-          <mesh
+          <MemoizedHitArea
             key={rib.id}
-            onClick={(e) => { e.stopPropagation(); onLineClick?.(rib.id); }}
-            onPointerOver={(e) => { e.stopPropagation(); setHoveredId(rib.id); document.body.style.cursor = "pointer"; }}
-            onPointerOut={() => { setHoveredId(null); document.body.style.cursor = "default"; }}
-          >
-            <tubeGeometry args={[curve, segs, lineWidth * 6, 6, false]} />
-            <meshBasicMaterial
-              transparent
-              opacity={isHovered ? 0.18 : 0}
-              color="#ffffff"
-              depthWrite={false}
-            />
-          </mesh>
+            rib={rib}
+            lineWidth={lineWidth}
+            isHovered={hoveredId === rib.id}
+            onLineClick={onLineClick}
+            onHover={handleHover}
+            onUnhover={handleUnhover}
+          />
         );
       })}
     </group>
