@@ -6,6 +6,7 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 
 - [Features](#features)
 - [Architecture](#architecture)
+- [Documentation](#documentation)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Development](#development)
@@ -52,6 +53,67 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 │  └──────────┘  └──────────┘  └──────────────┘  │
 └─────────────────────────────────────────────────┘
 ```
+
+## Documentation
+
+Hosted project documentation should live under `docs/` and be published with MkDocs to GitHub Pages.
+
+### Local preview from the repository root
+
+```bash
+source backend/.venv/bin/activate
+uv pip install -r requirements-docs.txt
+uv run mkdocs serve -f mkdocs.yml
+```
+
+### Local preview when your shell is already in `backend/`
+
+```bash
+source .venv/bin/activate
+uv pip install -r ../requirements-docs.txt
+uv run mkdocs serve -f ../mkdocs.yml
+```
+
+Then open `http://127.0.0.1:8000`.
+
+### Contributing to the documentation
+
+- user-facing pages live in `docs/`
+- screenshots live in `docs/images/`
+- keep the structure simple: overview, installation, workflow chapters, and one final system chapter
+- use one folder per workflow step for screenshots
+- keep screenshots close to the instruction they support
+
+See `docs/images/CONTRIBUTING.txt` for the screenshot naming and placement convention.
+
+### Debugging documentation locally
+
+If the docs do not start locally, check the following first:
+
+- make sure you are pointing to the repo config file with `-f mkdocs.yml` from the repo root or `-f ../mkdocs.yml` from `backend/`
+- reinstall the docs dependencies with `uv pip install -r requirements-docs.txt` or `uv pip install -r ../requirements-docs.txt`
+- if a page shows a broken image, check that the referenced file exists under `docs/images/`
+- if `mkdocs` reports YAML errors, inspect `mkdocs.yml` for unquoted titles containing `:`
+
+### Build the documentation locally
+
+From the repository root:
+
+```bash
+source backend/.venv/bin/activate
+uv run mkdocs build -f mkdocs.yml
+```
+
+From `backend/`:
+
+```bash
+source .venv/bin/activate
+uv run mkdocs build -f ../mkdocs.yml
+```
+
+### Publishing
+
+The repository includes a GitHub Actions workflow at `.github/workflows/deploy-docs.yml` that builds and deploys the documentation site to GitHub Pages.
 
 ## Prerequisites
 
@@ -253,7 +315,7 @@ Notes:
 
 GitHub Actions is the current artifact build path for unsigned test releases.
 
-The workflow is defined in [`.github/workflows/desktop-release.yml`](/Users/yangzhang/Documents/Bitbucket/AI-Vaults-2025/ai-vault-dashboard/.github/workflows/desktop-release.yml) and can be triggered in two ways:
+The workflow is defined in [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) and can be triggered in two ways:
 
 1. Manually from the `Actions` tab using `Desktop Release` and `Run workflow`
 2. Automatically by pushing a Git tag that matches `v*`
