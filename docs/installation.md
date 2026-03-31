@@ -1,93 +1,59 @@
 # Installation
 
-End users should use the packaged application builds published with each tagged release, not build the project from source.
+Download the packaged application and run it directly. You do not need to build the project from source.
 
-## Download from a tagged release
+## Download the latest build
 
-Each downloadable build is attached to a GitHub release tag page.
+Start here:
 
-Example format:
+[Desktop Release workflow runs](https://github.com/DavidJBoardman/ai-vault-dashboard/actions)
 
-`https://github.com/DavidJBoardman/ai-vault-dashboard/releases/tag/<tag>`
+For most users, the process is:
 
-General release listing:
+1. open the GitHub Actions page
+2. open the latest successful `Desktop Release` workflow run
+3. scroll to the `Artifacts` section near the bottom of the page
+4. download the file for your operating system
+5. unzip the downloaded file
+6. move the extracted application to the folder where you want to keep it
+7. run the application directly
 
-[Browse tagged releases on GitHub](https://github.com/DavidJBoardman/ai-vault-dashboard/releases)
+Current artifact names are expected to look like:
 
-Use the release tag page for the version you want, then download the matching Windows or macOS archive from that page.
-
-## Installation model
-
-The packaged builds do not require a traditional installer.
-
-In both operating systems, the general process is:
-
-1. download the archive from the tagged release page
-2. unzip the archive
-3. move the extracted application to the folder where you want to keep it
-4. run the application directly
+- `vault-analyser-windows`
+- `vault-analyser-macos`
 
 ## Windows
 
-### What to download
+Open the extracted folder and double-click the `.exe` file. There is no separate installer step.
 
-Download the Windows build archive from the chosen release tag page, unzip it, and keep the extracted application in the folder you want to use.
-
-### How to run it
-
-Run the extracted `.exe` directly. No separate installation step is required.
-
-![Windows release download page](images/installation/windows-release-download.png)
-
-### Where project data is stored
-
-On Windows, the packaged application stores its working data under:
-
-`C:\Users\<your-user>\Vault Analyser\`
-
-Project data is stored under:
+### Where your project files are stored
 
 `C:\Users\<your-user>\Vault Analyser\projects\`
 
-Other generated working folders are created alongside it, such as uploads, projections, segmentations, and exports.
+The application also stores related working folders there, including uploads, projections, segmentations, and exports.
 
 ## macOS
 
-### What to download
-
-Download the macOS build archive from the chosen release tag page, unzip it, and move the extracted `.app` bundle to the folder where you want to keep it, for example `Applications` or another folder you manage yourself.
-
-### How to run it
-
-Run the extracted `.app` directly.
+Open the extracted `.app`.
 
 Because the packaged application is not signed, macOS may block it on first launch.
 
-If that happens, one terminal-based approach is:
+If macOS blocks it, use Terminal and run:
 
 ```bash
 xattr -dr com.apple.quarantine "/path/to/Vault Analyser.app"
 open "/path/to/Vault Analyser.app"
 ```
 
-![macOS release download page](images/installation/macos-release-download.png)
-
-### Where project data is stored
-
-On macOS, the packaged application stores its working data under:
-
-`/Users/<your-user>/Vault Analyser/`
-
-Project data is stored under:
+### Where your project files are stored
 
 `/Users/<your-user>/Vault Analyser/projects/`
 
-Other generated working folders are created alongside it, such as uploads, projections, segmentations, and exports.
+The application also stores related working folders there, including uploads, projections, segmentations, and exports.
 
-## Summary
+## Notes
 
-- download from the GitHub release tag page for the version you want
-- unzip the archive
-- move the extracted app to the folder where you want to keep it
-- run it directly
-- find saved project data under the `Vault Analyser/projects/` folder in your home directory
+- GitHub Actions artifacts are the current download location for packaged builds
+- if you cannot find the files, check that the workflow run completed successfully
+- if a newer build is needed, use the latest successful `Desktop Release` run
