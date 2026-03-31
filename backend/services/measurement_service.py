@@ -1237,9 +1237,9 @@ class MeasurementService:
                     "warning": None,
                 })
 
-        # Recompute span for ribs belonging to a pairing: horizontal distance
-        # from the springing point to where the rib's best-fit arc extension
-        # reaches the pairing apex Z.
+        # Recompute span for each pairing side (group) as a whole:
+        # use the outermost/lowest rib's springing point and arc projection,
+        # then store the same group span for every rib in the side.
         for pr in pairing_results:
             if pr["status"] != "ok" or pr["apex"] is None:
                 continue
@@ -1257,25 +1257,70 @@ class MeasurementService:
             for side in sides_raw:
                 if not isinstance(side, dict):
                     continue
-                for rid_raw in (side.get("ribIds", []) if isinstance(side.get("ribIds"), list) else []):
-                    rid = str(rid_raw).strip()
-                    if rid not in rib_results or rid not in arc_cache:
-                        continue
-                    arc = arc_cache[rid]
-                    arc_pt = self._arc_point_at_z(arc, apex_z)
-                    if arc_pt is None:
-                        continue
-                    existing = rib_results[rid]
-                    sp = existing["springingPoint"]
-                    dx = float(arc_pt[0]) - sp["x"]
-                    dy = float(arc_pt[1]) - sp["y"]
-                    new_span = float(np.sqrt(dx * dx + dy * dy))
-                    rib_results[rid]["span"] = new_span
-                    rib_results[rid]["projectedApex"] = {
-                        "x": float(arc_pt[0]),
-                        "y": float(arc_pt[1]),
-                        "z": float(arc_pt[2]),
-                    }
+                # Collect valid rib IDs for this side (group)
+                rib_ids = [
+                    str(r).strip()
+                    for r in (side.get("ribIds", []) if isinstance(side.get("ribIds"), list) else [])
+                ]
+                rib_ids = [
+                    r for r in rib_ids
+                    if r in arc_cache
+                    and self.traces.get(r) is not None
+                    and len(self.traces[r]) >= 2
+                ]
+                if not rib_ids:
+                    continue
+
+                # Find the outermost/lowest rib: the one whose springing endpoint
+                # has the lowest Z (most grounded in the wall).
+                def _spring_endpoint_z(rid: str) -> float:
+                    pts = self.traces[rid]
+                    return min(float(pts[0][2]), float(pts[-1][2]))
+
+                outermost_rid = min(rib_ids, key=_spring_endpoint_z)
+                outer_pts = self.traces[outermost_rid]
+                from_end = float(outer_pts[-1][2]) < float(outer_pts[0][2])
+                spring_3d = outer_pts[-1].copy() if from_end else outer_pts[0].copy()
+                if impost_height is not None:
+                    hit = self._polyline_z_intersection(outer_pts, impost_height, from_end=from_end)
+                    if hit is not None:
+                        spring_3d = hit
+                    else:
+                        spring_3d = np.array([float(spring_3d[0]), float(spring_3d[1]), float(impost_height)])
+
+                # Project the outermost rib's arc to the pairing apex Z
+                arc_pt = self._arc_point_at_z(arc_cache[outermost_rid], apex_z)
+                if arc_pt is None:
+                    continue
+
+                proj_apex_dict = {
+                    "x": float(arc_pt[0]),
+                    "y": float(arc_pt[1]),
+                    "z": float(arc_pt[2]),
+                }
+                spring_dict = {
+                    "x": float(spring_3d[0]),
+                    "y": float(spring_3d[1]),
+                    "z": float(spring_3d[2]),
+                }
+                dx = float(arc_pt[0]) - float(spring_3d[0])
+                dy = float(arc_pt[1]) - float(spring_3d[1])
+                group_span = float(np.sqrt(dx * dx + dy * dy))
+
+                # Store the group span under every rib in the side
+                for rid in rib_ids:
+                    if rid in rib_results:
+                        rib_results[rid]["span"] = group_span
+                        rib_results[rid]["projectedApex"] = proj_apex_dict
+                        rib_results[rid]["springingPoint"] = spring_dict
+                    else:
+                        rib_results[rid] = {
+                            "ribId": rid,
+                            "bossId": None,
+                            "span": group_span,
+                            "springingPoint": spring_dict,
+                            "projectedApex": proj_apex_dict,
+                        }
 
         return {"bosses": boss_results, "ribs": rib_results, "pairingApex": pairing_results}
 
