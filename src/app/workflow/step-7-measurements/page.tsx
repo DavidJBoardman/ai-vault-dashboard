@@ -1687,68 +1687,81 @@ export default function Step7MeasurementsPage() {
     if (!intradosLines || intradosLines.length === 0) return;
     setExportingRibs(true);
 
+    const impostH = impostLineData?.impost_height ?? 0;
     const rows: string[] = [];
     // Header
     rows.push([
-      "RibID",
-      "ApexX",
-      "ApexY",
-      "ApexZ",
-      "RibLength",
+      "Name",
       "ArcRadius",
-      "FitError",
-      "ImpostDistance"
+      "ArcLength",
+      "ImpostDistance",
+      "ApexHeight",
+      "Span",
     ].join(","));
 
-    for (const line of intradosLines) {
+    for (const group of displayGroups) {
       try {
-        const resp = await calculateMeasurements({
-          traceId: line.id,
-          segmentStart: 0,
-          segmentEnd: 1,
-          tracePoints: line.points3d,
-        });
+        const cm = group.combinedMeasurements;
 
-        let apex = { x: 0, y: 0, z: 0 };
-        let ribLength = 0;
-        let arcRadius = 0;
-        let fitError = 0;
+        // Arc radius — from combined measurements
+        const arcRadius = cm.arc_radius;
+
+        // Arc length — sum of rib lengths in the group
+        const arcLength = cm.rib_length;
+
+        // Impost distance — arc center Z minus impost height
+        // For grouped ribs use the combined arc_center_z if available, else average
         let impostDistance = 0;
-
-        if (resp.success && resp.data) {
-          const d = resp.data;
-          apex = d.apexPoint ?? apex;
-          ribLength = d.ribLength ?? 0;
-          arcRadius = d.arcRadius ?? 0;
-          fitError = d.fitError ?? 0;
-        } else {
-          // Fallback: derive apex from raw line points
-          const pts = line.points3d;
-          if (pts && pts.length > 0) {
-            const apexIdx = pts.reduce((maxIdx, p, idx, arr) => p[2] > arr[maxIdx][2] ? idx : maxIdx, 0);
-            const ap = pts[apexIdx];
-            apex = { x: ap[0], y: ap[1], z: ap[2] };
+        if (impostLineData) {
+          if (cm.arc_center_z !== 0) {
+            impostDistance = cm.arc_center_z - impostH;
+          } else {
+            // Average over all ribs in the group
+            const vals = group.ribIds
+              .map(rid => impostLineData.ribs[rid]?.arc_center_z)
+              .filter((v): v is number => typeof v === "number");
+            if (vals.length > 0) {
+              impostDistance = (vals.reduce((a, b) => a + b, 0) / vals.length) - impostH;
+            }
           }
         }
 
-        // Get impost distance from impost line data (arc center Z - impost height)
-        if (impostLineData && impostLineData.ribs[line.id]) {
-          const ribData = impostLineData.ribs[line.id];
-          impostDistance = (ribData.arc_center_z ?? 0) - impostLineData.impost_height;
+        // Apex height — from pairingApex result (normalized)
+        let apexHeight = "";
+        const pairing = (measurementConfig.ribPairings ?? []).find(p =>
+          p.sides.some(sideId => {
+            const dg = displayGroupById.get(sideId);
+            const sideRibIds = dg ? dg.ribIds : [sideId];
+            return sideRibIds.some(rid => group.ribIds.includes(rid));
+          })
+        );
+        if (pairing) {
+          const pr = apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id);
+          if (pr?.status === "ok" && typeof pr.apexHeight === "number") {
+            apexHeight = (pr.apexHeight - impostH).toFixed(4);
+          }
         }
 
+        // Span — from apexSpanResult.ribs, same value stored on every rib in the group
+        let span = "";
+        const ribSpan = group.ribIds
+          .map(rid => apexSpanResult?.ribs[rid])
+          .find(r => r != null);
+        if (ribSpan) {
+          span = ribSpan.span.toFixed(4);
+        }
+
+        const label = group.groupName ?? group.groupId;
         rows.push([
-          line.label,
-          apex.x.toFixed(4),
-          apex.y.toFixed(4),
-          apex.z.toFixed(4),
-          ribLength.toFixed(4),
+          `"${label}"`,
           arcRadius.toFixed(4),
-          fitError.toFixed(6),
+          arcLength.toFixed(4),
           impostDistance.toFixed(4),
+          apexHeight,
+          span,
         ].join(","));
       } catch (err) {
-        console.error(`Error exporting rib ${line.id}:`, err);
+        console.error(`Error exporting group ${group.groupId}:`, err);
       }
     }
 
@@ -3028,7 +3041,7 @@ export default function Step7MeasurementsPage() {
                               </div>
                               <div className="p-1.5 rounded bg-muted/30 text-center">
                                 <p className="text-muted-foreground font-medium">Z</p>
-                                <p className="font-mono">{selectedMeasurement!.apexPoint?.z.toFixed(2)}</p>
+                                <p className="font-mono">{((selectedMeasurement!.apexPoint?.z ?? 0) - (impostLineData?.impost_height ?? 0)).toFixed(2)}</p>
                               </div>
                             </div>
                           </div>
@@ -3049,7 +3062,7 @@ export default function Step7MeasurementsPage() {
                                   </div>
                                   <div className="p-1.5 rounded bg-muted/30 text-center">
                                     <p className="text-muted-foreground font-medium">Z</p>
-                                    <p className="font-mono">{point.z.toFixed(2)}</p>
+                                    <p className="font-mono">{(point.z - (impostLineData?.impost_height ?? 0)).toFixed(2)}</p>
                                   </div>
                                 </div>
                               </div>
