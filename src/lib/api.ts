@@ -435,6 +435,19 @@ export interface ApexSpanRequest {
   maxBossDistance?: number;
   symmetryAngleTolerance?: number;
   impostHeight?: number;
+  pairings?: PairingApexInput[];
+}
+
+export interface PairingApexSideInput {
+  sideId: string;
+  sideLabel: string;
+  ribIds: string[];
+}
+
+export interface PairingApexInput {
+  pairingId: string;
+  pairingName: string;
+  sides: PairingApexSideInput[];
 }
 
 export interface RibPairIntersection {
@@ -463,6 +476,17 @@ export interface RibSpanResult {
 export interface ApexSpanResult {
   bosses: BossApexResult[];
   ribs: Record<string, RibSpanResult>;
+  pairingApex: PairingApexResult[];
+}
+
+export interface PairingApexResult {
+  pairingId: string;
+  pairingName: string;
+  sideLabels: string[];
+  apex?: { x: number; y: number; z: number };
+  apexHeight?: number;
+  status: "ok" | "no-intersection" | "insufficient-data";
+  warning?: string;
 }
 
 export async function calculateApexSpan(

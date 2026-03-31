@@ -14,6 +14,12 @@ export interface WorkflowTraceLine {
 
 export const MANUAL_TRACE_COLOR = "#00ff88";
 export const MAX_IMPORTED_TRACE_POINTS = 160;
+/**
+ * Maximum points kept per trace for 3D rendering / error-heatmap display.
+ * Lower than MAX_IMPORTED_TRACE_POINTS to reduce the number of tube-geometry
+ * segments created in the viewer while keeping measurement precision intact.
+ */
+export const MAX_DISPLAY_TRACE_POINTS = 40;
 
 function toFiniteNumber(value: unknown, fallback: number = 0): number {
   if (typeof value === "number" && Number.isFinite(value)) {
