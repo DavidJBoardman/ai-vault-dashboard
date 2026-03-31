@@ -1,20 +1,30 @@
 # Vault Analyser Documentation
 
-This documentation is for using the software.
+Vault Analyser is a desktop application for analysing historical vault geometry from point-cloud data. This documentation focuses on how to use the software and work through the analysis workflow.
 
-The structure is intentionally simple:
+## Project
 
-- an overview of what the software does
-- an installation page that points to packaged builds
-- one chapter for each workflow step
-- one final system section for developer-facing context
+Vault Analyser is part of the wider project **Virtual Vaults: Using AI to process, analyse and supplement digital data**:
 
-If you are using the software, read the pages in this order:
+[UKRI project record: UKRI955](https://gtr.ukri.org/projects?ref=UKRI955)
 
-1. Overview
-2. Installation
-3. Workflow Overview
-4. Step 1 to Step 8
 
-The final `System` chapter is only for readers who need a quick technical orientation to the project.
-The final `System` section is only for readers who need a quick technical orientation to the project.
+## How to use this documentation
+
+Read the documentation in this order:
+
+1. Install
+2. Workflow Overview
+3. Step 1 to Step 8
+
+Use the `System` section only if you need technical background on the project structure and architecture.
+
+<!-- Keep the logo strip visually light; the SVG assets are white and need a dark background. -->
+<div class="partner-logos">
+  <a href="https://www.virtualengineeringcentre.com/" target="_blank" rel="noopener noreferrer">
+    <img src="https://www.virtualengineeringcentre.com/wp-content/themes/liverpoolVec/library/images/svg/logo.svg" alt="Virtual Engineering Centre logo">
+  </a>
+  <a href="https://www.liverpool.ac.uk/" target="_blank" rel="noopener noreferrer">
+    <img src="https://www.virtualengineeringcentre.com/wp-content/themes/liverpoolVec/library/images/svg/university_of_liverpool_logo.svg" alt="University of Liverpool logo">
+  </a>
+</div>
