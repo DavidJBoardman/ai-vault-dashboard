@@ -1,12 +1,22 @@
-"""Export router for reprojection and file export."""
+"""Export router for reprojection and file export.
 
-from typing import List, Optional
+Intrados exports (3DM / OBJ / DXF) read geometry from the active project folder only:
+  backend/data/projects/<project_id>/segmentations/intrados_lines.json
+Files are written to:
+  backend/data/projects/<project_id>/exports/
+
+No bundled or sample project data under backend/data/projects is required for the API;
+that directory is populated at runtime when users create and save projects.
+"""
+
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from services.reprojection import ReprojectionService
 from services.e57_exporter import E57Exporter
+from services.intrados_export import export_intrados_for_project
 
 router = APIRouter()
 
@@ -127,6 +137,44 @@ async def export_csv(data_type: str, output_path: str):
     try:
         # Implementation would export geometry results, measurements, etc.
         return {"success": True, "outputPath": output_path}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# --- Intrados polylines (3DM / OBJ / DXF) ---------------------------------
+
+
+class IntradosExportRequest(BaseModel):
+    """Export traced intrados lines from a project's segmentations folder."""
+
+    projectId: str = Field(..., description="Project UUID folder name under data/projects")
+    format: Literal["3dm", "obj", "dxf"] = Field(
+        "3dm",
+        description="3dm (Rhino), obj (Wavefront polylines), dxf (3D LINE segments)",
+    )
+    layerName: str = Field("Intrados Lines", description="3DM layer / DXF layer stem (OBJ uses object names from labels)")
+    outputPath: Optional[str] = Field(
+        None,
+        description="Optional absolute output file path chosen by user (Save As). If omitted, writes to project exports/.",
+    )
+
+
+@router.post("/intrados")
+async def export_intrados(request: IntradosExportRequest):
+    """
+    Export `intrados_lines.json` for the given project to 3DM, OBJ, or DXF.
+
+    Source path (must exist after tracing on Reprojection step):
+    ``data/projects/{projectId}/segmentations/intrados_lines.json``
+    """
+    try:
+        result = export_intrados_for_project(
+            project_id=request.projectId,
+            fmt=request.format,
+            layer_name=request.layerName,
+            output_path=request.outputPath,
+        )
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 
