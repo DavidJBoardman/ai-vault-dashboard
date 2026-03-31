@@ -2838,10 +2838,53 @@ export default function Step7MeasurementsPage() {
                                 <p className="text-xs text-muted-foreground">Impost Dist</p>
                               </div>
                             )}
-                            <div className="p-2 rounded-lg bg-muted/50 text-center col-span-2">
-                              <p className="text-sm font-bold">{selectedGroup.combinedMeasurements.fit_error.toFixed(4)}m</p>
-                              <p className="text-xs text-muted-foreground">Fit Error</p>
-                            </div>
+                            {(() => {
+                              const groupSpan = selectedGroup.ribIds
+                                .map(rid => apexSpanResult?.ribs[rid])
+                                .find(r => r != null);
+                              if (!groupSpan) return null;
+                              return (
+                                <div className="p-2 rounded-lg bg-muted/50 text-center">
+                                  <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
+                                  {isLoadingApexSpan ? (
+                                    <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
+                                  ) : (
+                                    <p className="text-sm font-bold">{groupSpan.span.toFixed(2)}m</p>
+                                  )}
+                                  <p className="text-xs text-muted-foreground">Span</p>
+                                </div>
+                              );
+                            })()}
+                            {(() => {
+                              const pairing = (measurementConfig.ribPairings ?? []).find(p =>
+                                p.sides.some(sideId => {
+                                  const group = displayGroupById.get(sideId);
+                                  const sideRibIds = group ? group.ribIds : [sideId];
+                                  return sideRibIds.some(rid => selectedGroup.ribIds.includes(rid));
+                                })
+                              );
+                              if (!pairing) return null;
+                              const pairingResult = apexSpanResult?.pairingApex?.find(
+                                r => r.pairingId === pairing.id
+                              );
+                              const apexH = pairingResult?.apexHeight;
+                              const impostH = impostLineData?.impost_height ?? 0;
+                              const hasApex = pairingResult?.status === "ok" && typeof apexH === "number";
+                              return (
+                                <div className="p-2 rounded-lg bg-muted/50 text-center">
+                                  <ArrowLeftRight className="w-3.5 h-3.5 mx-auto mb-0.5 text-emerald-400" />
+                                  {isLoadingApexSpan ? (
+                                    <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
+                                  ) : hasApex ? (
+                                    <p className="text-sm font-bold">{(apexH - impostH).toFixed(3)}m</p>
+                                  ) : (
+                                    <p className="text-sm font-bold text-amber-500">N/A</p>
+                                  )}
+                                  <p className="text-xs text-muted-foreground">Apex Height</p>
+                                  <p className="text-[9px] text-muted-foreground truncate">{pairing.name}</p>
+                                </div>
+                              );
+                            })()}
                           </div>
 
                           {apexSpanResult && (() => {
@@ -2970,12 +3013,6 @@ export default function Step7MeasurementsPage() {
                                 </div>
                               );
                             })()}
-                            {measurementData && (
-                              <div className="p-2 rounded-lg bg-muted/50 text-center">
-                                <p className="text-sm font-bold">{measurementData.fitError.toFixed(4)}m</p>
-                                <p className="text-xs text-muted-foreground">Fit Error</p>
-                              </div>
-                            )}
                           </div>
 
                           <div className="space-y-1.5">
