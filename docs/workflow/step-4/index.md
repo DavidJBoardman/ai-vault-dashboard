@@ -23,14 +23,7 @@ Each sub-stage persists its results before the next can run, so the data flow is
 
 ## Interface layout
 
-The Step 4 page is divided into two columns:
-
-- **Left column** — a tabbed panel containing *Controls* (stage-specific parameters and actions) and *Overlays* (layer visibility toggles).
-- **Right column** — the *Projection Canvas*, which renders the projection image with interactive overlays for the ROI, bosses, template grids, and reconstructed ribs.
-
-A stepper bar at the top of the left column shows progress through sub-stages 4A–4D and allows navigation between them.
-
-![Step 4 Interface Layout](../../images/step-4/step4_interface_layout.png)
+![Step 4 Interface Layout](../../images/step-4/step4_interface_layout.png){ width="800" .center }
 
 
 ## Key concepts

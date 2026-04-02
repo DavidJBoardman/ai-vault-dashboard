@@ -2,57 +2,45 @@
 
 Download the packaged application and run it directly. You do not need to build the project from source.
 
-## Download the latest version
+## 1. Download
 
-Start here:
+Go to the [GitHub Releases page](https://github.com/DavidJBoardman/ai-vault-dashboard/releases) and download the file for your operating system:
 
-[Download from GitHub Releases](https://github.com/DavidJBoardman/ai-vault-dashboard/releases)
+| Operating system | File to download |
+|------------------|-----------------|
+| Windows | `vault-analyser-windows.zip` |
+| macOS | `vault-analyser-macos.zip` |
 
-For most users, the process is:
+Choose the latest release at the top of the page.
 
-1. open the Releases page
-2. choose the latest version at the top
-3. download the file for your operating system
-4. unzip the downloaded file
-5. move the extracted application to the folder where you want to keep it
-6. run the application directly
+## 2. Install and run
 
-Current download files are expected to look like:
+### Windows
 
-- `vault-analyser-windows.zip`
-- `vault-analyser-macos.zip`
+1. Unzip the downloaded file.
+2. Open the extracted folder.
+3. Double-click the `.exe` file — no installer needed.
 
-## Windows
+### macOS
 
-Open the extracted folder and double-click the `.exe` file. There is no separate installer step.
+1. Unzip the downloaded file.
+2. Double-click the `.app` to open it.
 
-### Where your project files are stored
+!!! note "macOS security warning"
+    Because the application is not signed, macOS may block it on first launch. If this happens, open **Terminal** and run:
 
-`C:\Users\<your-user>\Vault Analyser\projects\`
+    ```bash
+    xattr -dr com.apple.quarantine "/path/to/Vault Analyser.app"
+    open "/path/to/Vault Analyser.app"
+    ```
 
-The application also stores related working folders there, including uploads, projections, segmentations, and exports.
+    Replace `/path/to/` with the actual location of the app (e.g. your Downloads folder).
 
-## macOS
+## 3. Where your projects are saved
 
-Open the extracted `.app`.
+The application creates a **Vault Analyser** folder in your home directory. All project data — uploads, projections, segmentations, and exports — is stored there automatically.
 
-Because the packaged application is not signed, macOS may block it on first launch.
-
-If macOS blocks it, use Terminal and run:
-
-```bash
-xattr -dr com.apple.quarantine "/path/to/Vault Analyser.app"
-open "/path/to/Vault Analyser.app"
-```
-
-### Where your project files are stored
-
-`/Users/<your-user>/Vault Analyser/projects/`
-
-The application also stores related working folders there, including uploads, projections, segmentations, and exports.
-
-## Notes
-
-- packaged builds are published on the GitHub Releases page
-- if you cannot find the files, check that the latest release completed successfully 
-- feel free to raise issues from the repo. 
+| Operating system | Project folder |
+|------------------|---------------|
+| Windows | `C:\Users\<your-user>\Vault Analyser\projects\` |
+| macOS | `/Users/<your-user>/Vault Analyser/projects/` |
