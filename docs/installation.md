@@ -54,4 +54,5 @@ The application also stores related working folders there, including uploads, pr
 ## Notes
 
 - packaged builds are published on the GitHub Releases page
-- if you cannot find the files, check that the latest release completed successfully
+- if you cannot find the files, check that the latest release completed successfully 
+- feel free to raise issues from the repo. 
