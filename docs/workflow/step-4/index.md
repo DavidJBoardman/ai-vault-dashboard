@@ -2,34 +2,60 @@
 
 ## Purpose
 
-This step performs the main 2D geometric interpretation of the segmented vault data.
+This step performs the main two-dimensional geometric interpretation of the segmented vault data. It takes the projection image and segmentation masks produced in Steps 2–3 and works towards a **bay-plan** — the network of intrados lines (rib centre-lines) that defines the vault's planimetric design.
 
-## Internal sequence inside this step
+Medieval vault plans were conceived as intersecting patterns of ribs, laid out through iterative geometrical operations on a rectangular bay.[^1] Vault Analyser replicates this logic computationally: it establishes the bay rectangle, locates the bosses (rib junctions), tests which geometric template best explains their positions, and reconstructs the rib network.
 
-The application breaks this stage into four sub-stages:
+[^1]: For background on medieval vault-plan geometry see [Plans — Tracing the Past](https://www.tracingthepast.org.uk/2021/04/07/designing_plans/).
 
-1. ROI and bay proportion
-2. Reference points
-3. Cut-typology matching
-4. Bay-plan reconstruction
+## Sub-stages
 
-## What you do here
+2D Geometry Analysis is consisted of four sequential sub-stages, labelled **4A–4D** in the interface:
 
-- define and save the ROI
-- prepare or confirm reference points
-- run typology matching
-- inspect reconstructed bay-plan results
+| Sub-stage | Name | Key action |
+|-----------|------|------------|
+| **4A** | [ROI and Bay Proportion](roi-and-bay-proportion.md) | Define the analysis region and compute the bay's aspect ratio |
+| **4B** | [Reference Points](reference-points.md) | Review and adjust the boss and corner nodes used by later stages |
+| **4C** | [Cut-Typology Matching](cut-typology-matching.md) | Score each boss against starcut and circlecut templates to identify the best-fit design typology |
+| **4D** | [Bay-Plan Reconstruction](bay-plan-reconstruction.md) | Infer the rib network as a graph of nodes and edges |
 
-![Geometry 2D workflow](../../images/step-4/geometry-2d-workflow.png)
+Each sub-stage persists its results before the next can run, so the data flow is strictly sequential: **ROI → nodes → matching → reconstruction**.
 
-## Why this step matters
+## Interface layout
 
-This is the most interpretation-heavy part of the workflow. The outputs created here feed directly into the 3D reprojection and downstream analysis steps.
+The Step 4 page is divided into two columns:
+
+- **Left column** — a tabbed panel containing *Controls* (stage-specific parameters and actions) and *Overlays* (layer visibility toggles).
+- **Right column** — the *Projection Canvas*, which renders the projection image with interactive overlays for the ROI, bosses, template grids, and reconstructed ribs.
+
+A stepper bar at the top of the left column shows progress through sub-stages 4A–4D and allows navigation between them.
+
+![Step 4 Interface Layout](../../images/step-4/step4_interface_layout.png)
+
+
+## Key concepts
+
+**ROI (Region of Interest)**
+:   A rotatable rectangle that isolates one vault bay on the projection image. All subsequent geometry is calculated in a normalised **unit-square** coordinate system (u, v) mapped from this rectangle.
+
+**Boss**
+:   A raised keystone or junction where ribs meet. Bosses are detected automatically from the segmentation masks and represented as point nodes at their centroids.
+
+**Cut typology**
+:   The family of geometric templates — starcuts, inner circlecuts, and outer circlecuts — used to explain the positions of bosses within the bay. The term *cut* refers to the fractional divisions produced by each template's construction lines.
+
+**Bay plan**
+:   The final graph of nodes (bosses and bay corners) connected by edges (ribs), representing the vault's two-dimensional rib pattern.
+
+<!-- ## Why this step matters
+
+This is the most interpretation-heavy part of the workflow. The bay-plan reconstruction produced here feeds directly into Step 5 (3D reprojection) and all downstream measurement and analysis steps. An accurate bay plan is essential for reliable three-dimensional rib geometry. -->
 
 ## Expected result
 
-Before moving on, you should have:
+<!-- Before moving on to Step 5 you should have: -->
 
-- a saved ROI analysis
-- reference points where required
-- a completed matching or reconstruction result that the next step can use
+- a saved ROI analysis with vault-ratio metadata
+- a reviewed and saved set of reference points (bosses and corners)
+- a completed cut-typology matching result with a credible best-fit template
+- a reconstructed bay-plan graph that faithfully represents the visible rib pattern
