@@ -1,0 +1,36 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Next.js Frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:next"],
+      "port": 3000
+    },
+    {
+      "name": "FastAPI Backend",
+      "runtimeExecutable": "/Users/yangzhang/.local/bin/uv",
+      "runtimeArgs": [
+        "run",
+        "--directory", "backend",
+        "python", "-m", "uvicorn", "main:app",
+        "--reload",
+        "--host", "127.0.0.1",
+        "--port", "8765"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "Electron",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:electron"],
+      "port": 3000
+    },
+    {
+      "name": "MkDocs Docs",
+      "runtimeExecutable": "/Users/yangzhang/.local/bin/uv",
+      "runtimeArgs": ["run", "--directory", "backend", "mkdocs", "serve", "--config-file", "../mkdocs.yml", "--dev-addr", "localhost:8001"],
+      "port": 8001
+    }
+  ]
+}
