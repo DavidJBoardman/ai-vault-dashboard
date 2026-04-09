@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -113,10 +113,10 @@
               
                 <h1 id="step-4-2d-geometry-analysis">Step 4: 2D Geometry Analysis<a class="headerlink" href="#step-4-2d-geometry-analysis" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>This step performs the main two-dimensional geometric interpretation of the segmented vault data. It takes the projection image and segmentation masks produced in Steps 2–3 and works towards a <strong>bay-plan</strong> — the network of intrados lines (rib centre-lines) that defines the vault's planimetric design.</p>
-<p>Medieval vault plans were conceived as intersecting patterns of ribs, laid out through iterative geometrical operations on a rectangular bay.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> Vault Analyser replicates this logic computationally: it establishes the bay rectangle, locates the bosses (rib junctions), tests which geometric template best explains their positions, and reconstructs the rib network.</p>
+<p>This step performs the main two-dimensional interpretation of the vault. It uses the projection image and segmentation masks from Steps 2 and 3 to build a <strong>bay plan</strong>: a 2D graph of bosses, boundary points, and rib connections.</p>
+<p>The step is historically informed rather than purely graphical. The app estimates a bay rectangle, tests boss positions against template families such as starcuts and circlecuts, and then reconstructs the rib network from that evidence.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup></p>
 <h2 id="sub-stages">Sub-stages<a class="headerlink" href="#sub-stages" title="Permanent link">¶</a></h2>
-<p>2D Geometry Analysis is consisted of four sequential sub-stages, labelled <strong>4A–4D</strong> in the interface:</p>
+<p>2D Geometry Analysis is split into four sequential sub-stages, labelled <strong>4A–4D</strong> in the interface:</p>
 <table>
 <thead>
 <tr>
@@ -148,18 +148,18 @@
 </tr>
 </tbody>
 </table>
-<p>Each sub-stage persists its results before the next can run, so the data flow is strictly sequential: <strong>ROI → nodes → matching → reconstruction</strong>.</p>
+<p>Each sub-stage saves results before the next can run, so the data flow is strictly sequential: <strong>ROI → nodes → matching → reconstruction</strong>.</p>
 <h2 id="interface-layout">Interface layout<a class="headerlink" href="#interface-layout" title="Permanent link">¶</a></h2>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../images/step-4/step4_interface_layout.png" data-title="Step 4 Interface Layout" data-desc-position="bottom"><img alt="Step 4 Interface Layout" class="center" src="../../images/step-4/step4_interface_layout.png" width="800"></a></p>
 <h2 id="key-concepts">Key concepts<a class="headerlink" href="#key-concepts" title="Permanent link">¶</a></h2>
 <p><strong>ROI (Region of Interest)</strong>
-:   A rotatable rectangle that isolates one vault bay on the projection image. All subsequent geometry is calculated in a normalised <strong>unit-square</strong> coordinate system (u, v) mapped from this rectangle.</p>
+:   A rotatable rectangle that isolates one vault bay on the projection image. Later geometry is measured relative to this frame.</p>
 <p><strong>Boss</strong>
-:   A raised keystone or junction where ribs meet. Bosses are detected automatically from the segmentation masks and represented as point nodes at their centroids.</p>
+:   A raised keystone or junction where ribs meet. Bosses are represented as point nodes for later matching and reconstruction.</p>
 <p><strong>Cut typology</strong>
-:   The family of geometric templates — starcuts, inner circlecuts, and outer circlecuts — used to explain the positions of bosses within the bay. The term <em>cut</em> refers to the fractional divisions produced by each template's construction lines.</p>
+:   The family of geometric templates used to explain boss positions within the bay.</p>
 <p><strong>Bay plan</strong>
-:   The final graph of nodes (bosses and bay corners) connected by edges (ribs), representing the vault's two-dimensional rib pattern.</p>
+:   The final graph of nodes and edges representing the vault's 2D rib pattern.</p>
 <!-- ## Why this step matters
 
 This is the most interpretation-heavy part of the workflow. The bay-plan reconstruction produced here feeds directly into Step 5 (3D reprojection) and all downstream measurement and analysis steps. An accurate bay plan is essential for reliable three-dimensional rib geometry. -->
@@ -168,16 +168,16 @@ This is the most interpretation-heavy part of the workflow. The bay-plan reconst
 <!-- Before moving on to Step 5 you should have: -->
 
 <ul>
-<li>a saved ROI analysis with vault-ratio metadata</li>
-<li>a reviewed and saved set of reference points (bosses and corners)</li>
-<li>a completed cut-typology matching result with a credible best-fit template</li>
-<li>a reconstructed bay-plan graph that faithfully represents the visible rib pattern</li>
+<li>a saved ROI with sensible bay proportions</li>
+<li>a reviewed set of reference points</li>
+<li>a credible matching result</li>
+<li>a reconstructed bay plan that agrees with the visible rib pattern</li>
 </ul>
 <div class="footnote">
 <hr>
 <ol>
 <li id="fn:1">
-<p>For background on medieval vault-plan geometry see <a href="https://www.tracingthepast.org.uk/2021/04/07/designing_plans/">Plans — Tracing the Past</a>.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+<p>Background reference: <a href="https://www.tracingthepast.org.uk/2021/04/07/designing_plans/">Plans — Tracing the Past</a>.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
 </li>
 </ol>
 </div>

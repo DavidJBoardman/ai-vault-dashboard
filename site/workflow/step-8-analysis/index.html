@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -112,43 +112,21 @@
               
                 <h1 id="step-8-three-circle-chord-method-analysis">Step 8: Three-Circle Chord Method Analysis<a class="headerlink" href="#step-8-three-circle-chord-method-analysis" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Apply the <strong>three-circle chord method</strong> to the measured rib geometry to interpret the vault's structural and constructional logic — specifically, whether the ribs were set out using a single shared radius, a pointed two-centre system, or a compound multi-centre profile.</p>
+<p>Review a final <strong>three-circle chord method</strong> style summary based on the measured rib geometry. This step is best used as an interpretive aid rather than a standalone conclusion.</p>
 <h2 id="background-the-three-circle-chord-method">Background: the three-circle chord method<a class="headerlink" href="#background-the-three-circle-chord-method" title="Permanent link">¶</a></h2>
-<p>The three-circle chord method is a classical technique for analysing medieval arch and vault geometry.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> It compares three separately fitted arcs — typically the nave arc, the aisle arc, and the transverse arc — and examines the ratios between their radii and chord lengths. The key insight is that medieval builders constrained these relationships geometrically: in many vault types, the three circles share a common chord length or have radii in simple whole-number ratios, revealing the underlying setting-out method even when the vault has settled or deformed.</p>
+<p>The three-circle chord method is a classical way to compare fitted arcs in medieval vault and arch studies.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> The idea is to compare a small number of key radii and spans to see whether the geometry behaves like a simple shared-radius system, a pointed multi-centre system, or something more irregular.</p>
 <h2 id="what-the-application-does">What the application does<a class="headerlink" href="#what-the-application-does" title="Permanent link">¶</a></h2>
 <p>Given the arc radii and springing-point positions from Step 7, the backend:</p>
 <ol>
-<li>Groups the measured ribs into the three analysis roles (configurable by the user).</li>
-<li>Computes chord lengths and rise-to-span ratios for each group.</li>
-<li>Compares radius ratios against known construction methods:</li>
-<li><strong>Single-centre</strong>: all arcs share approximately the same radius</li>
-<li><strong>Three-centre pointed arch</strong>: two outer arcs and a smaller central arc, producing a pointed profile</li>
-<li><strong>Multi-centre compound arch</strong>: larger radius variation indicating a more complex setting-out</li>
-<li>Returns a predicted method label, the three radii (r1, r2, r3), their ratios, and a confidence score.</li>
+<li>Takes the measured rib geometry from Step 7.</li>
+<li>Compares a small set of fitted radii and derived values.</li>
+<li>Reports a predicted method label and summary metrics.</li>
 </ol>
 <h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
 <ol>
-<li>
-<p><strong>Assign ribs to roles.</strong> Map the ribs measured in Step 7 to the three circle positions. The default assignment uses the bay layout from the reconstructed plan; adjust if needed.</p>
-</li>
-<li>
-<p><strong>Run the analysis.</strong> Click <strong>Analyse</strong> to compute the chord-method result.</p>
-</li>
-<li>
-<p><strong>Review the output.</strong> The results panel shows:</p>
-</li>
-<li>The three fitted radii and their ratios</li>
-<li>The predicted construction method</li>
-<li>The mean radius and rise-to-span ratio</li>
-<li>
-<p>A confidence indicator reflecting how well the data fits the predicted method</p>
-</li>
-<li>
-<p><strong>Inspect the 3D overlay.</strong> The canvas shows the three fitted arcs positioned in 3D space. Check that the arc centres and profiles look architecturally plausible.</p>
-</li>
-<li>
-<p><strong>Interpret and record.</strong> Compare the predicted method against any documentary or comparative evidence you have for the vault. Note any ribs with anomalous radii that may have deformed or been repaired.</p>
-</li>
+<li>Run the analysis.</li>
+<li>Review the predicted method label, radii, and confidence.</li>
+<li>Treat the result as one line of evidence alongside your own historical and geometric interpretation.</li>
 </ol>
 <h2 id="interpreting-results">Interpreting results<a class="headerlink" href="#interpreting-results" title="Permanent link">¶</a></h2>
 <table>
@@ -161,19 +139,19 @@
 <tbody>
 <tr>
 <td>Single-centre</td>
-<td>Ribs follow a common radius — the simplest setting-out, consistent with a single turning point</td>
+<td>The measured ribs behave as though they share a similar radius</td>
 </tr>
 <tr>
 <td>Three-centre pointed arch</td>
-<td>Classic gothic pointed profile; two outer arcs meet at the apex via a smaller crown arc</td>
+<td>The result looks more like a pointed multi-centre geometry</td>
 </tr>
 <tr>
 <td>Multi-centre compound arch</td>
-<td>More complex geometry; may indicate a complex design method or post-construction deformation</td>
+<td>The radii vary enough to suggest a more complex or less regular construction</td>
 </tr>
 </tbody>
 </table>
-<p>High fit error in Step 7 or large radius outliers will reduce the confidence of this analysis. Return to Step 7 to improve arc fits before drawing strong conclusions.</p>
+<p>High fit error in Step 7 or strong outliers should make you cautious. If necessary, return to Step 7 before drawing strong conclusions.</p>
 <h2 id="interface-controls">Interface controls<a class="headerlink" href="#interface-controls" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -206,7 +184,7 @@
 </tbody>
 </table>
 <h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
-<p>A chord-method result that identifies the most likely setting-out method for the vault, with radius ratios and a predicted construction typology that can be compared against historical and architectural evidence.</p>
+<p>A final summary result that can be compared against historical and architectural evidence.</p>
 <div class="footnote">
 <hr>
 <ol>
@@ -220,7 +198,7 @@
           </div><footer>
     <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
         <a href="../step-7-measurements/" class="btn btn-neutral float-left" title="Step 7: Measurements and Analysis"><span class="icon icon-circle-arrow-left"></span> Previous</a>
-        <a href="../../system/" class="btn btn-neutral float-right" title="Overview">Next <span class="icon icon-circle-arrow-right"></span></a>
+        <a href="../../system/" class="btn btn-neutral float-right" title="Technical Overview">Next <span class="icon icon-circle-arrow-right"></span></a>
     </div>
 
   <hr>

@@ -3,7 +3,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="canonical" href="https://davidjboardman.github.io/ai-vault-dashboard/system/">
       <link rel="shortcut icon" href="../img/favicon.ico">
-    <title>Overview - Vault Analyser Documentation</title>
+    <title>Technical Overview - Vault Analyser Documentation</title>
     <link rel="stylesheet" href="../css/theme.css">
     <link rel="stylesheet" href="../css/theme_extra.css">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
@@ -11,7 +11,7 @@
     
       <script>
         // Current page data
-        var mkdocs_page_name = "Overview";
+        var mkdocs_page_name = "Technical Overview";
         var mkdocs_page_input_path = "system.md";
         var mkdocs_page_url = "/ai-vault-dashboard/system/";
       </script>
@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../workflow/pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../workflow/pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../workflow/step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul class="current">
-                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Overview</a>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -100,7 +100,7 @@
   <ul class="wy-breadcrumbs">
     <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
           <li class="breadcrumb-item">System</li>
-      <li class="breadcrumb-item active">Overview</li>
+      <li class="breadcrumb-item active">Technical Overview</li>
     <li class="wy-breadcrumbs-aside">
           <a href="https://github.com/DavidJBoardman/ai-vault-dashboard/edit/master/docs/system.md" class="icon icon-github"> Edit on GitHub</a>
     </li>
@@ -111,7 +111,7 @@
             <div class="section" itemprop="articleBody">
               
                 <h1 id="system">System<a class="headerlink" href="#system" title="Permanent link">¶</a></h1>
-<p>This final chapter is intentionally brief. It is for readers who need a quick technical orientation after understanding the software workflow.</p>
+<p>This page is intentionally brief. It is for readers who want a quick technical orientation after learning the user workflow.</p>
 <h2 id="project-structure">Project structure<a class="headerlink" href="#project-structure" title="Permanent link">¶</a></h2>
 <div class="highlight"><pre><span></span><code>.
 ├── backend/    # FastAPI services and geometry-processing code
@@ -128,6 +128,7 @@
 <li>Next.js for the user interface</li>
 <li>FastAPI for processing and analysis services</li>
 </ol>
+<p>In practical terms, the desktop app presents the workflow, the frontend stores project state and renders viewers, and the backend performs point-cloud, segmentation, and geometry operations.</p>
 <h2 id="where-to-look-first">Where to look first<a class="headerlink" href="#where-to-look-first" title="Permanent link">¶</a></h2>
 <ul>
 <li><code>src/app/workflow/</code> for the user-facing steps</li>

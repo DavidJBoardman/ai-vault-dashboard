@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1 current"><a class="reference internal current" href="#">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -112,14 +112,14 @@
               
                 <h1 id="step-1-upload-e57-scan">Step 1: Upload E57 Scan<a class="headerlink" href="#step-1-upload-e57-scan" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Load the point-cloud dataset into the application and verify it is ready for projection.</p>
+<p>Load the point-cloud dataset into the application and confirm it is ready for the rest of the workflow.</p>
 <h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
 <ol>
 <li>Select or drag-and-drop an <code>E57</code> file onto the upload area.</li>
-<li>Wait for the backend to parse and index the scan — progress is shown in the status bar.</li>
-<li>Inspect the 3D preview to confirm the scan looks correct (correct orientation, no obvious missing regions, colour or intensity data present if expected).</li>
-<li>Adjust the preview point-count slider if the initial render is too dense or too sparse for a quick visual check.</li>
-<li>Check the backend health indicator — it must be green before the upload can proceed.</li>
+<li>Wait for the file to load and for the preview to appear.</li>
+<li>Inspect the 3D preview to confirm the scan orientation and coverage look correct.</li>
+<li>Adjust the preview point-count slider if you need a lighter or denser preview.</li>
+<li>Check the backend health indicator. It should be online before you continue.</li>
 </ol>
 <h2 id="interface-controls">Interface controls<a class="headerlink" href="#interface-controls" title="Permanent link">¶</a></h2>
 <table>
@@ -150,21 +150,21 @@
 </table>
 <h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
 <ul>
-<li>The preview shows the vault scan in the expected orientation.</li>
-<li>No error message appears in the status bar.</li>
-<li>The point count and bounding-box dimensions look plausible for the structure.</li>
+<li>The vault is visible in the expected orientation.</li>
+<li>The preview does not look obviously clipped or incomplete.</li>
+<li>No upload or backend error is shown.</li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">File size</p>
-<p>E57 files from terrestrial laser scans are often several gigabytes. Allow time for the initial parse; the progress indicator will confirm when the backend is ready.</p>
+<p><code>E57</code> files from terrestrial laser scans are often large. The initial load can take time, especially on the first pass through a new project.</p>
 </div>
 <h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
-<p>A successfully loaded scan with a visible 3D preview and no errors reported. You can now proceed to Step 2.</p>
+<p>A successfully loaded scan with a visible 3D preview and no errors. You can now continue to Step 2.</p>
               
             </div>
           </div><footer>
     <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
-        <a href="../pipeline/" class="btn btn-neutral float-left" title="Workflow Overview"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../pipeline/" class="btn btn-neutral float-left" title="Before You Start"><span class="icon icon-circle-arrow-left"></span> Previous</a>
         <a href="../step-2-projection/" class="btn btn-neutral float-right" title="Step 2: Generate Projection">Next <span class="icon icon-circle-arrow-right"></span></a>
     </div>
 

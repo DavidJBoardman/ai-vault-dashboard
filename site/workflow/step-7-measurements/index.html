@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -112,9 +112,9 @@
               
                 <h1 id="step-7-measurements-and-analysis">Step 7: Measurements and Analysis<a class="headerlink" href="#step-7-measurements-and-analysis" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Compute quantitative geometric properties for each rib: arc radius, rib length, apex height, springing-point positions, and impost distance.</p>
+<p>Compute quantitative geometric properties for each rib, including radius, length, apex, springing points, and impost distance.</p>
 <h2 id="how-arc-fitting-works">How arc fitting works<a class="headerlink" href="#how-arc-fitting-works" title="Permanent link">¶</a></h2>
-<p>Each rib trace is modelled as a circular arc. The application fits the best-fit circle to the 3D point sequence using <strong>least-squares circle fitting</strong>, which minimises the sum of squared radial residuals between the trace points and the fitted circle.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> The fit is performed in the plane best aligned with the rib's local geometry. The residual (fit error) tells you how well a circular arc describes the rib — low values indicate a clean circular section; higher values may indicate a pointed or compound-curve rib.</p>
+<p>Each rib trace is approximated as a circular arc using <strong>least-squares circle fitting</strong>.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> This gives a practical measurement model for comparing ribs, while the fit error tells you when a rib does not behave like a simple circular arc.</p>
 <h2 id="measurements-calculated">Measurements calculated<a class="headerlink" href="#measurements-calculated" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -169,10 +169,10 @@
 <p>The apex and springing positions in the 3D canvas overlay.</p>
 </li>
 <li>
-<p><strong>Set the impost line.</strong> Accept the auto-calculated height or enter a manual value if you have a surveyed reference. The impost distance is recalculated automatically.</p>
+<p><strong>Set the impost line.</strong> Accept the auto-calculated height or enter a manual value if you have a surveyed reference.</p>
 </li>
 <li>
-<p><strong>Review and compare groups.</strong> Use the grouping tools to compare ribs by type or bay position. Consistent radii across a group are a good sign; outliers may indicate a measurement or trace error.</p>
+<p><strong>Review and compare groups.</strong> Compare similar ribs and look for obvious outliers.</p>
 </li>
 <li>
 <p><strong>Save results</strong> before proceeding to Step 8.</p>
@@ -215,17 +215,17 @@
 </table>
 <h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
 <ul>
-<li>All ribs have computed arc radii and low fit errors (no unexpectedly high residuals).</li>
-<li>Apex and springing positions look geometrically plausible in the 3D canvas.</li>
-<li>The impost line is set at a sensible architectural reference height.</li>
+<li>All intended ribs have measurements.</li>
+<li>Fit errors are not unexpectedly high.</li>
+<li>Apex and springing positions look plausible.</li>
 </ul>
 <h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
-<p>A complete set of per-rib measurements saved and ready for the three-circle chord method analysis in Step 8.</p>
+<p>A saved set of per-rib measurements ready for Step 8.</p>
 <div class="footnote">
 <hr>
 <ol>
 <li id="fn:1">
-<p>Coope, I.D., "Circle Fitting by Linear and Nonlinear Least Squares", <em>Journal of Optimization Theory and Applications</em> 76 (1993), 381–388.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+<p>Related reference: Coope, I.D., "Circle Fitting by Linear and Nonlinear Least Squares", <em>Journal of Optimization Theory and Applications</em> 76 (1993), 381–388.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
 </li>
 </ol>
 </div>

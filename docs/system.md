@@ -1,6 +1,6 @@
 # System
 
-This final chapter is intentionally brief. It is for readers who need a quick technical orientation after understanding the software workflow.
+This page is intentionally brief. It is for readers who want a quick technical orientation after learning the user workflow.
 
 ## Project structure
 
@@ -21,6 +21,8 @@ The project has three main layers:
 1. Electron for the desktop shell
 2. Next.js for the user interface
 3. FastAPI for processing and analysis services
+
+In practical terms, the desktop app presents the workflow, the frontend stores project state and renders viewers, and the backend performs point-cloud, segmentation, and geometry operations.
 
 ## Where to look first
 

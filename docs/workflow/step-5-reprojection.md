@@ -2,21 +2,21 @@
 
 ## Purpose
 
-Map the 2D bay-plan and segmentation results back onto the original 3D point cloud, so that rib geometry and boss positions are grounded in real-world scan coordinates before measurement.
+Map the 2D bay plan and segmentation results back onto the original 3D point cloud so later trace and measurement work is grounded in the scan.
 
 ## What the application does
 
-The backend reprojects each segmentation mask and the bay-plan node/edge graph into 3D by reversing the orthographic projection applied in Step 2. Points in the scan that fall within a mask region are labelled with the corresponding feature class; the 2D node coordinates are lifted to 3D using the depth values recorded in the original scan.
+The backend reprojects selected masks and geometry into 3D by using the projection metadata saved earlier. The result is a point-cloud view where the interpreted 2D work can be checked against the original scan.
 
 ## What you do here
 
-1. **Choose which segmentation groups to include.** Enable the rib and boss masks (and any other feature classes) you want to carry forward. Exclude masks that were used only for visual reference or that you know are noisy.
+1. **Choose which segmentation groups to include.** Enable the groups you want to carry forward, usually ribs and bosses first.
 
-2. **Review the 3D preview.** The canvas shows the point cloud with selected masks applied as coloured overlays. Verify that the coloured regions align with the actual rib surfaces and boss positions in 3D. Misalignment here usually indicates a poorly positioned ROI in Step 4A or a segmentation mask that drifted outside the rib.
+2. **Review the 3D preview.** Check that the coloured overlays sit on the correct rib and boss geometry.
 
-3. **Check masked and unmasked points.** Toggle the visibility of masked and unmasked point groups to confirm the feature boundaries look correct in 3D, not just in the 2D projection.
+3. **Check masked and unmasked points.** Toggle visibility to make sure the selected features are not drifting onto unrelated masonry.
 
-4. **Confirm or adjust.** If the reprojection looks wrong, return to Step 4 (to correct the ROI or bay plan) or Step 3 (to refine the masks) before continuing. Do not proceed with a misaligned reprojection — errors here affect all downstream measurements.
+4. **Confirm or adjust.** If the reprojection looks wrong, go back to Step 3 or Step 4 and correct the source data before proceeding.
 
 5. **Save the reprojection state** before moving to Step 6.
 
@@ -31,10 +31,10 @@ The backend reprojects each segmentation mask and the bay-plan node/edge graph i
 
 ## What to check before moving on
 
-- Coloured (masked) points sit on rib surfaces, not on adjacent stonework or open space.
-- Boss positions appear at the correct rib junctions in 3D.
-- No obvious spatial offset between the 2D-derived annotations and the 3D scan.
+- The coloured points sit on the intended features.
+- There is no obvious spatial offset.
+- The result is good enough to trust for tracing.
 
 ## Expected result
 
-A confirmed 3D reprojection with correctly labelled feature points, ready to drive intrados trace extraction in Step 6.
+A confirmed 3D reprojection ready for Step 6.

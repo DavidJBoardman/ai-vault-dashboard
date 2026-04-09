@@ -1,6 +1,6 @@
 # Installation
 
-Download the packaged application and run it directly. You do not need to build the project from source.
+Download the packaged desktop application and run it directly. You do not need to build the project from source to use Vault Analyser.
 
 ## 1. Download
 
@@ -11,7 +11,7 @@ Go to the [GitHub Releases page](https://github.com/DavidJBoardman/ai-vault-dash
 | Windows | `vault-analyser-windows.zip` |
 | macOS | `vault-analyser-macos.zip` |
 
-Choose the latest release at the top of the page.
+Choose the latest release shown at the top of the page.
 
 ## 2. Install and run
 
@@ -38,9 +38,15 @@ Choose the latest release at the top of the page.
 
 ## 3. Where your projects are saved
 
-The application creates a **Vault Analyser** folder in your home directory. All project data — uploads, projections, segmentations, and exports — is stored there automatically.
+The application creates a **Vault Analyser** folder in your home directory. Project files, generated images, segmentation outputs, and exports are stored there automatically.
 
 | Operating system | Project folder |
 |------------------|---------------|
 | Windows | `C:\Users\<your-user>\Vault Analyser\projects\` |
 | macOS | `/Users/<your-user>/Vault Analyser/projects/` |
+
+## Before opening your first project
+
+- Make sure the scan you want to analyse is available as an `E57` file.
+- Keep enough free disk space for derived files such as projections, masks, and exports.
+- Expect the first AI-assisted segmentation run to take longer while the model is loaded.

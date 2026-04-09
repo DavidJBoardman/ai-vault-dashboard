@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Compute quantitative geometric properties for each rib: arc radius, rib length, apex height, springing-point positions, and impost distance.
+Compute quantitative geometric properties for each rib, including radius, length, apex, springing points, and impost distance.
 
 ## How arc fitting works
 
-Each rib trace is modelled as a circular arc. The application fits the best-fit circle to the 3D point sequence using **least-squares circle fitting**, which minimises the sum of squared radial residuals between the trace points and the fitted circle.[^1] The fit is performed in the plane best aligned with the rib's local geometry. The residual (fit error) tells you how well a circular arc describes the rib — low values indicate a clean circular section; higher values may indicate a pointed or compound-curve rib.
+Each rib trace is approximated as a circular arc using **least-squares circle fitting**.[^1] This gives a practical measurement model for comparing ribs, while the fit error tells you when a rib does not behave like a simple circular arc.
 
-[^1]: Coope, I.D., "Circle Fitting by Linear and Nonlinear Least Squares", *Journal of Optimization Theory and Applications* 76 (1993), 381–388.
+[^1]: Related reference: Coope, I.D., "Circle Fitting by Linear and Nonlinear Least Squares", *Journal of Optimization Theory and Applications* 76 (1993), 381–388.
 
 ## Measurements calculated
 
@@ -36,9 +36,9 @@ The impost line is the horizontal reference plane at the level where the ribs sp
    - The fit error — ribs with high residuals may need manual trace correction or indicate a non-circular profile.
    - The apex and springing positions in the 3D canvas overlay.
 
-4. **Set the impost line.** Accept the auto-calculated height or enter a manual value if you have a surveyed reference. The impost distance is recalculated automatically.
+4. **Set the impost line.** Accept the auto-calculated height or enter a manual value if you have a surveyed reference.
 
-5. **Review and compare groups.** Use the grouping tools to compare ribs by type or bay position. Consistent radii across a group are a good sign; outliers may indicate a measurement or trace error.
+5. **Review and compare groups.** Compare similar ribs and look for obvious outliers.
 
 6. **Save results** before proceeding to Step 8.
 
@@ -55,10 +55,10 @@ The impost line is the horizontal reference plane at the level where the ribs sp
 
 ## What to check before moving on
 
-- All ribs have computed arc radii and low fit errors (no unexpectedly high residuals).
-- Apex and springing positions look geometrically plausible in the 3D canvas.
-- The impost line is set at a sensible architectural reference height.
+- All intended ribs have measurements.
+- Fit errors are not unexpectedly high.
+- Apex and springing positions look plausible.
 
 ## Expected result
 
-A complete set of per-rib measurements saved and ready for the three-circle chord method analysis in Step 8.
+A saved set of per-rib measurements ready for Step 8.

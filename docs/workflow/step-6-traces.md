@@ -2,31 +2,31 @@
 
 ## Purpose
 
-Establish the **intrados lines** — the 3D centre-lines of the vault ribs — that Step 7 will measure. Traces can come from automatic extraction or from a manually produced Rhino model, or both.
+Establish the **intrados lines** that Step 7 will measure. Traces can come from automatic extraction, imported `3DM` curves, or both.
 
 ## Trace sources
 
 ### Automatic traces
 
-The application extracts rib centre-lines automatically from the reprojected scan data using morphological skeletonisation of the rib mask followed by connected-component analysis to segment individual ribs.[^1] The result is a set of ordered 3D polylines, one per detected rib.
+The application can derive candidate rib lines automatically from processed imagery using edge detection and skeletonisation, then split the result into individual line candidates.[^1] This gives you a fast starting point rather than a finished scholarly interpretation.
 
-Automatic traces work well for clearly separated ribs with good point-cloud coverage. They may be incomplete where ribs are occluded, have low point density, or merge at boss keystones.
+Automatic traces work best where ribs are clearly separated and well captured in the scan.
 
 ### Manual traces from Rhino 3DM
 
-If you have manually traced the rib geometry in Rhino (or another tool that exports `3DM`), you can import those traces directly. Manual traces are preferable when automatic extraction is unreliable, or when you want precise control over rib endpoint positions.
+If you have manually traced the rib geometry in Rhino or another tool that exports `3DM`, you can import those traces directly. Manual traces are preferable when automatic extraction is unreliable.
 
 To import: click **Import 3DM**, select the file, and map the Rhino layer names to the corresponding rib identifiers in the application.
 
 ## What you do here
 
-1. **Inspect automatic traces.** Review the detected rib lines in the 3D canvas. Check that each rib is represented by a single continuous line without large gaps, and that the line follows the rib's centre-surface rather than its edge.
+1. **Inspect automatic traces.** Review the detected lines in the 3D canvas.
 
 2. **Import manual traces (optional).** If automatic extraction is unsatisfactory for some or all ribs, import a `3DM` file and review the imported lines.
 
-3. **Compare sources.** If you have both automatic and manual traces, the application shows them side by side. Use this comparison to decide which source is more reliable for each rib.
+3. **Compare sources.** If you have both automatic and manual traces, compare them side by side.
 
-4. **Select the active trace set.** Choose whether to use automatic traces, imported traces, or a combination (with manual traces taking precedence for those ribs where they exist).
+4. **Select the active trace set.** Choose whether to use automatic traces, manual traces, or both.
 
 5. **Save the confirmed trace set** before moving to Step 7.
 
@@ -42,12 +42,12 @@ To import: click **Import 3DM**, select the file, and map the Rhino layer names 
 
 ## What to check before moving on
 
-- Every visible rib in the vault has a corresponding trace.
-- Trace lines follow rib centre-lines, not edges or adjacent surfaces.
-- No spurious traces are included (e.g. wall surface lines or fillet arches that are not part of the rib network).
+- The main ribs you intend to measure each have a usable trace.
+- Traces follow the rib centre as closely as practical.
+- Obvious spurious lines have been excluded.
 
 ## Expected result
 
-A confirmed set of 3D rib traces that accurately represents the vault's rib network, ready for measurement in Step 7.
+A confirmed set of traces ready for measurement in Step 7.
 
-[^1]: Morphological skeletonisation iteratively removes boundary pixels from a binary region while preserving connectivity, reducing the rib mask to a single-pixel-wide medial axis (centre-line); see Zhang, T.Y. and Suen, C.Y., "A Fast Parallel Algorithm for Thinning Digital Patterns", *Communications of the ACM* 27(3), 1984, 236–239.
+[^1]: Related reference: Zhang, T.Y. and Suen, C.Y., "A Fast Parallel Algorithm for Thinning Digital Patterns", *Communications of the ACM* 27(3), 1984, 236–239.

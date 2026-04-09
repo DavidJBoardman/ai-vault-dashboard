@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1"><a class="reference internal" href="../../pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../../step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -113,20 +113,20 @@
               
                 <h1 id="step-4d-bay-plan-reconstruction">Step 4D: Bay-Plan Reconstruction<a class="headerlink" href="#step-4d-bay-plan-reconstruction" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>This final Step 4 sub-stage reconstructs the <strong>bay plan</strong> — a graph of nodes (bosses and corners) connected by edges (ribs) — from the ROI, reference points, matching results, and segmentation masks. The bay plan is the primary two-dimensional output that feeds into the 3D reprojection in Step 5.</p>
+<p>This final Step 4 sub-stage reconstructs the <strong>bay plan</strong> from the ROI, reference points, matching results, and segmentation masks. The bay plan is the main 2D output that later gets reprojected into 3D.</p>
 <h2 id="what-the-application-does">What the application does<a class="headerlink" href="#what-the-application-does" title="Permanent link">¶</a></h2>
 <p>Reconstruction proceeds through a multi-phase pipeline:</p>
 <h3 id="1-load-reference-rows">1. Load reference rows<a class="headerlink" href="#1-load-reference-rows" title="Permanent link">¶</a></h3>
 <p>The backend loads the saved node points from sub-stage 4B. Where a boss was successfully matched in sub-stage 4C, its <strong>ideal</strong> template position is used in preference to the raw centroid. Corner anchors are always included.</p>
 <h3 id="2-load-the-rib-mask">2. Load the rib mask<a class="headerlink" href="#2-load-the-rib-mask" title="Permanent link">¶</a></h3>
-<p>A grouped rib-segmentation mask is loaded from the project's segmentation data. This binary mask identifies the image regions where ribs are visible and is used as physical evidence to validate candidate edges.</p>
+<p>A grouped rib-segmentation mask is loaded from the project's segmentation data. This mask acts as evidence for whether a proposed edge actually follows visible rib material.</p>
 <h3 id="3-generate-candidate-edges">3. Generate candidate edges<a class="headerlink" href="#3-generate-candidate-edges" title="Permanent link">¶</a></h3>
 <p>Two reconstruction modes are available:</p>
 <p><strong>Angular-nearest candidates</strong> (default)
-:   For each node, the algorithm identifies the nearest neighbour in each distinct angular direction (with a configurable tolerance). For every candidate edge, a pixel corridor is drawn between the two nodes and scored by its <strong>overlap</strong> with the rib mask — the proportion of corridor pixels that fall on visible rib material.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> A <strong>third-boss penalty</strong> discounts edges whose corridor passes close to an intermediate node (which would indicate two shorter ribs rather than one long one). Candidates passing a minimum score threshold are retained.</p>
+:   For each node, the algorithm looks for nearby neighbours in distinct directions. Each possible edge is then scored by how well a narrow corridor between the two nodes overlaps the rib mask.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup></p>
 <p><strong>Delaunay comparison</strong>
-:   An alternative mode that constructs a constrained Delaunay-style triangulation with optional constraint segments (ROI boundary, cross axes, half-lines).<sup id="fnref:2"><a class="footnote-ref" href="#fn:2">2</a></sup> This provides a reference graph against which the angular-nearest results can be compared.</p>
-<p>Both methods can be combined: the application merges candidate sets, keeping the higher-scoring edge where duplicates exist, and augments the result with <strong>mandatory boundary edges</strong> — adjacent pairs of nodes along each ROI side.</p>
+:   An alternative mode that builds a constrained Delaunay-style graph from the same node set.<sup id="fnref:2"><a class="footnote-ref" href="#fn:2">2</a></sup> This is useful as a comparison view or when rib-mask evidence is weak.</p>
+<p>Both methods can contribute to the final candidate set, and the app also preserves key boundary connections.</p>
 <h3 id="4-select-the-candidate-graph">4. Select the candidate graph<a class="headerlink" href="#4-select-the-candidate-graph" title="Permanent link">¶</a></h3>
 <p>A greedy global selection resolves the candidate set into a final graph:</p>
 <ol>
@@ -214,31 +214,28 @@
 </table>
 <h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
 <ul>
-<li><strong>Review the reconstruction parameters</strong> — adjust if the default settings produce too many or too few edges.</li>
-<li><strong>Run the reconstruction</strong> and inspect the resulting graph on the canvas.</li>
-<li><strong>Toggle layers</strong> — the Reconstruction Layers panel lets you show or hide the base image, ROI, nodes, and reconstructed rib edges independently.</li>
-<li><strong>Manually correct edges</strong> — add missing ribs or remove incorrect ones using the canvas interaction tools.</li>
-<li><strong>Copy diagnostics</strong> — the panel provides a diagnostic summary you can copy for review or reporting.</li>
-<li><strong>Confirm the bay plan</strong> before continuing to Step 5.</li>
+<li>Run the reconstruction and inspect the resulting graph on the canvas.</li>
+<li>If the graph is too dense or too sparse, adjust the settings and run again.</li>
+<li>Use the layer toggles to compare the graph against the underlying projection and masks.</li>
+<li>Add missing edges or remove wrong ones manually before you continue.</li>
 </ul>
 <h2 id="why-it-matters">Why it matters<a class="headerlink" href="#why-it-matters" title="Permanent link">¶</a></h2>
 <p>The bay plan is the most significant output of the entire 2D analysis. It encodes the vault's rib network as a computationally tractable graph that Step 5 reprojects into three-dimensional space. Errors in the bay plan — missing ribs, false connections, or misplaced nodes — will propagate into the 3D geometry and affect all subsequent measurements.</p>
 <h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
 <p>Before leaving Step 4 you should have:</p>
 <ul>
-<li>a reconstructed bay-plan graph whose edges match the visible rib pattern</li>
-<li>an overall reconstruction score that reflects strong edge evidence and complete boundary coverage</li>
-<li>any necessary manual corrections applied and saved</li>
-<li>a bay plan that is ready to be reprojected into 3D in Step 5</li>
+<li>a bay plan whose edges match the visible rib pattern</li>
+<li>any necessary manual corrections applied</li>
+<li>a saved result ready for Step 5</li>
 </ul>
 <div class="footnote">
 <hr>
 <ol>
 <li id="fn:1">
-<p>Evaluating candidate edges by measuring pixel-level feature coverage along a narrow image corridor is a standard heuristic in evidence-based geometric graph construction; a related formulation is described in Steger, C., "An Unbiased Detector of Curvilinear Structures", <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em> 20(2), 1998, 113–125.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+<p>Related reference: Steger, C., "An Unbiased Detector of Curvilinear Structures", <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em> 20(2), 1998, 113–125.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
 </li>
 <li id="fn:2">
-<p>Constrained Delaunay triangulation guarantees that specified edges appear in the triangulation regardless of the Delaunay criterion, providing a geometrically well-defined reference graph for irregular point sets; see Shewchuk, J.R., "Triangle: Engineering a 2D Quality Mesh Generator and Delaunay Triangulator", <em>Applied Computational Geometry</em>, Springer, 1996, 203–222.&nbsp;<a class="footnote-backref" href="#fnref:2" title="Jump back to footnote 2 in the text">↩</a></p>
+<p>Related reference: Shewchuk, J.R., "Triangle: Engineering a 2D Quality Mesh Generator and Delaunay Triangulator", <em>Applied Computational Geometry</em>, Springer, 1996, 203–222.&nbsp;<a class="footnote-backref" href="#fnref:2" title="Jump back to footnote 2 in the text">↩</a></p>
 </li>
 </ol>
 </div>

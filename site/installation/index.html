@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../workflow/pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../workflow/pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../workflow/step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -110,7 +110,7 @@
             <div class="section" itemprop="articleBody">
               
                 <h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">¶</a></h1>
-<p>Download the packaged application and run it directly. You do not need to build the project from source.</p>
+<p>Download the packaged desktop application and run it directly. You do not need to build the project from source to use Vault Analyser.</p>
 <h2 id="1-download">1. Download<a class="headerlink" href="#1-download" title="Permanent link">¶</a></h2>
 <p>Go to the <a href="https://github.com/DavidJBoardman/ai-vault-dashboard/releases">GitHub Releases page</a> and download the file for your operating system:</p>
 <table>
@@ -131,7 +131,7 @@
 </tr>
 </tbody>
 </table>
-<p>Choose the latest release at the top of the page.</p>
+<p>Choose the latest release shown at the top of the page.</p>
 <h2 id="2-install-and-run">2. Install and run<a class="headerlink" href="#2-install-and-run" title="Permanent link">¶</a></h2>
 <h3 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">¶</a></h3>
 <ol>
@@ -153,7 +153,7 @@ open<span class="w"> </span><span class="s2">"/path/to/Vault Analyser.app"</span
 <p>Replace <code>/path/to/</code> with the actual location of the app (e.g. your Downloads folder).</p>
 </div>
 <h2 id="3-where-your-projects-are-saved">3. Where your projects are saved<a class="headerlink" href="#3-where-your-projects-are-saved" title="Permanent link">¶</a></h2>
-<p>The application creates a <strong>Vault Analyser</strong> folder in your home directory. All project data — uploads, projections, segmentations, and exports — is stored there automatically.</p>
+<p>The application creates a <strong>Vault Analyser</strong> folder in your home directory. Project files, generated images, segmentation outputs, and exports are stored there automatically.</p>
 <table>
 <thead>
 <tr>
@@ -172,12 +172,18 @@ open<span class="w"> </span><span class="s2">"/path/to/Vault Analyser.app"</span
 </tr>
 </tbody>
 </table>
+<h2 id="before-opening-your-first-project">Before opening your first project<a class="headerlink" href="#before-opening-your-first-project" title="Permanent link">¶</a></h2>
+<ul>
+<li>Make sure the scan you want to analyse is available as an <code>E57</code> file.</li>
+<li>Keep enough free disk space for derived files such as projections, masks, and exports.</li>
+<li>Expect the first AI-assisted segmentation run to take longer while the model is loaded.</li>
+</ul>
               
             </div>
           </div><footer>
     <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
-        <a href=".." class="btn btn-neutral float-left" title="Overview"><span class="icon icon-circle-arrow-left"></span> Previous</a>
-        <a href="../workflow/pipeline/" class="btn btn-neutral float-right" title="Workflow Overview">Next <span class="icon icon-circle-arrow-right"></span></a>
+        <a href=".." class="btn btn-neutral float-left" title="Home"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../workflow/pipeline/" class="btn btn-neutral float-right" title="Before You Start">Next <span class="icon icon-circle-arrow-right"></span></a>
     </div>
 
   <hr>

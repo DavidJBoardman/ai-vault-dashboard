@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1"><a class="reference internal" href="../../pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../../step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -113,8 +113,8 @@
               
                 <h1 id="step-4b-reference-points">Step 4B: Reference Points<a class="headerlink" href="#step-4b-reference-points" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>This sub-stage prepares the set of <strong>reference points</strong> used to support the later geometric analysis. These are visible helper points on the vault projection, such as notable bosses and boundary anchors, that help the software interpret how the historic design plan may have been laid out.</p>
-<p>Accurate reference points are important because the later matching and reconstruction stages use them to infer the underlying geometric structure of the bay.</p>
+<p>This sub-stage prepares the <strong>reference points</strong> used in later geometry analysis. In most cases these are boss locations plus the ROI corners or other boundary anchors.</p>
+<p>Accurate reference points matter because the later matching and reconstruction stages use them as the geometric skeleton for the bay.</p>
 <h2 id="what-you-are-looking-for">What you are looking for<a class="headerlink" href="#what-you-are-looking-for" title="Permanent link">¶</a></h2>
 <p>In this step, you are identifying the most useful geometric guide points in the bay.</p>
 <p>These usually include:</p>
@@ -122,16 +122,22 @@
 <li><strong>Boss points</strong>: visible bosses or rib-junction points inside the ROI</li>
 <li><strong>Corner anchors</strong>: the ROI corners, used as boundary reference points for the bay</li>
 </ul>
-<p>The goal is not simply to collect points, but to place the points that best support interpretation of the original vault design.</p>
+<p>The goal is not to place as many points as possible. The goal is to keep the points that best represent the bay geometry.</p>
 <h2 id="workflow">Workflow<a class="headerlink" href="#workflow" title="Permanent link">¶</a></h2>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../../images/step-4/step4b-reference.png" data-title="Screenshot showing Step 4B interface with reference points over the ROI and projection image. Visible points mark bosses and ROI corners. Layers panel is open for toggling overlays." data-desc-position="bottom"><img alt="Screenshot showing Step 4B interface with reference points over the ROI and projection image. Visible points mark bosses and ROI corners. Layers panel is open for toggling overlays." class="center" src="../../../images/step-4/step4b-reference.png" width="800"></a></p>
 <ol>
-<li>Review the detected bosses on the canvas, overlaid on the projection image with the ROI visible.</li>
-<li>Add or remove points: drag to reposition, delete spurious detections, or manually place bosses that were missed by the automatic detection.</li>
-<li>Filter points: the Node Preparation panel lets you filter by inside/outside the ROI, helping identify outliers.</li>
-<li>Toggle corner inclusion — optionally include or exclude ROI corner anchors depending on whether the bay boundaries are architecturally meaningful springers.</li>
-<li>Save the point set before moving to sub-stage 4C.</li>
+<li>Review the detected boss points on the canvas.</li>
+<li>Remove obvious false detections.</li>
+<li>Add or reposition points where an important boss has been missed or misplaced.</li>
+<li>Decide whether the ROI corners should be included as boundary anchors.</li>
+<li>Save the point set before moving on.</li>
 </ol>
+<h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
+<ul>
+<li>The main bosses inside the ROI are represented.</li>
+<li>Spurious points outside the bay have been removed.</li>
+<li>Corner anchors are included only if they help the interpretation.</li>
+</ul>
               
             </div>
           </div><footer>

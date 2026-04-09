@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1"><a class="reference internal" href="../../pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../../step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -113,10 +113,10 @@
               
                 <h1 id="step-4c-cut-typology-matching">Step 4C: Cut-Typology Matching<a class="headerlink" href="#step-4c-cut-typology-matching" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>This sub-stage identifies which <strong>geometric template</strong> best explains the positions of the bosses within the bay. The result is a typological classification of the vault's plan geometry — the <em>cut typology</em> — which provides idealised boss positions for the reconstruction stage.</p>
+<p>This sub-stage identifies which <strong>geometric template</strong> best explains the boss positions inside the bay. The result helps the app regularise the plan before reconstruction.</p>
 <h2 id="background-starcuts-and-circlecuts">Background: starcuts and circlecuts<a class="headerlink" href="#background-starcuts-and-circlecuts" title="Permanent link">¶</a></h2>
 <p>Medieval vault designers set out rib plans by drawing construction lines through a starting figure inscribed within the rectangular bay. The intersections of these lines defined the positions of bosses and the start/end points of ribs.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup></p>
-<p>Vault Analyser tests three families of template derived from this tradition:</p>
+<p>Vault Analyser tests several template families derived from this tradition:</p>
 <p><strong>Starcut (standard grid)</strong>
 :   An <em>n</em>-by-<em>n</em> regular grid that divides the bay into equal fractions along both axes. A starcut with <em>n</em> = 3 divides each side into thirds; <em>n</em> = 6 divides into sixths. The grid intersections correspond to the fractional positions at which medieval designers placed tiercerons and lierne junctions. The application tests a configurable range of divisors (default <em>n</em> = 2 to <em>n</em> = 6).</p>
 <p><strong>Inner circlecut</strong>
@@ -131,10 +131,10 @@
 <li><strong>Build template variants</strong> — for each enabled family, generate keypoints in (u, v) unit space. Standard grids use <code>n</code>-by-<code>n</code> intersections; circle variants compute ray–circle intersections and construction-line crossings.</li>
 <li><strong>Extract ratio sets</strong> — from each variant's keypoints, extract the unique <em>x</em>-ratios and <em>y</em>-ratios (the fractional positions along each axis).</li>
 <li><strong>Match bosses to ratios</strong> — for every boss, find the nearest <em>x</em>-ratio and <em>y</em>-ratio. If both distances fall within the configured tolerance, the boss is counted as matched to that variant.</li>
-<li><strong>Rank variants</strong> — variants are sorted by the number of matched bosses, with ties broken in favour of simpler templates (starcut before circlecut, lower <em>n</em> before higher <em>n</em>).</li>
+<li><strong>Rank variants</strong> — variants are sorted by the number of matched bosses, with ties usually broken in favour of simpler templates.</li>
 <li><strong>Persist results</strong> — the full matching payload is saved to <code>cut_typology_result.json</code> and a per-boss CSV to <code>boss_cut_typology_match.csv</code>.</li>
 </ol>
-<p>For each matched boss the result includes the <em>ideal</em> (u, v) position — the template ratio pair to which it was assigned. These ideal positions are carried forward as preferred node coordinates in the reconstruction stage.</p>
+<p>For each matched boss the result includes an idealised template position. These ideal positions can then be preferred over raw centroids during reconstruction.</p>
 <h2 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -184,20 +184,19 @@
 </table>
 <h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
 <ul>
-<li><strong>Review parameters</strong> — adjust the starcut range or toggle template families if you have prior knowledge of the vault's design tradition.</li>
-<li><strong>Run the matching</strong> and inspect the ranked variant table.</li>
-<li><strong>Toggle template overlays</strong> on the canvas to compare each variant's grid or circle construction lines against the boss positions.</li>
-<li><strong>Review the per-boss CSV</strong> for detailed match diagnostics (variant label, ideal ratio, error).</li>
-<li><strong>Confirm the best-fit template</strong> is credible before continuing to reconstruction.</li>
+<li>Review the matching settings if you need to narrow or widen the search.</li>
+<li>Run the matching and inspect the ranked result.</li>
+<li>Compare the template overlays against the boss positions on the canvas.</li>
+<li>Continue only when the leading result looks plausible against the visible geometry.</li>
 </ul>
 <h2 id="why-it-matters">Why it matters<a class="headerlink" href="#why-it-matters" title="Permanent link">¶</a></h2>
-<p>The cut-typology result directly informs the reconstruction stage. When a boss has a matched ideal position, the reconstruction uses that position rather than the raw centroid, improving the regularity of the final bay plan. An incorrect typological assignment will bias the reconstructed rib network towards the wrong geometric template.</p>
+<p>The matching result directly informs reconstruction. A good match can stabilise the bay plan; a bad match can push the reconstruction toward the wrong geometry.</p>
 <h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
 <p>Before continuing to sub-stage 4D you should have:</p>
 <ul>
-<li>a completed matching result with a clearly identified best-fit template variant</li>
-<li>per-boss match evidence that is consistent with the visible rib geometry</li>
-<li>confidence that the matched template reflects the vault's actual design logic</li>
+<li>a completed matching result with a believable leading template</li>
+<li>boss placements that broadly agree with the chosen overlay</li>
+<li>enough confidence to proceed to reconstruction</li>
 </ul>
 <div class="footnote">
 <hr>
