@@ -3,7 +3,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="canonical" href="https://davidjboardman.github.io/ai-vault-dashboard/workflow/pipeline/">
       <link rel="shortcut icon" href="../../img/favicon.ico">
-    <title>Workflow Overview - Vault Analyser Documentation</title>
+    <title>Before You Start - Vault Analyser Documentation</title>
     <link rel="stylesheet" href="../../css/theme.css">
     <link rel="stylesheet" href="../../css/theme_extra.css">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
@@ -11,7 +11,7 @@
     
       <script>
         // Current page data
-        var mkdocs_page_name = "Workflow Overview";
+        var mkdocs_page_name = "Before You Start";
         var mkdocs_page_input_path = "workflow/pipeline.md";
         var mkdocs_page_url = "/ai-vault-dashboard/workflow/pipeline/";
       </script>
@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Workflow Overview</a>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -100,7 +100,7 @@
   <ul class="wy-breadcrumbs">
     <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
           <li class="breadcrumb-item">Workflow</li>
-      <li class="breadcrumb-item active">Workflow Overview</li>
+      <li class="breadcrumb-item active">Before You Start</li>
     <li class="wy-breadcrumbs-aside">
           <a href="https://github.com/DavidJBoardman/ai-vault-dashboard/edit/master/docs/workflow/pipeline.md" class="icon icon-github"> Edit on GitHub</a>
     </li>
@@ -110,21 +110,44 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
             <div class="section" itemprop="articleBody">
               
-                <h1 id="workflow-overview">Workflow Overview<a class="headerlink" href="#workflow-overview" title="Permanent link">¶</a></h1>
-<p>The application is organised as an 8-step workflow. Each chapter in this section corresponds to one step in the software.</p>
+                <h1 id="before-you-start">Before You Start<a class="headerlink" href="#before-you-start" title="Permanent link">¶</a></h1>
+<p>Vault Analyser is organised as an 8-step workflow. Each page in this section explains what the step is for, what to click, and what to check before moving on.</p>
 <h2 id="workflow-sequence">Workflow sequence<a class="headerlink" href="#workflow-sequence" title="Permanent link">¶</a></h2>
 <ol>
-<li>Upload E57 scan</li>
-<li>Generate 2D projection</li>
-<li>Segmentation</li>
-<li>2D geometry analysis</li>
-<li>Reprojection to 3D</li>
-<li>3D geometry traces</li>
-<li>Measurements and analysis</li>
-<li>Three-circle chord method analysis</li>
+<li>Upload an <code>E57</code> scan</li>
+<li>Generate a 2D projection</li>
+<li>Create segmentation masks</li>
+<li>Build the 2D bay interpretation</li>
+<li>Reproject results into 3D</li>
+<li>Confirm rib traces</li>
+<li>Calculate measurements</li>
+<li>Review the final analysis</li>
 </ol>
-<h2 id="how-to-use-this-section">How to use this section<a class="headerlink" href="#how-to-use-this-section" title="Permanent link">¶</a></h2>
-<p>Work through the steps in order. Later stages depend on outputs from earlier ones, especially projection, segmentation, and geometry analysis.</p>
+<h2 id="how-to-work-effectively">How to work effectively<a class="headerlink" href="#how-to-work-effectively" title="Permanent link">¶</a></h2>
+<ul>
+<li>Work through the steps in order. Most later stages depend on files produced earlier.</li>
+<li>Save at the end of each step, especially after segmentation and geometry edits.</li>
+<li>Use a fast exploratory pass first, then return for a cleaner final pass once you know the scan quality and vault layout.</li>
+<li>If a later result looks wrong, go back to the earliest upstream step that could have caused it. In most cases that means projection, segmentation, or ROI placement.</li>
+</ul>
+<h2 id="typical-successful-run">Typical successful run<a class="headerlink" href="#typical-successful-run" title="Permanent link">¶</a></h2>
+<p>For most projects, a good first pass looks like this:</p>
+<ol>
+<li>Load the scan and confirm it is oriented correctly.</li>
+<li>Create a bottom-up projection with enough detail to see ribs and bosses.</li>
+<li>Segment ribs and bosses cleanly.</li>
+<li>Place the ROI carefully and review the automatically prepared nodes.</li>
+<li>Reconstruct the bay plan and correct any wrong edges.</li>
+<li>Check the 3D reprojection before trusting trace or measurement results.</li>
+</ol>
+<h2 id="main-outputs-you-will-create">Main outputs you will create<a class="headerlink" href="#main-outputs-you-will-create" title="Permanent link">¶</a></h2>
+<ul>
+<li>One or more projection images</li>
+<li>Saved segmentation masks and groups</li>
+<li>A reviewed Step 4 bay plan</li>
+<li>3D rib traces</li>
+<li>Measurement tables and exported summaries</li>
+</ul>
               
             </div>
           </div><footer>

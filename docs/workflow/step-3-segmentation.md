@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Identify and label architectural features — ribs, bosses, and other elements — on the projection image so that later stages have clean binary masks to work with.
+Identify and label architectural features on the projection image so later stages can work from clean masks instead of raw imagery.
 
 ## How segmentation works
 
-The application uses the **Segment Anything Model 2 (SAM 2)** to generate feature masks from user-supplied prompts.[^1] You describe *where* a feature is (using a polygon, bounding box, or point), and the model returns a pixel-level mask for that region. You do not need to trace every pixel manually — the model generalises from the prompt geometry.
+The application uses **SAM 3** to turn user prompts into feature masks.[^1] In practice, you show the model where a rib, boss, or other region is by drawing prompts on the image, then review and keep only the masks that are useful.
 
-[^1]: SAM 2 uses a prompt-driven approach to instance segmentation with a Hiera image encoder and a streaming memory mechanism, generalising across object types without retraining; see Ravi et al., "SAM 2: Segment Anything in Images and Videos", [arXiv:2408.00714](https://arxiv.org/abs/2408.00714), 2024.
+[^1]: SAM 3 extends the prompt-driven segmentation framework with concept-level understanding, enabling the model to associate masks with semantic categories without task-specific retraining; see Carion et al., "SAM 3: Segment Anything with Concepts", [arXiv:2511.16719](https://arxiv.org/abs/2511.16719), 2025.
 
 ## Workflow
 
@@ -16,9 +16,9 @@ The application uses the **Segment Anything Model 2 (SAM 2)** to generate featur
 
 Choose the projection generated in Step 2. The image is displayed on the segmentation canvas.
 
-### 2. Define a feature class
+### 2. Define the masks you need
 
-Before drawing a prompt, select or create a **feature class** (e.g. *Rib*, *Boss Stone*, *Web*). Each mask you create is associated with a class; the class label determines how the mask is used in later stages.
+Before drawing prompts, decide which feature groups you need. For most geometry work that means ribs and bosses first.
 
 For rib-geometry analysis you need at minimum:
 
@@ -39,13 +39,13 @@ After drawing, the model processes the prompt and returns a candidate mask. Revi
 
 ### 4. Accept, adjust, or retry
 
-- If the mask correctly captures the feature, **accept** it.
-- If the mask is too large, too small, or incorrectly shaped, adjust the prompt geometry and re-run, or use the mask editing tools to correct the boundary.
+- If the mask correctly captures the feature, keep it.
+- If the mask is too large, too small, or noisy, adjust the prompt and run again.
 - Repeat for each feature instance or class.
 
 ### 5. Manage visibility and save
 
-Use the **Overlays** panel to toggle individual masks on and off. When satisfied, **save** the segmentation state. Step 4 reads the saved masks, so you must save before continuing.
+Use the overlay controls to toggle masks on and off. Save the segmentation state before leaving this step.
 
 ## Interface controls
 
@@ -59,16 +59,16 @@ Use the **Overlays** panel to toggle individual masks on and off. When satisfied
 
 ## Tips
 
-- **Ribs**: Trace along several representative sections of a rib rather than prompting the whole vault at once. The model produces more accurate masks from focused prompts.
-- **Bosses**: A tight bounding box around each boss typically works well. If bosses are closely spaced, prompt them individually.
-- **Occlusions**: If parts of a rib are hidden by later stonework, prompt only the visible sections and accept an incomplete mask — the geometry stages can tolerate gaps.
+- **Ribs**: several focused prompts usually work better than one very broad prompt.
+- **Bosses**: a tight box or polygon is often enough.
+- **Occlusions**: keep the visible evidence clean rather than forcing a speculative mask through missing areas.
 
 ## What to check before moving on
 
-- A rib mask that covers the main rib network without large gaps or excessive noise.
-- A boss mask (or per-boss masks) that captures the keystones clearly.
-- The saved segmentation state is confirmed in the status bar.
+- Rib masks cover the main rib surfaces without too much spill onto adjacent masonry.
+- Bosses are marked clearly enough for later geometry steps.
+- The segmentation state has been saved.
 
 ## Expected result
 
-Saved segmentation masks for the features needed in Step 4, ready for geometric interpretation.
+Saved segmentation masks for the features needed in Step 4.

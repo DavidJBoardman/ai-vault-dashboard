@@ -2,15 +2,15 @@
 
 ## Purpose
 
-Load the point-cloud dataset into the application and verify it is ready for projection.
+Load the point-cloud dataset into the application and confirm it is ready for the rest of the workflow.
 
 ## What you do here
 
 1. Select or drag-and-drop an `E57` file onto the upload area.
-2. Wait for the backend to parse and index the scan — progress is shown in the status bar.
-3. Inspect the 3D preview to confirm the scan looks correct (correct orientation, no obvious missing regions, colour or intensity data present if expected).
-4. Adjust the preview point-count slider if the initial render is too dense or too sparse for a quick visual check.
-5. Check the backend health indicator — it must be green before the upload can proceed.
+2. Wait for the file to load and for the preview to appear.
+3. Inspect the 3D preview to confirm the scan orientation and coverage look correct.
+4. Adjust the preview point-count slider if you need a lighter or denser preview.
+5. Check the backend health indicator. It should be online before you continue.
 
 ## Interface controls
 
@@ -23,13 +23,13 @@ Load the point-cloud dataset into the application and verify it is ready for pro
 
 ## What to check before moving on
 
-- The preview shows the vault scan in the expected orientation.
-- No error message appears in the status bar.
-- The point count and bounding-box dimensions look plausible for the structure.
+- The vault is visible in the expected orientation.
+- The preview does not look obviously clipped or incomplete.
+- No upload or backend error is shown.
 
 !!! note "File size"
-    E57 files from terrestrial laser scans are often several gigabytes. Allow time for the initial parse; the progress indicator will confirm when the backend is ready.
+    `E57` files from terrestrial laser scans are often large. The initial load can take time, especially on the first pass through a new project.
 
 ## Expected result
 
-A successfully loaded scan with a visible 3D preview and no errors reported. You can now proceed to Step 2.
+A successfully loaded scan with a visible 3D preview and no errors. You can now continue to Step 2.
