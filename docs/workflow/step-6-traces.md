@@ -8,7 +8,7 @@ Establish the **intrados lines** — the 3D centre-lines of the vault ribs — t
 
 ### Automatic traces
 
-The application extracts rib centre-lines automatically from the reprojected scan data using morphological skeletonisation of the rib mask followed by connected-component analysis to segment individual ribs. The result is a set of ordered 3D polylines, one per detected rib.
+The application extracts rib centre-lines automatically from the reprojected scan data using morphological skeletonisation of the rib mask followed by connected-component analysis to segment individual ribs.[^1] The result is a set of ordered 3D polylines, one per detected rib.
 
 Automatic traces work well for clearly separated ribs with good point-cloud coverage. They may be incomplete where ribs are occluded, have low point density, or merge at boss keystones.
 
@@ -49,3 +49,5 @@ To import: click **Import 3DM**, select the file, and map the Rhino layer names 
 ## Expected result
 
 A confirmed set of 3D rib traces that accurately represents the vault's rib network, ready for measurement in Step 7.
+
+[^1]: Morphological skeletonisation iteratively removes boundary pixels from a binary region while preserving connectivity, reducing the rib mask to a single-pixel-wide medial axis (centre-line); see Zhang, T.Y. and Suen, C.Y., "A Fast Parallel Algorithm for Thinning Digital Patterns", *Communications of the ACM* 27(3), 1984, 236–239.

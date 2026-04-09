@@ -78,3 +78,6 @@ projects/
 .venv/
 backend/.python-version
 /.cursor
+
+.claude/
+docs/.obsidian/

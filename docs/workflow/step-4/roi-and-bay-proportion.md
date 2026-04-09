@@ -52,9 +52,6 @@ You do not need to select a ratio manually — the suggestions are informational
 
 [^1]: For a detailed account of medieval proportional systems see [Measurements and Proportions — Tracing the Past](https://www.tracingthepast.org.uk/2021/04/09/designing_medieval_vaults_measurements_proportions/).
 
-## Why it matters
-
-The later sub-stages all operate within the ROI's coordinate system. A poorly positioned ROI will propagate errors through matching and reconstruction.
 
 ## Before moving on
 
