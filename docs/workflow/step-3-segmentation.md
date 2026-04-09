@@ -6,9 +6,9 @@ Identify and label architectural features — ribs, bosses, and other elements �
 
 ## How segmentation works
 
-The application uses the **Segment Anything Model (SAM)** to generate feature masks from user-supplied prompts.[^1] You describe *where* a feature is (using a polygon, bounding box, or point), and the model returns a pixel-level mask for that region. You do not need to trace every pixel manually — the model generalises from the prompt geometry.
+The application uses the **Segment Anything Model 2 (SAM 2)** to generate feature masks from user-supplied prompts.[^1] You describe *where* a feature is (using a polygon, bounding box, or point), and the model returns a pixel-level mask for that region. You do not need to trace every pixel manually — the model generalises from the prompt geometry.
 
-[^1]: SAM uses a prompt-driven approach to instance segmentation that generalises across object types without retraining; see Kirillov et al., "Segment Anything", ICCV 2023, [arXiv:2304.02643](https://arxiv.org/abs/2304.02643).
+[^1]: SAM 2 uses a prompt-driven approach to instance segmentation with a Hiera image encoder and a streaming memory mechanism, generalising across object types without retraining; see Ravi et al., "SAM 2: Segment Anything in Images and Videos", [arXiv:2408.00714](https://arxiv.org/abs/2408.00714), 2024.
 
 ## Workflow
 

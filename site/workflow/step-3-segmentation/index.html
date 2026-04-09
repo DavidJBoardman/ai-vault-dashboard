@@ -1,0 +1,267 @@
+<!DOCTYPE html><html class="writer-html5" lang="en"><head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="canonical" href="https://davidjboardman.github.io/ai-vault-dashboard/workflow/step-3-segmentation/">
+      <link rel="shortcut icon" href="../../img/favicon.ico">
+    <title>Step 3: Segmentation - Vault Analyser Documentation</title>
+    <link rel="stylesheet" href="../../css/theme.css">
+    <link rel="stylesheet" href="../../css/theme_extra.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+        <link href="../../stylesheets/extra.css" rel="stylesheet">
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Step 3: Segmentation";
+        var mkdocs_page_input_path = "workflow/step-3-segmentation.md";
+        var mkdocs_page_url = "/ai-vault-dashboard/workflow/step-3-segmentation/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+<link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+        </style></head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Vault Analyser Documentation
+        </a><div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here">
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../installation/">Installation</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Workflow</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Workflow Overview</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-2-projection/">Step 2: Generate Projection</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Step 3: Segmentation</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal">Step 4: 2D Geometry Analysis</a>
+    <ul>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/">Overview</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/roi-and-bay-proportion/">ROI and Bay Proportion</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/reference-points/">Reference Points</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/cut-typology-matching/">Cut-Typology Matching</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/bay-plan-reconstruction/">Bay-Plan Reconstruction</a>
+                </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-5-reprojection/">Step 5: Reprojection to 3D</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-6-traces/">Step 6: 3D Geometry Traces</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-7-measurements/">Step 7: Measurements and Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-8-analysis/">Step 8: Three-Circle Chord Method Analysis</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">System</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Vault Analyser Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Workflow</li>
+      <li class="breadcrumb-item active">Step 3: Segmentation</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard/edit/master/docs/workflow/step-3-segmentation.md" class="icon icon-github"> Edit on GitHub</a>
+    </li>
+  </ul>
+  <hr>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="step-3-segmentation">Step 3: Segmentation<a class="headerlink" href="#step-3-segmentation" title="Permanent link">¶</a></h1>
+<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
+<p>Identify and label architectural features — ribs, bosses, and other elements — on the projection image so that later stages have clean binary masks to work with.</p>
+<h2 id="how-segmentation-works">How segmentation works<a class="headerlink" href="#how-segmentation-works" title="Permanent link">¶</a></h2>
+<p>The application uses the <strong>Segment Anything Model 2 (SAM 2)</strong> to generate feature masks from user-supplied prompts.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> You describe <em>where</em> a feature is (using a polygon, bounding box, or point), and the model returns a pixel-level mask for that region. You do not need to trace every pixel manually — the model generalises from the prompt geometry.</p>
+<h2 id="workflow">Workflow<a class="headerlink" href="#workflow" title="Permanent link">¶</a></h2>
+<h3 id="1-select-the-projection-image">1. Select the projection image<a class="headerlink" href="#1-select-the-projection-image" title="Permanent link">¶</a></h3>
+<p>Choose the projection generated in Step 2. The image is displayed on the segmentation canvas.</p>
+<h3 id="2-define-a-feature-class">2. Define a feature class<a class="headerlink" href="#2-define-a-feature-class" title="Permanent link">¶</a></h3>
+<p>Before drawing a prompt, select or create a <strong>feature class</strong> (e.g. <em>Rib</em>, <em>Boss Stone</em>, <em>Web</em>). Each mask you create is associated with a class; the class label determines how the mask is used in later stages.</p>
+<p>For rib-geometry analysis you need at minimum:</p>
+<ul>
+<li>a <strong>Rib</strong> class covering the visible rib surfaces</li>
+<li>a <strong>Boss Stone</strong> class covering the boss keystones</li>
+</ul>
+<h3 id="3-draw-a-prompt">3. Draw a prompt<a class="headerlink" href="#3-draw-a-prompt" title="Permanent link">¶</a></h3>
+<p>Use one of the prompt tools to indicate the target feature:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>How to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Polygon prompt</strong></td>
+<td>Click to place vertices around or along the feature; double-click to close</td>
+</tr>
+<tr>
+<td><strong>Bounding box prompt</strong></td>
+<td>Drag a rectangle enclosing the feature</td>
+</tr>
+<tr>
+<td><strong>ROI</strong></td>
+<td>Define a broad region to constrain the model's attention</td>
+</tr>
+</tbody>
+</table>
+<p>After drawing, the model processes the prompt and returns a candidate mask. Review it in the canvas overlay.</p>
+<h3 id="4-accept-adjust-or-retry">4. Accept, adjust, or retry<a class="headerlink" href="#4-accept-adjust-or-retry" title="Permanent link">¶</a></h3>
+<ul>
+<li>If the mask correctly captures the feature, <strong>accept</strong> it.</li>
+<li>If the mask is too large, too small, or incorrectly shaped, adjust the prompt geometry and re-run, or use the mask editing tools to correct the boundary.</li>
+<li>Repeat for each feature instance or class.</li>
+</ul>
+<h3 id="5-manage-visibility-and-save">5. Manage visibility and save<a class="headerlink" href="#5-manage-visibility-and-save" title="Permanent link">¶</a></h3>
+<p>Use the <strong>Overlays</strong> panel to toggle individual masks on and off. When satisfied, <strong>save</strong> the segmentation state. Step 4 reads the saved masks, so you must save before continuing.</p>
+<h2 id="interface-controls">Interface controls<a class="headerlink" href="#interface-controls" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Feature class selector</td>
+<td>Sets which class the next mask will be assigned to</td>
+</tr>
+<tr>
+<td>Polygon / box / ROI tools</td>
+<td>Draw prompts on the canvas</td>
+</tr>
+<tr>
+<td>Mask visibility toggles</td>
+<td>Show or hide individual or grouped masks</td>
+</tr>
+<tr>
+<td>Save button</td>
+<td>Persists the segmentation state for downstream steps</td>
+</tr>
+<tr>
+<td>Reset button</td>
+<td>Clears unsaved changes for the current session</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tips">Tips<a class="headerlink" href="#tips" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>Ribs</strong>: Trace along several representative sections of a rib rather than prompting the whole vault at once. The model produces more accurate masks from focused prompts.</li>
+<li><strong>Bosses</strong>: A tight bounding box around each boss typically works well. If bosses are closely spaced, prompt them individually.</li>
+<li><strong>Occlusions</strong>: If parts of a rib are hidden by later stonework, prompt only the visible sections and accept an incomplete mask — the geometry stages can tolerate gaps.</li>
+</ul>
+<h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
+<ul>
+<li>A rib mask that covers the main rib network without large gaps or excessive noise.</li>
+<li>A boss mask (or per-boss masks) that captures the keystones clearly.</li>
+<li>The saved segmentation state is confirmed in the status bar.</li>
+</ul>
+<h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
+<p>Saved segmentation masks for the features needed in Step 4, ready for geometric interpretation.</p>
+<div class="footnote">
+<hr>
+<ol>
+<li id="fn:1">
+<p>SAM 2 uses a prompt-driven approach to instance segmentation with a Hiera image encoder and a streaming memory mechanism, generalising across object types without retraining; see Ravi et al., "SAM 2: Segment Anything in Images and Videos", <a href="https://arxiv.org/abs/2408.00714">arXiv:2408.00714</a>, 2024.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+</li>
+</ol>
+</div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../step-2-projection/" class="btn btn-neutral float-left" title="Step 2: Generate Projection"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../step-4/" class="btn btn-neutral float-right" title="Overview">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
+    
+      <span><a href="../step-2-projection/" style="color: #fcfcfc">« Previous</a></span>
+    
+    
+      <span><a href="../step-4/" style="color: #fcfcfc">Next »</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+
+
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+</script></body></html>

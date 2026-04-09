@@ -4,6 +4,12 @@
 
 Convert the loaded 3D scan into a 2D orthographic image that exposes the vault surface for segmentation and geometry work.
 
+## How projection works
+
+Points are accumulated onto the image plane using a **1D Gaussian splat**: each 3D point contributes intensity to its projected pixel weighted by a Gaussian function of its distance from the projection focal plane along the view axis.[^1] Summing these weighted contributions across all points produces a smooth density image that fills small gaps between neighbouring points and reduces aliasing, giving clearer rib definition than a simple point-drop or max-depth render.
+
+[^1]: Gaussian splatting accumulates point contributions via a kernel function rather than hard per-pixel binning; the foundational formulation is given in Westover, L.A., "Footprint Evaluation for Volume Rendering", *ACM SIGGRAPH Computer Graphics* 24(4), 1990, 245–252.
+
 ## Choosing a perspective
 
 Vault Analyser supports multiple orthographic viewpoints. The choice depends on which surface you are analysing:

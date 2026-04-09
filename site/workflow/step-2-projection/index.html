@@ -1,0 +1,249 @@
+<!DOCTYPE html><html class="writer-html5" lang="en"><head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="canonical" href="https://davidjboardman.github.io/ai-vault-dashboard/workflow/step-2-projection/">
+      <link rel="shortcut icon" href="../../img/favicon.ico">
+    <title>Step 2: Generate Projection - Vault Analyser Documentation</title>
+    <link rel="stylesheet" href="../../css/theme.css">
+    <link rel="stylesheet" href="../../css/theme_extra.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+        <link href="../../stylesheets/extra.css" rel="stylesheet">
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Step 2: Generate Projection";
+        var mkdocs_page_input_path = "workflow/step-2-projection.md";
+        var mkdocs_page_url = "/ai-vault-dashboard/workflow/step-2-projection/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+<link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+        </style></head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Vault Analyser Documentation
+        </a><div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here">
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../installation/">Installation</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Workflow</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Workflow Overview</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Step 2: Generate Projection</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-3-segmentation/">Step 3: Segmentation</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal">Step 4: 2D Geometry Analysis</a>
+    <ul>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/">Overview</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/roi-and-bay-proportion/">ROI and Bay Proportion</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/reference-points/">Reference Points</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/cut-typology-matching/">Cut-Typology Matching</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/bay-plan-reconstruction/">Bay-Plan Reconstruction</a>
+                </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-5-reprojection/">Step 5: Reprojection to 3D</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-6-traces/">Step 6: 3D Geometry Traces</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-7-measurements/">Step 7: Measurements and Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-8-analysis/">Step 8: Three-Circle Chord Method Analysis</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">System</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Vault Analyser Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Workflow</li>
+      <li class="breadcrumb-item active">Step 2: Generate Projection</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard/edit/master/docs/workflow/step-2-projection.md" class="icon icon-github"> Edit on GitHub</a>
+    </li>
+  </ul>
+  <hr>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="step-2-generate-projection">Step 2: Generate Projection<a class="headerlink" href="#step-2-generate-projection" title="Permanent link">¶</a></h1>
+<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
+<p>Convert the loaded 3D scan into a 2D orthographic image that exposes the vault surface for segmentation and geometry work.</p>
+<h2 id="how-projection-works">How projection works<a class="headerlink" href="#how-projection-works" title="Permanent link">¶</a></h2>
+<p>Points are accumulated onto the image plane using a <strong>1D Gaussian splat</strong>: each 3D point contributes intensity to its projected pixel weighted by a Gaussian function of its distance from the projection focal plane along the view axis.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> Summing these weighted contributions across all points produces a smooth density image that fills small gaps between neighbouring points and reduces aliasing, giving clearer rib definition than a simple point-drop or max-depth render.</p>
+<h2 id="choosing-a-perspective">Choosing a perspective<a class="headerlink" href="#choosing-a-perspective" title="Permanent link">¶</a></h2>
+<p>Vault Analyser supports multiple orthographic viewpoints. The choice depends on which surface you are analysing:</p>
+<table>
+<thead>
+<tr>
+<th>Perspective</th>
+<th>Use when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Bottom (intrados)</strong></td>
+<td>Analysing the underside of the vault — the usual starting point for rib geometry</td>
+</tr>
+<tr>
+<td><strong>Top (extrados)</strong></td>
+<td>Analysing the vault's upper surface</td>
+</tr>
+<tr>
+<td><strong>North / South / East / West</strong></td>
+<td>Analysing a particular elevation or section if the vault is not viewed from directly below</td>
+</tr>
+</tbody>
+</table>
+<p>For most vault-rib analysis, start with the <strong>Bottom</strong> projection.</p>
+<h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
+<ol>
+<li>Select a projection perspective from the controls.</li>
+<li>Set the resolution. A higher resolution gives more detail but takes longer to generate and produces a larger file. For initial exploration, a moderate resolution is sufficient; for final analysis, use the highest resolution your hardware can handle in reasonable time.</li>
+<li>Click <strong>Generate Projection</strong> and wait for the image to appear in the preview panel.</li>
+<li>Inspect the result — ribs, bosses, and bay boundaries should be clearly distinguishable.</li>
+<li>If the projection is unclear (e.g., obscured by structural elements above or below), try adjusting the depth range or switching perspective.</li>
+<li>Repeat for any additional projections you need (e.g., both bottom and a cardinal direction for a complex vault).</li>
+</ol>
+<h2 id="interface-controls">Interface controls<a class="headerlink" href="#interface-controls" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Perspective selector</td>
+<td>Chooses the projection axis (bottom, top, north, south, east, west)</td>
+</tr>
+<tr>
+<td>Resolution / scale</td>
+<td>Sets image pixel density relative to the scan's physical dimensions</td>
+</tr>
+<tr>
+<td>Generate button</td>
+<td>Triggers the projection computation</td>
+</tr>
+<tr>
+<td>Preview panel</td>
+<td>Displays the resulting 2D image</td>
+</tr>
+</tbody>
+</table>
+<h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
+<ul>
+<li>Ribs are visible as distinct lines or ridges against the vault surface.</li>
+<li>Boss positions (rib junctions) are identifiable.</li>
+<li>The bay boundary is recognisable.</li>
+<li>There is no obvious clipping or distortion that would misrepresent the geometry.</li>
+</ul>
+<h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
+<p>At least one usable 2D projection saved and ready for segmentation in Step 3.</p>
+<div class="footnote">
+<hr>
+<ol>
+<li id="fn:1">
+<p>Gaussian splatting accumulates point contributions via a kernel function rather than hard per-pixel binning; the foundational formulation is given in Westover, L.A., "Footprint Evaluation for Volume Rendering", <em>ACM SIGGRAPH Computer Graphics</em> 24(4), 1990, 245–252.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+</li>
+</ol>
+</div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../step-1-upload/" class="btn btn-neutral float-left" title="Step 1: Upload E57 Scan"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../step-3-segmentation/" class="btn btn-neutral float-right" title="Step 3: Segmentation">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
+    
+      <span><a href="../step-1-upload/" style="color: #fcfcfc">« Previous</a></span>
+    
+    
+      <span><a href="../step-3-segmentation/" style="color: #fcfcfc">Next »</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+
+
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+</script></body></html>

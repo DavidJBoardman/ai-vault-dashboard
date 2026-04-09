@@ -1,0 +1,224 @@
+<!DOCTYPE html><html class="writer-html5" lang="en"><head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="canonical" href="https://davidjboardman.github.io/ai-vault-dashboard/workflow/step-5-reprojection/">
+      <link rel="shortcut icon" href="../../img/favicon.ico">
+    <title>Step 5: Reprojection to 3D - Vault Analyser Documentation</title>
+    <link rel="stylesheet" href="../../css/theme.css">
+    <link rel="stylesheet" href="../../css/theme_extra.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+        <link href="../../stylesheets/extra.css" rel="stylesheet">
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Step 5: Reprojection to 3D";
+        var mkdocs_page_input_path = "workflow/step-5-reprojection.md";
+        var mkdocs_page_url = "/ai-vault-dashboard/workflow/step-5-reprojection/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+<link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+        </style></head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Vault Analyser Documentation
+        </a><div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here">
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../installation/">Installation</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Workflow</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Workflow Overview</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-2-projection/">Step 2: Generate Projection</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-3-segmentation/">Step 3: Segmentation</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal">Step 4: 2D Geometry Analysis</a>
+    <ul>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/">Overview</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/roi-and-bay-proportion/">ROI and Bay Proportion</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/reference-points/">Reference Points</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/cut-typology-matching/">Cut-Typology Matching</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/bay-plan-reconstruction/">Bay-Plan Reconstruction</a>
+                </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Step 5: Reprojection to 3D</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-6-traces/">Step 6: 3D Geometry Traces</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-7-measurements/">Step 7: Measurements and Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-8-analysis/">Step 8: Three-Circle Chord Method Analysis</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">System</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Vault Analyser Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Workflow</li>
+      <li class="breadcrumb-item active">Step 5: Reprojection to 3D</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard/edit/master/docs/workflow/step-5-reprojection.md" class="icon icon-github"> Edit on GitHub</a>
+    </li>
+  </ul>
+  <hr>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="step-5-reprojection-to-3d">Step 5: Reprojection to 3D<a class="headerlink" href="#step-5-reprojection-to-3d" title="Permanent link">¶</a></h1>
+<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
+<p>Map the 2D bay-plan and segmentation results back onto the original 3D point cloud, so that rib geometry and boss positions are grounded in real-world scan coordinates before measurement.</p>
+<h2 id="what-the-application-does">What the application does<a class="headerlink" href="#what-the-application-does" title="Permanent link">¶</a></h2>
+<p>The backend reprojects each segmentation mask and the bay-plan node/edge graph into 3D by reversing the orthographic projection applied in Step 2. Points in the scan that fall within a mask region are labelled with the corresponding feature class; the 2D node coordinates are lifted to 3D using the depth values recorded in the original scan.</p>
+<h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
+<ol>
+<li>
+<p><strong>Choose which segmentation groups to include.</strong> Enable the rib and boss masks (and any other feature classes) you want to carry forward. Exclude masks that were used only for visual reference or that you know are noisy.</p>
+</li>
+<li>
+<p><strong>Review the 3D preview.</strong> The canvas shows the point cloud with selected masks applied as coloured overlays. Verify that the coloured regions align with the actual rib surfaces and boss positions in 3D. Misalignment here usually indicates a poorly positioned ROI in Step 4A or a segmentation mask that drifted outside the rib.</p>
+</li>
+<li>
+<p><strong>Check masked and unmasked points.</strong> Toggle the visibility of masked and unmasked point groups to confirm the feature boundaries look correct in 3D, not just in the 2D projection.</p>
+</li>
+<li>
+<p><strong>Confirm or adjust.</strong> If the reprojection looks wrong, return to Step 4 (to correct the ROI or bay plan) or Step 3 (to refine the masks) before continuing. Do not proceed with a misaligned reprojection — errors here affect all downstream measurements.</p>
+</li>
+<li>
+<p><strong>Save the reprojection state</strong> before moving to Step 6.</p>
+</li>
+</ol>
+<h2 id="interface-controls">Interface controls<a class="headerlink" href="#interface-controls" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Segmentation group toggles</td>
+<td>Include or exclude each feature class in the reprojection</td>
+</tr>
+<tr>
+<td>Masked / unmasked point visibility</td>
+<td>Isolate one group for inspection</td>
+</tr>
+<tr>
+<td>3D preview canvas</td>
+<td>Interactive point-cloud view with reprojected labels</td>
+</tr>
+<tr>
+<td>Save button</td>
+<td>Persists the reprojection state for Step 6</td>
+</tr>
+</tbody>
+</table>
+<h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
+<ul>
+<li>Coloured (masked) points sit on rib surfaces, not on adjacent stonework or open space.</li>
+<li>Boss positions appear at the correct rib junctions in 3D.</li>
+<li>No obvious spatial offset between the 2D-derived annotations and the 3D scan.</li>
+</ul>
+<h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
+<p>A confirmed 3D reprojection with correctly labelled feature points, ready to drive intrados trace extraction in Step 6.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../step-4/bay-plan-reconstruction/" class="btn btn-neutral float-left" title="Bay-Plan Reconstruction"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../step-6-traces/" class="btn btn-neutral float-right" title="Step 6: 3D Geometry Traces">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
+    
+      <span><a href="../step-4/bay-plan-reconstruction/" style="color: #fcfcfc">« Previous</a></span>
+    
+    
+      <span><a href="../step-6-traces/" style="color: #fcfcfc">Next »</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+
+
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+</script></body></html>

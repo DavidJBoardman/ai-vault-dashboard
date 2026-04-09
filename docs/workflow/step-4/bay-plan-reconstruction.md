@@ -21,10 +21,10 @@ A grouped rib-segmentation mask is loaded from the project's segmentation data. 
 Two reconstruction modes are available:
 
 **Angular-nearest candidates** (default)
-:   For each node, the algorithm identifies the nearest neighbour in each distinct angular direction (with a configurable tolerance). For every candidate edge, a pixel corridor is drawn between the two nodes and scored by its **overlap** with the rib mask — the proportion of corridor pixels that fall on visible rib material. A **third-boss penalty** discounts edges whose corridor passes close to an intermediate node (which would indicate two shorter ribs rather than one long one). Candidates passing a minimum score threshold are retained.
+:   For each node, the algorithm identifies the nearest neighbour in each distinct angular direction (with a configurable tolerance). For every candidate edge, a pixel corridor is drawn between the two nodes and scored by its **overlap** with the rib mask — the proportion of corridor pixels that fall on visible rib material.[^1] A **third-boss penalty** discounts edges whose corridor passes close to an intermediate node (which would indicate two shorter ribs rather than one long one). Candidates passing a minimum score threshold are retained.
 
 **Delaunay comparison**
-:   An alternative mode that constructs a constrained Delaunay-style triangulation with optional constraint segments (ROI boundary, cross axes, half-lines). This provides a reference graph against which the angular-nearest results can be compared.
+:   An alternative mode that constructs a constrained Delaunay-style triangulation with optional constraint segments (ROI boundary, cross axes, half-lines).[^2] This provides a reference graph against which the angular-nearest results can be compared.
 
 Both methods can be combined: the application merges candidate sets, keeping the higher-scoring edge where duplicates exist, and augments the result with **mandatory boundary edges** — adjacent pairs of nodes along each ROI side.
 
@@ -72,6 +72,10 @@ After the automatic reconstruction, you may add or remove individual edges manua
 - **Manually correct edges** — add missing ribs or remove incorrect ones using the canvas interaction tools.
 - **Copy diagnostics** — the panel provides a diagnostic summary you can copy for review or reporting.
 - **Confirm the bay plan** before continuing to Step 5.
+
+[^1]: Evaluating candidate edges by measuring pixel-level feature coverage along a narrow image corridor is a standard heuristic in evidence-based geometric graph construction; a related formulation is described in Steger, C., "An Unbiased Detector of Curvilinear Structures", *IEEE Transactions on Pattern Analysis and Machine Intelligence* 20(2), 1998, 113–125.
+
+[^2]: Constrained Delaunay triangulation guarantees that specified edges appear in the triangulation regardless of the Delaunay criterion, providing a geometrically well-defined reference graph for irregular point sets; see Shewchuk, J.R., "Triangle: Engineering a 2D Quality Mesh Generator and Delaunay Triangulator", *Applied Computational Geometry*, Springer, 1996, 203–222.
 
 ## Why it matters
 
