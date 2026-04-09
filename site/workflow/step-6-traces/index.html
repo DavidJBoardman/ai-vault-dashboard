@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -112,27 +112,27 @@
               
                 <h1 id="step-6-3d-geometry-traces">Step 6: 3D Geometry Traces<a class="headerlink" href="#step-6-3d-geometry-traces" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Establish the <strong>intrados lines</strong> — the 3D centre-lines of the vault ribs — that Step 7 will measure. Traces can come from automatic extraction or from a manually produced Rhino model, or both.</p>
+<p>Establish the <strong>intrados lines</strong> that Step 7 will measure. Traces can come from automatic extraction, imported <code>3DM</code> curves, or both.</p>
 <h2 id="trace-sources">Trace sources<a class="headerlink" href="#trace-sources" title="Permanent link">¶</a></h2>
 <h3 id="automatic-traces">Automatic traces<a class="headerlink" href="#automatic-traces" title="Permanent link">¶</a></h3>
-<p>The application extracts rib centre-lines automatically from the reprojected scan data using morphological skeletonisation of the rib mask followed by connected-component analysis to segment individual ribs.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> The result is a set of ordered 3D polylines, one per detected rib.</p>
-<p>Automatic traces work well for clearly separated ribs with good point-cloud coverage. They may be incomplete where ribs are occluded, have low point density, or merge at boss keystones.</p>
+<p>The application can derive candidate rib lines automatically from processed imagery using edge detection and skeletonisation, then split the result into individual line candidates.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> This gives you a fast starting point rather than a finished scholarly interpretation.</p>
+<p>Automatic traces work best where ribs are clearly separated and well captured in the scan.</p>
 <h3 id="manual-traces-from-rhino-3dm">Manual traces from Rhino 3DM<a class="headerlink" href="#manual-traces-from-rhino-3dm" title="Permanent link">¶</a></h3>
-<p>If you have manually traced the rib geometry in Rhino (or another tool that exports <code>3DM</code>), you can import those traces directly. Manual traces are preferable when automatic extraction is unreliable, or when you want precise control over rib endpoint positions.</p>
+<p>If you have manually traced the rib geometry in Rhino or another tool that exports <code>3DM</code>, you can import those traces directly. Manual traces are preferable when automatic extraction is unreliable.</p>
 <p>To import: click <strong>Import 3DM</strong>, select the file, and map the Rhino layer names to the corresponding rib identifiers in the application.</p>
 <h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
 <ol>
 <li>
-<p><strong>Inspect automatic traces.</strong> Review the detected rib lines in the 3D canvas. Check that each rib is represented by a single continuous line without large gaps, and that the line follows the rib's centre-surface rather than its edge.</p>
+<p><strong>Inspect automatic traces.</strong> Review the detected lines in the 3D canvas.</p>
 </li>
 <li>
 <p><strong>Import manual traces (optional).</strong> If automatic extraction is unsatisfactory for some or all ribs, import a <code>3DM</code> file and review the imported lines.</p>
 </li>
 <li>
-<p><strong>Compare sources.</strong> If you have both automatic and manual traces, the application shows them side by side. Use this comparison to decide which source is more reliable for each rib.</p>
+<p><strong>Compare sources.</strong> If you have both automatic and manual traces, compare them side by side.</p>
 </li>
 <li>
-<p><strong>Select the active trace set.</strong> Choose whether to use automatic traces, imported traces, or a combination (with manual traces taking precedence for those ribs where they exist).</p>
+<p><strong>Select the active trace set.</strong> Choose whether to use automatic traces, manual traces, or both.</p>
 </li>
 <li>
 <p><strong>Save the confirmed trace set</strong> before moving to Step 7.</p>
@@ -171,17 +171,17 @@
 </table>
 <h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
 <ul>
-<li>Every visible rib in the vault has a corresponding trace.</li>
-<li>Trace lines follow rib centre-lines, not edges or adjacent surfaces.</li>
-<li>No spurious traces are included (e.g. wall surface lines or fillet arches that are not part of the rib network).</li>
+<li>The main ribs you intend to measure each have a usable trace.</li>
+<li>Traces follow the rib centre as closely as practical.</li>
+<li>Obvious spurious lines have been excluded.</li>
 </ul>
 <h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
-<p>A confirmed set of 3D rib traces that accurately represents the vault's rib network, ready for measurement in Step 7.</p>
+<p>A confirmed set of traces ready for measurement in Step 7.</p>
 <div class="footnote">
 <hr>
 <ol>
 <li id="fn:1">
-<p>Morphological skeletonisation iteratively removes boundary pixels from a binary region while preserving connectivity, reducing the rib mask to a single-pixel-wide medial axis (centre-line); see Zhang, T.Y. and Suen, C.Y., "A Fast Parallel Algorithm for Thinning Digital Patterns", <em>Communications of the ACM</em> 27(3), 1984, 236–239.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+<p>Related reference: Zhang, T.Y. and Suen, C.Y., "A Fast Parallel Algorithm for Thinning Digital Patterns", <em>Communications of the ACM</em> 27(3), 1984, 236–239.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
 </li>
 </ol>
 </div>

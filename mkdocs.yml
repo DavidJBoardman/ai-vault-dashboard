@@ -1,5 +1,5 @@
 site_name: Vault Analyser Documentation
-site_description: Documentation for the AI Vault Dashboard and vault analysis workflow
+site_description: User documentation for the Vault Analyser desktop application
 site_url: https://davidjboardman.github.io/ai-vault-dashboard/
 repo_url: https://github.com/DavidJBoardman/ai-vault-dashboard
 repo_name: GitHub
@@ -32,10 +32,10 @@ markdown_extensions:
       permalink: true
 
 nav:
-  - Overview: index.md
+  - Home: index.md
   - Installation: installation.md
   - Workflow:
-      - Workflow Overview: workflow/pipeline.md
+      - Before You Start: workflow/pipeline.md
       - "Step 1: Upload E57 Scan": workflow/step-1-upload.md
       - "Step 2: Generate Projection": workflow/step-2-projection.md
       - "Step 3: Segmentation": workflow/step-3-segmentation.md
@@ -50,7 +50,7 @@ nav:
       - "Step 7: Measurements and Analysis": workflow/step-7-measurements.md
       - "Step 8: Three-Circle Chord Method Analysis": workflow/step-8-analysis.md
   - System:
-      - Overview: system.md
+      - Technical Overview: system.md
 
 plugins:
   - search

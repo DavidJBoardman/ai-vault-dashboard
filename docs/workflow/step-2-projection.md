@@ -20,33 +20,32 @@ Vault Analyser supports multiple orthographic viewpoints. The choice depends on 
 | **Top (extrados)** | Analysing the vault's upper surface |
 | **North / South / East / West** | Analysing a particular elevation or section if the vault is not viewed from directly below |
 
-For most vault-rib analysis, start with the **Bottom** projection.
+For most rib analysis, start with the **Bottom Up** projection.
 
 ## What you do here
 
 1. Select a projection perspective from the controls.
-2. Set the resolution. A higher resolution gives more detail but takes longer to generate and produces a larger file. For initial exploration, a moderate resolution is sufficient; for final analysis, use the highest resolution your hardware can handle in reasonable time.
+2. Set the resolution and any projection settings such as Gaussian spread if needed. Higher detail gives clearer outputs but takes longer.
 3. Click **Generate Projection** and wait for the image to appear in the preview panel.
-4. Inspect the result — ribs, bosses, and bay boundaries should be clearly distinguishable.
-5. If the projection is unclear (e.g., obscured by structural elements above or below), try adjusting the depth range or switching perspective.
-6. Repeat for any additional projections you need (e.g., both bottom and a cardinal direction for a complex vault).
+4. Inspect the result. Ribs and bosses should be readable enough for segmentation.
+5. If needed, adjust the settings or try another viewpoint and generate again.
+6. Keep at least one projection that you are confident using for Step 3.
 
 ## Interface controls
 
 | Control | What it does |
 |---------|-------------|
-| Perspective selector | Chooses the projection axis (bottom, top, north, south, east, west) |
-| Resolution / scale | Sets image pixel density relative to the scan's physical dimensions |
+| Perspective selector | Chooses the projection axis |
+| Resolution / scale | Sets image size and output detail |
 | Generate button | Triggers the projection computation |
 | Preview panel | Displays the resulting 2D image |
 
 ## What to check before moving on
 
-- Ribs are visible as distinct lines or ridges against the vault surface.
-- Boss positions (rib junctions) are identifiable.
-- The bay boundary is recognisable.
-- There is no obvious clipping or distortion that would misrepresent the geometry.
+- The main rib pattern is visible.
+- Boss locations can be identified.
+- The image is not obviously clipped, blurred, or misleading.
 
 ## Expected result
 
-At least one usable 2D projection saved and ready for segmentation in Step 3.
+At least one usable saved projection ready for segmentation in Step 3.

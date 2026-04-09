@@ -1,7 +1,7 @@
 <!DOCTYPE html><html class="writer-html5" lang="en"><head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="Documentation for the AI Vault Dashboard and vault analysis workflow"><link rel="canonical" href="https://davidjboardman.github.io/ai-vault-dashboard/">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="User documentation for the Vault Analyser desktop application"><link rel="canonical" href="https://davidjboardman.github.io/ai-vault-dashboard/">
       <link rel="shortcut icon" href="img/favicon.ico">
     <title>Vault Analyser Documentation</title>
     <link rel="stylesheet" href="css/theme.css">
@@ -11,7 +11,7 @@
     
       <script>
         // Current page data
-        var mkdocs_page_name = "Overview";
+        var mkdocs_page_name = "Home";
         var mkdocs_page_input_path = "index.md";
         var mkdocs_page_url = "/ai-vault-dashboard/";
       </script>
@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="workflow/pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="workflow/pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="workflow/step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -99,7 +99,7 @@
         <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
   <ul class="wy-breadcrumbs">
     <li><a href="." class="icon icon-home" aria-label="Docs"></a></li>
-      <li class="breadcrumb-item active">Overview</li>
+      <li class="breadcrumb-item active">Home</li>
     <li class="wy-breadcrumbs-aside">
           <a href="https://github.com/DavidJBoardman/ai-vault-dashboard/edit/master/docs/index.md" class="icon icon-github"> Edit on GitHub</a>
     </li>
@@ -110,18 +110,33 @@
             <div class="section" itemprop="articleBody">
               
                 <h1 id="vault-analyser-documentation">Vault Analyser Documentation<a class="headerlink" href="#vault-analyser-documentation" title="Permanent link">¶</a></h1>
-<p>Vault Analyser is a desktop application for analysing historical vault geometry from point-cloud data. This documentation focuses on how to use the software and work through the analysis workflow.</p>
-<h2 id="project">Project<a class="headerlink" href="#project" title="Permanent link">¶</a></h2>
-<p>Vault Analyser is part of the wider project <strong>Virtual Vaults: Using AI to process, analyse and supplement digital data</strong>:</p>
-<p><a href="https://gtr.ukri.org/projects?ref=UKRI955">UKRI project record: UKRI955</a></p>
-<h2 id="how-to-use-this-documentation">How to use this documentation<a class="headerlink" href="#how-to-use-this-documentation" title="Permanent link">¶</a></h2>
-<p>Read the documentation in this order:</p>
+<p>Vault Analyser is a desktop application for turning point-cloud scans of historic vaults into projections, segmentations, geometric reconstructions, and measurement outputs. This site is the user guide for app users working through that workflow.</p>
+<h2 id="what-you-can-do-in-the-app">What you can do in the app<a class="headerlink" href="#what-you-can-do-in-the-app" title="Permanent link">¶</a></h2>
+<ul>
+<li>Load an <code>E57</code> scan and inspect it in 3D</li>
+<li>Generate 2D projections from multiple viewpoints</li>
+<li>Create segmentation masks for ribs, bosses, and other features</li>
+<li>Reconstruct a 2D bay plan from the segmented vault</li>
+<li>Reproject the interpreted geometry back into 3D</li>
+<li>Extract rib traces and calculate measurements</li>
+<li>Review a final geometric analysis summary</li>
+</ul>
+<h2 id="recommended-reading-order">Recommended reading order<a class="headerlink" href="#recommended-reading-order" title="Permanent link">¶</a></h2>
 <ol>
-<li>Install</li>
-<li>Workflow Overview</li>
-<li>Step 1 to Step 8</li>
+<li><a href="installation/">Installation</a></li>
+<li><a href="workflow/pipeline/">Before You Start</a></li>
+<li><a href="workflow/step-1-upload/">Step 1 to Step 8</a></li>
 </ol>
-<p>Use the <code>System</code> section only if you need technical background on the project structure and architecture.</p>
+<p>If you only need the software workflow, stay inside the <code>Workflow</code> section. The <code>System</code> page is only for readers who want a light technical orientation.</p>
+<h2 id="nonstandard-methods-used-in-vault-analyser">Nonstandard methods used in Vault Analyser<a class="headerlink" href="#nonstandard-methods-used-in-vault-analyser" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>Gaussian projection rendering</strong>: point clouds are projected into smoother 2D images using Gaussian splatting rather than simple pixel binning, which helps preserve rib visibility in sparse scans. Related reference: Westover, 1990.</li>
+<li><strong>Prompt-driven segmentation</strong>: the segmentation stage uses <strong>SAM 3</strong>, so users guide the model with polygons, boxes, or text prompts instead of tracing every boundary by hand. Related reference: Ravi et al., 2024 for the Segment Anything family.</li>
+<li><strong>Template-based bay interpretation</strong>: Step 4 compares detected boss locations against starcut and circlecut-style geometric templates to support historical plan interpretation. Related background: Tracing the Past material on medieval vault plans.</li>
+</ul>
+<h2 id="project-context">Project context<a class="headerlink" href="#project-context" title="Permanent link">¶</a></h2>
+<p>Vault Analyser forms part of the wider project <strong>Virtual Vaults: Using AI to process, analyse and supplement digital data</strong>.</p>
+<p><a href="https://gtr.ukri.org/projects?ref=UKRI955">UKRI project record: UKRI955</a></p>
 <!-- Keep the logo strip visually light; the SVG assets are white and need a dark background. -->
 <div class="partner-logos">
   <a href="https://www.virtualengineeringcentre.com/" target="_blank" rel="noopener noreferrer">
@@ -185,5 +200,5 @@
 <script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
 </script></body></html><!--
 MkDocs version : 1.6.1
-Build Date UTC : 2026-04-09 13:59:38.876607+00:00
+Build Date UTC : 2026-04-09 14:24:07.625630+00:00
 -->

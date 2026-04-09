@@ -49,7 +49,7 @@
               </ul>
               <p class="caption"><span class="caption-text">Workflow</span></p>
               <ul class="current">
-                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Workflow Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Before You Start</a>
                   </li>
                   <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
                   </li>
@@ -82,7 +82,7 @@
               </ul>
               <p class="caption"><span class="caption-text">System</span></p>
               <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Overview</a>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Technical Overview</a>
                   </li>
               </ul>
       </div>
@@ -139,15 +139,15 @@
 </tr>
 </tbody>
 </table>
-<p>For most vault-rib analysis, start with the <strong>Bottom</strong> projection.</p>
+<p>For most rib analysis, start with the <strong>Bottom Up</strong> projection.</p>
 <h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
 <ol>
 <li>Select a projection perspective from the controls.</li>
-<li>Set the resolution. A higher resolution gives more detail but takes longer to generate and produces a larger file. For initial exploration, a moderate resolution is sufficient; for final analysis, use the highest resolution your hardware can handle in reasonable time.</li>
+<li>Set the resolution and any projection settings such as Gaussian spread if needed. Higher detail gives clearer outputs but takes longer.</li>
 <li>Click <strong>Generate Projection</strong> and wait for the image to appear in the preview panel.</li>
-<li>Inspect the result — ribs, bosses, and bay boundaries should be clearly distinguishable.</li>
-<li>If the projection is unclear (e.g., obscured by structural elements above or below), try adjusting the depth range or switching perspective.</li>
-<li>Repeat for any additional projections you need (e.g., both bottom and a cardinal direction for a complex vault).</li>
+<li>Inspect the result. Ribs and bosses should be readable enough for segmentation.</li>
+<li>If needed, adjust the settings or try another viewpoint and generate again.</li>
+<li>Keep at least one projection that you are confident using for Step 3.</li>
 </ol>
 <h2 id="interface-controls">Interface controls<a class="headerlink" href="#interface-controls" title="Permanent link">¶</a></h2>
 <table>
@@ -160,11 +160,11 @@
 <tbody>
 <tr>
 <td>Perspective selector</td>
-<td>Chooses the projection axis (bottom, top, north, south, east, west)</td>
+<td>Chooses the projection axis</td>
 </tr>
 <tr>
 <td>Resolution / scale</td>
-<td>Sets image pixel density relative to the scan's physical dimensions</td>
+<td>Sets image size and output detail</td>
 </tr>
 <tr>
 <td>Generate button</td>
@@ -178,13 +178,12 @@
 </table>
 <h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
 <ul>
-<li>Ribs are visible as distinct lines or ridges against the vault surface.</li>
-<li>Boss positions (rib junctions) are identifiable.</li>
-<li>The bay boundary is recognisable.</li>
-<li>There is no obvious clipping or distortion that would misrepresent the geometry.</li>
+<li>The main rib pattern is visible.</li>
+<li>Boss locations can be identified.</li>
+<li>The image is not obviously clipped, blurred, or misleading.</li>
 </ul>
 <h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
-<p>At least one usable 2D projection saved and ready for segmentation in Step 3.</p>
+<p>At least one usable saved projection ready for segmentation in Step 3.</p>
 <div class="footnote">
 <hr>
 <ol>

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This final Step 4 sub-stage reconstructs the **bay plan** — a graph of nodes (bosses and corners) connected by edges (ribs) — from the ROI, reference points, matching results, and segmentation masks. The bay plan is the primary two-dimensional output that feeds into the 3D reprojection in Step 5.
+This final Step 4 sub-stage reconstructs the **bay plan** from the ROI, reference points, matching results, and segmentation masks. The bay plan is the main 2D output that later gets reprojected into 3D.
 
 ## What the application does
 
@@ -14,19 +14,19 @@ The backend loads the saved node points from sub-stage 4B. Where a boss was succ
 
 ### 2. Load the rib mask
 
-A grouped rib-segmentation mask is loaded from the project's segmentation data. This binary mask identifies the image regions where ribs are visible and is used as physical evidence to validate candidate edges.
+A grouped rib-segmentation mask is loaded from the project's segmentation data. This mask acts as evidence for whether a proposed edge actually follows visible rib material.
 
 ### 3. Generate candidate edges
 
 Two reconstruction modes are available:
 
 **Angular-nearest candidates** (default)
-:   For each node, the algorithm identifies the nearest neighbour in each distinct angular direction (with a configurable tolerance). For every candidate edge, a pixel corridor is drawn between the two nodes and scored by its **overlap** with the rib mask — the proportion of corridor pixels that fall on visible rib material.[^1] A **third-boss penalty** discounts edges whose corridor passes close to an intermediate node (which would indicate two shorter ribs rather than one long one). Candidates passing a minimum score threshold are retained.
+:   For each node, the algorithm looks for nearby neighbours in distinct directions. Each possible edge is then scored by how well a narrow corridor between the two nodes overlaps the rib mask.[^1]
 
 **Delaunay comparison**
-:   An alternative mode that constructs a constrained Delaunay-style triangulation with optional constraint segments (ROI boundary, cross axes, half-lines).[^2] This provides a reference graph against which the angular-nearest results can be compared.
+:   An alternative mode that builds a constrained Delaunay-style graph from the same node set.[^2] This is useful as a comparison view or when rib-mask evidence is weak.
 
-Both methods can be combined: the application merges candidate sets, keeping the higher-scoring edge where duplicates exist, and augments the result with **mandatory boundary edges** — adjacent pairs of nodes along each ROI side.
+Both methods can contribute to the final candidate set, and the app also preserves key boundary connections.
 
 ### 4. Select the candidate graph
 
@@ -66,16 +66,14 @@ After the automatic reconstruction, you may add or remove individual edges manua
 
 ## What you do here
 
-- **Review the reconstruction parameters** — adjust if the default settings produce too many or too few edges.
-- **Run the reconstruction** and inspect the resulting graph on the canvas.
-- **Toggle layers** — the Reconstruction Layers panel lets you show or hide the base image, ROI, nodes, and reconstructed rib edges independently.
-- **Manually correct edges** — add missing ribs or remove incorrect ones using the canvas interaction tools.
-- **Copy diagnostics** — the panel provides a diagnostic summary you can copy for review or reporting.
-- **Confirm the bay plan** before continuing to Step 5.
+- Run the reconstruction and inspect the resulting graph on the canvas.
+- If the graph is too dense or too sparse, adjust the settings and run again.
+- Use the layer toggles to compare the graph against the underlying projection and masks.
+- Add missing edges or remove wrong ones manually before you continue.
 
-[^1]: Evaluating candidate edges by measuring pixel-level feature coverage along a narrow image corridor is a standard heuristic in evidence-based geometric graph construction; a related formulation is described in Steger, C., "An Unbiased Detector of Curvilinear Structures", *IEEE Transactions on Pattern Analysis and Machine Intelligence* 20(2), 1998, 113–125.
+[^1]: Related reference: Steger, C., "An Unbiased Detector of Curvilinear Structures", *IEEE Transactions on Pattern Analysis and Machine Intelligence* 20(2), 1998, 113–125.
 
-[^2]: Constrained Delaunay triangulation guarantees that specified edges appear in the triangulation regardless of the Delaunay criterion, providing a geometrically well-defined reference graph for irregular point sets; see Shewchuk, J.R., "Triangle: Engineering a 2D Quality Mesh Generator and Delaunay Triangulator", *Applied Computational Geometry*, Springer, 1996, 203–222.
+[^2]: Related reference: Shewchuk, J.R., "Triangle: Engineering a 2D Quality Mesh Generator and Delaunay Triangulator", *Applied Computational Geometry*, Springer, 1996, 203–222.
 
 ## Why it matters
 
@@ -85,7 +83,6 @@ The bay plan is the most significant output of the entire 2D analysis. It encode
 
 Before leaving Step 4 you should have:
 
-- a reconstructed bay-plan graph whose edges match the visible rib pattern
-- an overall reconstruction score that reflects strong edge evidence and complete boundary coverage
-- any necessary manual corrections applied and saved
-- a bay plan that is ready to be reprojected into 3D in Step 5
+- a bay plan whose edges match the visible rib pattern
+- any necessary manual corrections applied
+- a saved result ready for Step 5

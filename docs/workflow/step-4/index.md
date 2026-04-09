@@ -19,7 +19,7 @@ Medieval vault plans were conceived as intersecting patterns of ribs, laid out t
 | **4C** | [Cut-Typology Matching](cut-typology-matching.md) | Score each boss against starcut and circlecut templates to identify the best-fit design typology |
 | **4D** | [Bay-Plan Reconstruction](bay-plan-reconstruction.md) | Infer the rib network as a graph of nodes and edges |
 
-Each sub-stage persists its results before the next can run, so the data flow is strictly sequential: **ROI → nodes → matching → reconstruction**.
+Each sub-stage saves results before the next can run, so the data flow is strictly sequential: **ROI → nodes → matching → reconstruction**.
 
 ## Interface layout
 
@@ -29,16 +29,16 @@ Each sub-stage persists its results before the next can run, so the data flow is
 ## Key concepts
 
 **ROI (Region of Interest)**
-:   A rotatable rectangle that isolates one vault bay on the projection image. All subsequent geometry is calculated in a normalised **unit-square** coordinate system (u, v) mapped from this rectangle.
+:   A rotatable rectangle that isolates one vault bay on the projection image. Later geometry is measured relative to this frame.
 
 **Boss**
-:   A raised keystone or junction where ribs meet. Bosses are detected automatically from the segmentation masks and represented as point nodes at their centroids.
+:   A raised keystone or junction where ribs meet. Bosses are represented as point nodes for later matching and reconstruction.
 
 **Cut typology**
-:   The family of geometric templates — starcuts, inner circlecuts, and outer circlecuts — used to explain the positions of bosses within the bay. The term *cut* refers to the fractional divisions produced by each template's construction lines.
+:   The family of geometric templates used to explain boss positions within the bay.
 
 **Bay plan**
-:   The final graph of nodes (bosses and bay corners) connected by edges (ribs), representing the vault's two-dimensional rib pattern.
+:   The final graph of nodes and edges representing the vault's 2D rib pattern.
 
 <!-- ## Why this step matters
 
@@ -48,7 +48,7 @@ This is the most interpretation-heavy part of the workflow. The bay-plan reconst
 
 <!-- Before moving on to Step 5 you should have: -->
 
-- a saved ROI analysis with vault-ratio metadata
-- a reviewed and saved set of reference points (bosses and corners)
-- a completed cut-typology matching result with a credible best-fit template
-- a reconstructed bay-plan graph that faithfully represents the visible rib pattern
+- a saved ROI with sensible bay proportions
+- a reviewed set of reference points
+- a credible matching result
+- a reconstructed bay plan that agrees with the visible rib pattern
