@@ -10,7 +10,7 @@ Segmentation
 
 Others
 [Done] Rename app to Vault Analyser
-[-] Project saved locations 
+[Done] Project saved locations 
     * dev, stay together with the backend/data
     * build, 
       * - macOS: `/Users/<you>/Vault Analyser/`

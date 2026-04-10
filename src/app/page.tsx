@@ -440,9 +440,19 @@ export default function HomePage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border/40 py-4">
-        <div className="container mx-auto px-6 text-center text-sm text-muted-foreground">
-          <p>Vault Analyser v0.1.0 • Medieval Architecture Analysis Platform</p>
+      <footer className="border-t border-border/40 py-6">
+        <div className="container mx-auto px-6 flex flex-col items-center gap-4">
+          <div className="flex items-center gap-6">
+            <a href="https://www.liverpool.ac.uk/" target="_blank" rel="noopener noreferrer">
+              <img src="/logo-uol.svg" alt="University of Liverpool" className="h-8 opacity-70 hover:opacity-100 transition-opacity" />
+            </a>
+            <a href="https://www.virtualengineeringcentre.com/" target="_blank" rel="noopener noreferrer">
+              <img src="/logo-vec.png" alt="Virtual Engineering Centre" className="h-8 opacity-70 hover:opacity-100 transition-opacity" />
+            </a>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Vault Analyser v0.1.0 • Medieval Architecture Analysis Platform
+          </p>
         </div>
       </footer>
     </div>
