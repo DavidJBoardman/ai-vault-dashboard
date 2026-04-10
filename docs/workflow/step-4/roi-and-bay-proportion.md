@@ -4,9 +4,9 @@
 
 Define the **Region of Interest (ROI)**, a rotatable rectangle that isolates one vault bay on the projection image, and estimate the bay proportion used by later sub-stages.
 
-![Step 4A interface showing the ROI positioned over a vault bay, with vault ratio and ratio suggestions on the left](../../images/step-4/step4a-roi-bay-proportion.png){ width="600" .center }
-
 ## Workflow
+
+![Step 4A interface showing the ROI positioned over a vault bay, with vault ratio and ratio suggestions on the left](../../images/step-4/step4a-roi-bay-proportion.png){ width="800" .center }
 
 ### 1. Position the ROI
 
