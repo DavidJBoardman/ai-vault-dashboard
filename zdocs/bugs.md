@@ -3,7 +3,7 @@ Segmentation
 [] segmentation reset button?
 
 2d Geometry
-[] Suggested ROI - change the content on pop up alert window. currently it is n located inside roi, change it to xxxxx is completed, it is not garanteed that xxx, use xxxx
+[] Suggested ROI - change the content on pop up alert window. currently it is n located inside roi, change it to xxxxx is completed, it is not garanteed that xxx, use xxxx, to the right bottom corner maybe?
 [] Suggested ROI - add Beta label
 [] Add a generate report if got time
 [] OVerlay ribs, boss stone not working on "Bay Plan"
