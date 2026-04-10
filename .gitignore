@@ -8,6 +8,7 @@ node_modules/
 out/
 dist/
 build/
+site/
 *.tsbuildinfo
 
 # Electron
@@ -81,3 +82,4 @@ backend/.python-version
 
 .claude/
 docs/.obsidian/
+CLAUDE.md

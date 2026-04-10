@@ -11,32 +11,26 @@ Medieval vault designers set out rib plans by drawing construction lines through
 Vault Analyser tests several template families derived from this tradition:
 
 **Starcut (standard grid)**
-:   An *n*-by-*n* regular grid that divides the bay into equal fractions along both axes. A starcut with *n* = 3 divides each side into thirds; *n* = 6 divides into sixths. The grid intersections correspond to the fractional positions at which medieval designers placed tiercerons and lierne junctions. The application tests a configurable range of divisors (default *n* = 2 to *n* = 6).
+:   An *n*-by-*n* regular grid dividing the bay into equal fractions along both axes. Grid intersections correspond to the fractional positions at which medieval designers placed tiercerons and lierne junctions. The app tests divisors from *n* = 2 to *n* = 6 by default.
 
 **Inner circlecut**
-:   An extension of the starcut in which a circle with radius equal to the bay's longest side is drawn centred on the bay. The intersections between this circle, the bay's perpendicular bisectors, and lines connecting these intersections to the bay corners produce a set of keypoints that no longer correspond to neat fractional divisions. This variant captures the geometry of vaults designed with the *inner circle starcut* method.
+:   A circle with radius equal to the bay's longest side, drawn centred on the bay. Intersections between this circle, the bay's bisectors, and lines to the corners produce keypoints that do not correspond to simple fractions.
 
 **Outer circlecut**
-:   Similar to the inner circlecut, but the circle passes through all four corners of the bay (i.e. has a radius of half the bay diagonal). This produces a different set of construction-line intersections and fractional relationships, corresponding to the *outer circle starcut* method.
+:   Similar, but the circle passes through all four bay corners (radius = half diagonal), producing a different set of construction-line intersections.
 
 **Cross templates**
-:   Hybrid variants that combine the *x*-axis ratios from one family with the *y*-axis ratios from another (e.g. starcut *x* + circlecut inner *y*). These capture asymmetric designs where the longitudinal and transverse rib geometry follow different proportional systems.
+:   Hybrid variants combining *x*-axis ratios from one family with *y*-axis ratios from another (e.g. starcut *x* + circlecut inner *y*), capturing asymmetric designs.
 
 [^1]: For a detailed account of starcut geometry and its application in medieval vaulting see [Plans — Tracing the Past](https://www.tracingthepast.org.uk/2021/04/07/designing_plans/).
 
-## What the application does
+## Workflow
 
-When you run matching, the backend performs the following:
+![Cut-Typology Matching: workflow stepper (Cut-Typology active); left panel with match status, distribution, overlay toggles, advanced parameters, and Run matching / Open match table; bay preview with RGB/Depth/Plasma and rib overlay; bottom match table with filters and CSV download.](../../images/step-4/step4c-cut-typology.png){ width="800" .center }
 
-1. **Build template variants** — for each enabled family, generate keypoints in (u, v) unit space. Standard grids use `n`-by-`n` intersections; circle variants compute ray–circle intersections and construction-line crossings.
-2. **Extract ratio sets** — from each variant's keypoints, extract the unique *x*-ratios and *y*-ratios (the fractional positions along each axis).
-3. **Match bosses to ratios** — for every boss, find the nearest *x*-ratio and *y*-ratio. If both distances fall within the configured tolerance, the boss is counted as matched to that variant.
-4. **Rank variants** — variants are sorted by the number of matched bosses, with ties usually broken in favour of simpler templates.
-5. **Persist results** — the full matching payload is saved to `cut_typology_result.json` and a per-boss CSV to `boss_cut_typology_match.csv`.
+### 1. Review the matching settings
 
-For each matched boss the result includes an idealised template position. These ideal positions can then be preferred over raw centroids during reconstruction.
-
-## Parameters
+Start with the default settings. Tune the advanced parameters below only if the defaults do not produce satisfactory results. 
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -45,24 +39,43 @@ For each matched boss the result includes an idealised template position. These 
 | Include starcut | On | Enable standard *n*-by-*n* grid variants |
 | Include circlecut inner | On | Enable the inner circle variant |
 | Include circlecut outer | On | Enable the outer circle variant |
-| Allow cross templates | On | Allow *x*/*y* ratios from different families |
+| Include cross templates | On | Allow *x*/*y* ratios from different families |
 | Ratio tolerance | 0.01 | Maximum absolute ratio distance for a coordinate to count as matched |
 
-## What you do here
+### 2. Run matching
 
-- Review the matching settings if you need to narrow or widen the search.
-- Run the matching and inspect the ranked result.
+When you run matching, the backend:
+
+1. **Builds template variants** — generates keypoints in (u, v) unit space for each enabled family.
+2. **Extracts ratio sets** — collects the unique *x*-ratios and *y*-ratios from each variant's keypoints.
+3. **Matches bosses to ratios** — for every boss, finds the nearest *x*- and *y*-ratio. If both distances fall within the configured tolerance, the boss counts as matched.
+4. **Ranks variants** — sorts by the number of matched bosses; ties are broken in favour of the lowest divisor *n*.
+5. **Persists results** — saves the matching payload to `cut_typology_result.json` and a per-boss CSV to `boss_cut_typology_match.csv`.
+
+Each matched boss receives an idealised template position that can be preferred over the raw centroid during reconstruction.
+
+### 3. Inspect the result
+
 - Compare the template overlays against the boss positions on the canvas.
 - Continue only when the leading result looks plausible against the visible geometry.
+
+If no template produces a believable match, try the following before moving on:
+
+- Widen the **ratio tolerance** slightly (e.g. from 0.01 to 0.02).
+- Enable **Include cross templates** if it is off.
+- Return to sub-stage 4B to remove any spurious reference points that may be pulling the match off.
+- Return to sub-stage 4A to check the bay proportion — a significantly wrong proportion will misplace all template ratios.
 
 ## Why it matters
 
 The matching result directly informs reconstruction. A good match can stabilise the bay plan; a bad match can push the reconstruction toward the wrong geometry.
 
-## Expected result
+## Before moving on
 
-Before continuing to sub-stage 4D you should have:
+You should have:
 
 - a completed matching result with a believable leading template
-- boss placements that broadly agree with the chosen overlay
-- enough confidence to proceed to reconstruction
+- the majority of bosses matched to that template (as a rough guide, aim for ≥ 80 % of bosses matched)
+- boss placements that broadly agree with the template overlay on the canvas
+
+Click **Bay-Plan Reconstruction** on the workflow stepper bar at the top to continue to sub-stage 4D.
