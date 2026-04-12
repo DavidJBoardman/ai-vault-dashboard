@@ -88,7 +88,7 @@ export function RoiBayProportionPanel({
           <div className="rounded-md border border-border px-3 py-3 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-xs font-medium">Use Suggested ROI</p>
+                <p className="text-xs font-medium">Use Suggested ROI <span className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Beta</span></p>
                 <p className="text-[11px] text-muted-foreground">Optional. Runs a backend suggestion and enables ROI comparison after analysis.</p>
               </div>
               <Checkbox checked={autoCorrectRoi} onCheckedChange={(checked) => onAutoCorrectRoiChange(checked === true)} />
