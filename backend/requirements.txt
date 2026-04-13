@@ -1,6 +1,7 @@
 # =====================================================
 # Vault Analyser Backend Requirements
-# Python 3.12+ (via Conda recommended)
+# Python 3.12+ compatibility requirements for Conda/manual installs
+# Canonical dependency definition: pyproject.toml + uv.lock
 # =====================================================
 #
 # SETUP INSTRUCTIONS:
@@ -33,7 +34,6 @@ websockets==12.0
 # Data handling
 numpy==1.26.4
 scipy==1.14.1
-pandas==2.2.3
 pydantic==2.9.2
 
 # Image processing & Gaussian splatting projection
@@ -49,7 +49,6 @@ rhino3dm==8.9.0
 
 # HuggingFace ecosystem (for SAM 3)
 # Note: transformers installed via git for latest SAM 3 support
-accelerate
 safetensors
 
 # Packaging (for production builds)

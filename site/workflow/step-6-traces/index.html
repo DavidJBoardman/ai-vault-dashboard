@@ -1,0 +1,241 @@
+<!DOCTYPE html><html class="writer-html5" lang="en"><head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="canonical" href="https://davidjboardman.github.io/ai-vault-dashboard/workflow/step-6-traces/">
+      <link rel="shortcut icon" href="../../img/favicon.ico">
+    <title>Step 6: 3D Geometry Traces - Vault Analyser Documentation</title>
+    <link rel="stylesheet" href="../../css/theme.css">
+    <link rel="stylesheet" href="../../css/theme_extra.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+        <link href="../../stylesheets/extra.css" rel="stylesheet">
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Step 6: 3D Geometry Traces";
+        var mkdocs_page_input_path = "workflow/step-6-traces.md";
+        var mkdocs_page_url = "/ai-vault-dashboard/workflow/step-6-traces/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+<link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+        </style></head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Vault Analyser Documentation
+        </a><div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here">
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../installation/">Installation</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Workflow</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Before You Start</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-1-upload/">Step 1: Upload E57 Scan</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-2-projection/">Step 2: Generate Projection</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-3-segmentation/">Step 3: Segmentation</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal">Step 4: 2D Geometry Analysis</a>
+    <ul>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/">Overview</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/roi-and-bay-proportion/">ROI and Bay Proportion</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/reference-points/">Reference Points</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/cut-typology-matching/">Cut-Typology Matching</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../step-4/bay-plan-reconstruction/">Bay-Plan Reconstruction</a>
+                </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-5-reprojection/">Step 5: Reprojection to 3D</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Step 6: 3D Geometry Traces</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-7-measurements/">Step 7: Measurements and Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../step-8-analysis/">Step 8: Three-Circle Chord Method Analysis</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">System</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../system/">Technical Overview</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Vault Analyser Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Workflow</li>
+      <li class="breadcrumb-item active">Step 6: 3D Geometry Traces</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard/edit/master/docs/workflow/step-6-traces.md" class="icon icon-github"> Edit on GitHub</a>
+    </li>
+  </ul>
+  <hr>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="step-6-3d-geometry-traces">Step 6: 3D Geometry Traces<a class="headerlink" href="#step-6-3d-geometry-traces" title="Permanent link">¶</a></h1>
+<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
+<p>Establish the <strong>intrados lines</strong> that Step 7 will measure. Traces can come from automatic extraction, imported <code>3DM</code> curves, or both.</p>
+<h2 id="trace-sources">Trace sources<a class="headerlink" href="#trace-sources" title="Permanent link">¶</a></h2>
+<h3 id="automatic-traces">Automatic traces<a class="headerlink" href="#automatic-traces" title="Permanent link">¶</a></h3>
+<p>The application can derive candidate rib lines automatically from processed imagery using edge detection and skeletonisation, then split the result into individual line candidates.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> This gives you a fast starting point rather than a finished scholarly interpretation.</p>
+<p>Automatic traces work best where ribs are clearly separated and well captured in the scan.</p>
+<h3 id="manual-traces-from-rhino-3dm">Manual traces from Rhino 3DM<a class="headerlink" href="#manual-traces-from-rhino-3dm" title="Permanent link">¶</a></h3>
+<p>If you have manually traced the rib geometry in Rhino or another tool that exports <code>3DM</code>, you can import those traces directly. Manual traces are preferable when automatic extraction is unreliable.</p>
+<p>To import: click <strong>Import 3DM</strong>, select the file, and map the Rhino layer names to the corresponding rib identifiers in the application.</p>
+<h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
+<ol>
+<li>
+<p><strong>Inspect automatic traces.</strong> Review the detected lines in the 3D canvas.</p>
+</li>
+<li>
+<p><strong>Import manual traces (optional).</strong> If automatic extraction is unsatisfactory for some or all ribs, import a <code>3DM</code> file and review the imported lines.</p>
+</li>
+<li>
+<p><strong>Compare sources.</strong> If you have both automatic and manual traces, compare them side by side.</p>
+</li>
+<li>
+<p><strong>Select the active trace set.</strong> Choose whether to use automatic traces, manual traces, or both.</p>
+</li>
+<li>
+<p><strong>Save the confirmed trace set</strong> before moving to Step 7.</p>
+</li>
+</ol>
+<h2 id="interface-controls">Interface controls<a class="headerlink" href="#interface-controls" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Automatic / manual / combined toggle</td>
+<td>Switches which trace source is shown and used downstream</td>
+</tr>
+<tr>
+<td>Import 3DM button</td>
+<td>Opens a file browser to load a Rhino <code>3DM</code> file</td>
+</tr>
+<tr>
+<td>Rib list</td>
+<td>Lists all detected or imported traces; click to highlight in the 3D canvas</td>
+</tr>
+<tr>
+<td>Visibility toggles</td>
+<td>Show or hide automatic and manual trace overlays independently</td>
+</tr>
+<tr>
+<td>Save button</td>
+<td>Confirms the active trace set for Step 7</td>
+</tr>
+</tbody>
+</table>
+<h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
+<ul>
+<li>The main ribs you intend to measure each have a usable trace.</li>
+<li>Traces follow the rib centre as closely as practical.</li>
+<li>Obvious spurious lines have been excluded.</li>
+</ul>
+<h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
+<p>A confirmed set of traces ready for measurement in Step 7.</p>
+<div class="footnote">
+<hr>
+<ol>
+<li id="fn:1">
+<p>Related reference: Zhang, T.Y. and Suen, C.Y., "A Fast Parallel Algorithm for Thinning Digital Patterns", <em>Communications of the ACM</em> 27(3), 1984, 236–239.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+</li>
+</ol>
+</div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../step-5-reprojection/" class="btn btn-neutral float-left" title="Step 5: Reprojection to 3D"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../step-7-measurements/" class="btn btn-neutral float-right" title="Step 7: Measurements and Analysis">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
+    
+      <span><a href="../step-5-reprojection/" style="color: #fcfcfc">« Previous</a></span>
+    
+    
+      <span><a href="../step-7-measurements/" style="color: #fcfcfc">Next »</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+
+
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+</script></body></html>

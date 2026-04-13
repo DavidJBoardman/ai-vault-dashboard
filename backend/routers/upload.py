@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
+from services.app_paths import get_data_root
 from services.e57_processor import get_processor
 
 router = APIRouter()
@@ -53,7 +54,7 @@ async def _resolve_upload_path(request: Request) -> str:
         if not upload.filename or not upload.filename.lower().endswith(".e57"):
             raise HTTPException(status_code=400, detail="Invalid file type. Expected .e57")
 
-        uploads_dir = Path("./data/uploads")
+        uploads_dir = get_data_root() / "uploads"
         uploads_dir.mkdir(parents=True, exist_ok=True)
 
         filename = Path(upload.filename).name

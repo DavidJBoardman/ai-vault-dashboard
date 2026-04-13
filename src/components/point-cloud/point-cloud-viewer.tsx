@@ -737,7 +737,7 @@ function CameraController({ center, distance, resetKey }: CameraControllerProps)
       
       initializedRef.current = true;
     }
-  }, [resetKey]); // Only depend on resetKey, not center/distance
+  }, [camera, center.x, center.y, center.z, distance, resetKey]);
   
   return (
     <OrbitControls

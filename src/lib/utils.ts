@@ -40,12 +40,17 @@ export function generateId(): string {
 export function toImageSrc(base64OrDataUrl: string | undefined | null, mimeType = "image/png"): string {
   if (!base64OrDataUrl) return "";
   
-  // Already has data URL prefix
-  if (base64OrDataUrl.startsWith("data:")) {
+  // Already a data URL or a fetchable URL/path
+  if (
+    base64OrDataUrl.startsWith("data:") ||
+    base64OrDataUrl.startsWith("http://") ||
+    base64OrDataUrl.startsWith("https://") ||
+    base64OrDataUrl.startsWith("blob:") ||
+    base64OrDataUrl.startsWith("/")
+  ) {
     return base64OrDataUrl;
   }
   
   // Raw base64 - add prefix
   return `data:${mimeType};base64,${base64OrDataUrl}`;
 }
-

@@ -203,6 +203,8 @@ export default function Step4Geometry2DPage() {
             sections={workflowSections}
             onReset={handleResetStep4}
             resetDisabled={isStep4Busy}
+            allComplete={controller.hasSavedRoi && hasSavedNodes && hasMatchingResult && hasReconstructionResult}
+            onContinue={handleContinue}
           />
 
           <div className="grid lg:grid-cols-12 gap-6">

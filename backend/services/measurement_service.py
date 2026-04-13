@@ -443,13 +443,13 @@ class MeasurementService:
     ) -> np.ndarray:
         """
         Return the unit tangent vector at one end of a rib, pointing *outward*
-        — i.e. in the direction the rib is heading away from its body toward
+        - i.e. in the direction the rib is heading away from its body toward
         the keystone gap.
 
         Args:
             points:  Ordered (N, 3) point array for the rib.
-            at_end:  True  → tangent at points[-1] (last point, forward direction)
-                     False → tangent at points[0]  (first point, reversed direction)
+            at_end:  True  -> tangent at points[-1] (last point, forward direction)
+                     False -> tangent at points[0]  (first point, reversed direction)
             n_pts:   How many points back from the tip to use for the local tangent.
                      Clamped to len(points)//4 so we don't overshoot the midpoint.
         """
@@ -477,7 +477,7 @@ class MeasurementService:
         Two ribs belong to the same group when ALL of the following hold:
 
           1. Their fitted arc radii agree within ``radius_tolerance`` (relative).
-          2. The nearest endpoint pair is within ``max_gap`` metres — the gap
+          2. The nearest endpoint pair is within ``max_gap`` metres - the gap
              across the keystone.
           3. Handshake direction: the tangent of rib A at its junction end
              points toward rib B *and* the tangent of rib B at its junction end
@@ -511,14 +511,14 @@ class MeasurementService:
                 if len(pts_a) < 3 or len(pts_b) < 3:
                     continue
 
-                # Gate 1 — radius similarity
+                # Gate 1 - radius similarity
                 ra = arc_radii.get(a, 0.0)
                 rb = arc_radii.get(b, 0.0)
                 if ra > 0 and rb > 0:
                     if abs(ra - rb) / max(ra, rb) > radius_tolerance:
                         continue
 
-                # Gate 2 — nearest endpoint pair and gap cap
+                # Gate 2 - nearest endpoint pair and gap cap
                 # Endpoints: (first, last) for each rib
                 a0, a1 = pts_a[0], pts_a[-1]
                 b0, b1 = pts_b[0], pts_b[-1]
@@ -538,13 +538,13 @@ class MeasurementService:
                 gap_vec = b_near - a_near
                 gap_len = np.linalg.norm(gap_vec)
                 if gap_len < 1e-9:
-                    # Endpoints coincide — treat as connected without direction check
+                    # Endpoints coincide - treat as connected without direction check
                     adj[a].add(b)
                     adj[b].add(a)
                     continue
                 gap_vec = gap_vec / gap_len
 
-                # Gate 3 — handshake direction
+                # Gate 3 - handshake direction
                 # A's outward tangent at its junction end should point toward B
                 tan_a = self._tangent_at_endpoint(pts_a, at_end=a_end)
                 if float(np.dot(tan_a, gap_vec)) < cos_tol:
@@ -1343,4 +1343,3 @@ class MeasurementService:
         }
         
         return hypothesis_id
-

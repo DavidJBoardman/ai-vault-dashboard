@@ -1,0 +1,59 @@
+site_name: Vault Analyser Documentation
+site_description: User documentation for the Vault Analyser desktop application
+site_url: https://davidjboardman.github.io/ai-vault-dashboard/
+repo_url: https://github.com/DavidJBoardman/ai-vault-dashboard
+repo_name: GitHub
+
+theme:
+  name: readthedocs
+  include_homepage_in_sidebar: false
+  prev_next_buttons_location: bottom
+  navigation_depth: 3
+  collapse_navigation: true
+  sticky_navigation: true
+  titles_only: true
+  locale: en
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - meta
+  - md_in_html
+  - footnotes
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Workflow:
+      - Before You Start: workflow/pipeline.md
+      - "Step 1: Upload E57 Scan": workflow/step-1-upload.md
+      - "Step 2: Generate Projection": workflow/step-2-projection.md
+      - "Step 3: Segmentation": workflow/step-3-segmentation.md
+      - "Step 4: 2D Geometry Analysis":
+          - Overview: workflow/step-4/index.md
+          - ROI and Bay Proportion: workflow/step-4/roi-and-bay-proportion.md
+          - Reference Points: workflow/step-4/reference-points.md
+          - Cut-Typology Matching: workflow/step-4/cut-typology-matching.md
+          - Bay-Plan Reconstruction: workflow/step-4/bay-plan-reconstruction.md
+      - "Step 5: Reprojection to 3D": workflow/step-5-reprojection.md
+      - "Step 6: 3D Geometry Traces": workflow/step-6-traces.md
+      - "Step 7: Measurements and Analysis": workflow/step-7-measurements.md
+      - "Step 8: Three-Circle Chord Method Analysis": workflow/step-8-analysis.md
+  - System:
+      - Technical Overview: system.md
+
+plugins:
+  - search
+  - glightbox:
+      auto_themed: true
+      auto_caption: true

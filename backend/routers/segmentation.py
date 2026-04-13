@@ -1,15 +1,47 @@
 """Segmentation router for SAM 3 integration."""
 
 import asyncio
+from datetime import datetime
+from pathlib import Path
 from typing import List, Optional, Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from services.app_paths import get_data_root
 from services.sam_service import get_sam_service
 from services.projection import get_projection_service
 
 router = APIRouter()
+SEGMENTATION_LOG_PATH = get_data_root() / "logs" / "segmentation.log"
+MAX_LOG_BYTES = 5 * 1024 * 1024
+RETAINED_LOG_BYTES = 1 * 1024 * 1024
+
+
+def rotate_log_if_needed(log_path: Path) -> None:
+    """Trim oversized logs so packaged diagnostics stay bounded."""
+    try:
+        if not log_path.exists() or log_path.stat().st_size <= MAX_LOG_BYTES:
+            return
+        with log_path.open("rb") as handle:
+            handle.seek(max(0, log_path.stat().st_size - RETAINED_LOG_BYTES))
+            trimmed = handle.read()
+        with log_path.open("wb") as handle:
+            handle.write(trimmed)
+    except Exception:
+        pass
+
+
+def append_segmentation_log(message: str) -> None:
+    """Write segmentation diagnostics to the packaged runtime data root."""
+    try:
+        SEGMENTATION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        rotate_log_if_needed(SEGMENTATION_LOG_PATH)
+        with SEGMENTATION_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(f"[{datetime.utcnow().isoformat()}Z] {message}\n")
+    except Exception:
+        # Never fail the request because debug logging could not be written.
+        pass
 
 
 class BoxPrompt(BaseModel):
@@ -63,7 +95,7 @@ async def load_model():
     if not sam.is_available():
         return {
             "success": False,
-            "error": "SAM 3 not available. Install transformers from git.",
+            "error": sam.last_error or "SAM 3 not available in the packaged backend.",
         }
     
     # Run in thread pool to avoid blocking
@@ -89,12 +121,21 @@ async def run_segmentation(request: SegmentationRequest):
     """
     sam = get_sam_service()
     projection_service = get_projection_service()
+    append_segmentation_log(
+        "run start "
+        f"data_root={get_data_root()} projection_id={request.projectionId} "
+        f"mode={request.mode} text_prompts={request.textPrompts or []} "
+        f"box_count={len(request.boxes or [])}"
+    )
     
     # Check if SAM 3 is available
     if not sam.is_available():
+        append_segmentation_log(
+            f"run unavailable projection_id={request.projectionId} error={sam.last_error or 'SAM unavailable'}"
+        )
         return SegmentationResponse(
             success=False,
-            error="SAM 3 not available. Install with: pip install git+https://github.com/huggingface/transformers",
+            error=sam.last_error or "SAM 3 not available in the packaged backend.",
             samAvailable=False,
         )
     
@@ -103,8 +144,16 @@ async def run_segmentation(request: SegmentationRequest):
         request.projectionId, 
         "colour"
     )
+    projection = await projection_service.get_projection(request.projectionId)
+    colour_path = projection.get("paths", {}).get("colour") if projection else None
+    append_segmentation_log(
+        f"projection lookup projection_id={request.projectionId} "
+        f"found={bool(projection)} colour_path={colour_path or '(missing)'} "
+        f"image_loaded={bool(image_base64)}"
+    )
     
     if not image_base64:
+        append_segmentation_log(f"run failed projection_id={request.projectionId} reason=projection image not found")
         return SegmentationResponse(
             success=False,
             error=f"Projection {request.projectionId} not found",
@@ -122,6 +171,9 @@ async def run_segmentation(request: SegmentationRequest):
         )
         
         if not image_set:
+            append_segmentation_log(
+                f"run failed projection_id={request.projectionId} reason=image/model load error={sam.last_error or 'unknown'}"
+            )
             return SegmentationResponse(
                 success=False,
                 error=sam.last_error or "Failed to load image or SAM 3 model",
@@ -176,7 +228,19 @@ async def run_segmentation(request: SegmentationRequest):
                 error="Invalid mode or missing prompts/boxes",
             )
         
-        print(f"✓ SAM 3 segmentation complete: {len(masks)} masks")
+        print(f"[OK] SAM 3 segmentation complete: {len(masks)} masks")
+        if not masks and sam.last_error:
+            append_segmentation_log(
+                f"run failed projection_id={request.projectionId} mode={request.mode} error={sam.last_error}"
+            )
+            return SegmentationResponse(
+                success=False,
+                error=sam.last_error,
+            )
+
+        append_segmentation_log(
+            f"run complete projection_id={request.projectionId} mode={request.mode} mask_count={len(masks)}"
+        )
         
         # Convert to response format
         mask_data = [
@@ -203,6 +267,9 @@ async def run_segmentation(request: SegmentationRequest):
     except Exception as e:
         import traceback
         traceback.print_exc()
+        append_segmentation_log(
+            f"run exception projection_id={request.projectionId} error={type(e).__name__}: {e}"
+        )
         return SegmentationResponse(
             success=False,
             error=str(e),

@@ -9,11 +9,11 @@ from typing import Any, Dict, Optional
 
 import cv2
 
+from services.app_paths import get_data_root
 from services.geometry2d.utils.anisotropy import compute_anisotropy_factors
 from services.geometry2d.utils.ratio_patterns import suggest_ratio_patterns
 
-
-PROJECT_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+PROJECT_DATA_DIR = get_data_root()
 
 
 def get_project_dir(project_id: str) -> Path:
