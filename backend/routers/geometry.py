@@ -317,7 +317,7 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
             None,
             service.detect_rib_groups,
             request.maxGap,
-            25.0,  # angle_threshold_deg — internal constant
+            25.0,  # angle_threshold_deg - internal constant
             request.radiusTolerance,
         )
 

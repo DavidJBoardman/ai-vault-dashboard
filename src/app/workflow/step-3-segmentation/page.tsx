@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, KeyboardEvent, useRef, MouseEvent, DragEvent } from "react";
+import { useState, useMemo, useEffect, useCallback, KeyboardEvent, useRef, MouseEvent, DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
 import { Button } from "@/components/ui/button";
@@ -217,7 +217,7 @@ export default function Step3SegmentationPage() {
         color: seg.color,
         maskBase64: seg.mask, // Store uses 'mask', component uses 'maskBase64'
         visible: seg.visible,
-        bbox: (seg.bbox || [0, 0, 100, 100]) as [number, number, number, number],
+        bbox: (seg.bbox as [number, number, number, number]) || [0, 0, 100, 100],
         area: seg.area || 0,
         predictedIou: 0,
         stabilityScore: 0,
@@ -457,7 +457,7 @@ export default function Step3SegmentationPage() {
   };
   
   // Polygon functions
-  const saveCurrentPolygon = (name?: string) => {
+  const saveCurrentPolygon = useCallback((name?: string) => {
     if (currentPolygon.length >= 3) {
       const newPolygon: DrawnPolygon = {
         id: `polygon-${Date.now()}`,
@@ -470,7 +470,7 @@ export default function Step3SegmentationPage() {
       setCurrentPolygon([]);
       setPolygonName("");
     }
-  };
+  }, [currentPolygon, polygonName]);
   
   const clearCurrentPolygon = () => {
     setCurrentPolygon([]);
@@ -870,7 +870,7 @@ export default function Step3SegmentationPage() {
     
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTool, selectedBoxId, boxNamingDialog.open, currentPolygon.length]);
+  }, [activeTool, selectedBoxId, boxNamingDialog.open, currentPolygon.length, saveCurrentPolygon]);
   
   // Drag and drop handlers
   const handleDragStart = (e: DragEvent<HTMLDivElement>, maskId: string) => {

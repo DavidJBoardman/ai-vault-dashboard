@@ -139,6 +139,14 @@ export async function getProjectionImage(
   }
 }
 
+export async function getProjectionImageUrl(
+  projectionId: string,
+  imageType: "colour" | "depth_grayscale" | "depth_plasma" = "colour"
+): Promise<string> {
+  const baseUrl = await getBaseUrl();
+  return `${baseUrl}/api/projection/${projectionId}/file/${imageType}`;
+}
+
 export async function createProjection(
   params: ProjectionParams
 ): Promise<ApiResponse<ProjectionResult>> {

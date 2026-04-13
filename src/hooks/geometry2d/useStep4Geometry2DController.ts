@@ -235,7 +235,7 @@ function cloneAndSortTemplatePoints(points: Geometry2DTemplateBossPoint[]): Geom
 }
 
 function allocateNextPointId(usedIds: Set<number>): number {
-  let nextId = Math.max(0, ...usedIds) + 1;
+  let nextId = Math.max(0, ...Array.from(usedIds)) + 1;
   while (usedIds.has(nextId)) {
     nextId += 1;
   }
@@ -1043,7 +1043,7 @@ export function useStep4Geometry2DController() {
         );
       } catch (error) {
         console.error("Failed to reset node state:", error);
-        alert(error instanceof Error ? error.message : "Failed to reset Step 4 reference points.");
+        toast({ title: "Reset failed", description: error instanceof Error ? error.message : "Failed to reset Step 4 reference points.", variant: "destructive" });
         return;
       }
     }
@@ -1128,7 +1128,7 @@ export function useStep4Geometry2DController() {
 
     toast({
       title: "Step 4 reset",
-      description: "Step 4 results were cleared and the reference points were restored to detected bosses plus ROI corners.",
+      description: "Nodes restored to detected bosses and ROI corners.",
     });
   }, [
     completeStep,
@@ -1371,7 +1371,7 @@ export function useStep4Geometry2DController() {
       return true;
     } catch (error) {
       console.error("Error saving template points:", error);
-      alert(error instanceof Error ? error.message : "Failed to save template points.");
+      toast({ title: "Save failed", description: error instanceof Error ? error.message : "Failed to save template points.", variant: "destructive" });
       return false;
     } finally {
       setIsSavingTemplatePoints(false);
@@ -1419,7 +1419,7 @@ export function useStep4Geometry2DController() {
       persistNodesPatch({ points: nextPoints });
     } catch (error) {
       console.error("Error resetting template points:", error);
-      alert(error instanceof Error ? error.message : "Failed to reset template points.");
+      toast({ title: "Reset failed", description: error instanceof Error ? error.message : "Failed to reset template points.", variant: "destructive" });
     } finally {
       setIsSavingTemplatePoints(false);
     }
@@ -1578,7 +1578,7 @@ export function useStep4Geometry2DController() {
       });
     } catch (error) {
       console.error("Pattern reconstruction error:", error);
-      alert(error instanceof Error ? error.message : "Pattern reconstruction failed.");
+      toast({ title: "Reconstruction failed", description: error instanceof Error ? error.message : "Pattern reconstruction failed.", variant: "destructive" });
     } finally {
       setIsRunningReconstruction(false);
     }
@@ -1619,7 +1619,7 @@ export function useStep4Geometry2DController() {
       });
     } catch (error) {
       console.error("Manual rib save error:", error);
-      alert(error instanceof Error ? error.message : "Failed to save reconstructed ribs.");
+      toast({ title: "Save failed", description: error instanceof Error ? error.message : "Failed to save reconstructed ribs.", variant: "destructive" });
     } finally {
       setIsSavingReconstructionManualEdges(false);
     }
@@ -1723,7 +1723,7 @@ export function useStep4Geometry2DController() {
       }
     } catch (error) {
       console.error("Template matching error:", error);
-      alert(error instanceof Error ? error.message : "Template matching failed.");
+      toast({ title: "Template matching failed", description: error instanceof Error ? error.message : "Cut-typology matching could not complete.", variant: "destructive" });
     } finally {
       setIsRunningTemplateMatching(false);
     }
@@ -1744,7 +1744,7 @@ export function useStep4Geometry2DController() {
       persistMatchingPatch({ matchCsvPath: response.data.csvPath });
     } catch (error) {
       console.error("Failed to load template match csv:", error);
-      alert(error instanceof Error ? error.message : "Failed to load boss_template_match.csv.");
+      toast({ title: "Failed to load match results", description: error instanceof Error ? error.message : "Could not load boss_template_match.csv.", variant: "destructive" });
     } finally {
       setIsLoadingTemplateMatchCsv(false);
     }
@@ -1795,7 +1795,7 @@ export function useStep4Geometry2DController() {
           },
         });
       } else {
-        alert(`Failed to save ROI: ${saveResult.error}`);
+        toast({ title: "ROI save failed", description: saveResult.error || "Could not save ROI.", variant: "destructive" });
       }
     } catch (error) {
       console.error("Error saving ROI:", error);
@@ -1857,7 +1857,7 @@ export function useStep4Geometry2DController() {
       setAutoCorrectConfig(normalizeAutoCorrectConfig(prepData.autoCorrectConfig));
     }
     if (geometry2dData?.ui) {
-      const rawSection = geometry2dData.ui.activeSection;
+      const rawSection = geometry2dData.ui.activeSection as Geometry2DWorkflowSection | "report" | undefined;
       const nextSection: Geometry2DWorkflowSection =
         rawSection === "report" ? "reconstruct" : rawSection || "roi";
       const nextAdvancedLayers = geometry2dData.ui.showAdvancedLayers ?? true;
@@ -2000,11 +2000,11 @@ export function useStep4Geometry2DController() {
 
   const handleAnalyse = async () => {
     if (!currentProject?.id) {
-      alert("No active project selected.");
+      toast({ title: "No project open", description: "Open a project before running analysis.", variant: "destructive" });
       return;
     }
     if (!selectedProjection?.id) {
-      alert("No projection selected.");
+      toast({ title: "No projection selected", description: "Select a projection before running analysis.", variant: "destructive" });
       return;
     }
 
@@ -2078,14 +2078,15 @@ export function useStep4Geometry2DController() {
 
       await loadTemplateState();
 
-      alert(
-        `Geometry2D inputs prepared. Detected ${prepResponse.data.bossCount} boss centres. ROI correction ${
-          prepResponse.data.correctionApplied ? "applied" : autoCorrectRoi ? "skipped" : "disabled"
-        }.`
-      );
+      toast({
+        title: "Bay Proportion Analysis is ready",
+        description: `${
+          prepResponse.data.correctionApplied ? " ROI auto-corrected." : "ROI auto-correction disabled."
+        }`,
+      });
     } catch (error) {
       console.error("Failed to prepare Geometry2D inputs:", error);
-      alert(error instanceof Error ? error.message : "Failed to prepare Geometry2D inputs.");
+      toast({ title: "Analysis failed", description: error instanceof Error ? error.message : "Failed to prepare Geometry2D inputs.", variant: "destructive" });
     } finally {
       setIsAnalysing(false);
     }

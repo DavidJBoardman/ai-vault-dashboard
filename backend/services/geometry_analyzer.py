@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
+from services.app_paths import get_data_root
 
 try:
     from PIL import Image
@@ -18,7 +19,7 @@ class GeometryAnalyzer:
     CLASSIFICATION_METHODS = ["starcut", "circlecut", "starcirclecut"]
     
     def __init__(self):
-        self.projections_dir = Path("./data/projections")
+        self.projections_dir = get_data_root() / "projections"
     
     async def analyze(
         self,
@@ -182,4 +183,3 @@ class GeometryAnalyzer:
         
         # Would export classification, measurements, etc.
         return output_path
-

@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 import uvicorn
 
 from routers import upload, projection, segmentation, geometry, geometry2d, export, project
+from services.app_paths import ensure_data_dirs
 from services.progress_manager import ProgressManager
 from services.e57_processor import get_processor
 
@@ -30,13 +31,7 @@ async def lifespan(app: FastAPI):
     print("=" * 50)
     
     # Create necessary directories
-    data_dir = Path("./data")
-    data_dir.mkdir(exist_ok=True)
-    (data_dir / "uploads").mkdir(exist_ok=True)
-    (data_dir / "projections").mkdir(exist_ok=True)
-    (data_dir / "segmentations").mkdir(exist_ok=True)
-    (data_dir / "exports").mkdir(exist_ok=True)
-    (data_dir / "projects").mkdir(exist_ok=True)
+    data_dir = ensure_data_dirs()
     
     print(f"Data directory: {data_dir.absolute()}")
     print("Backend ready!")
@@ -51,7 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Vault Analyser API",
     description="Backend API for Medieval Vault Architecture Analysis",
-    version="1.0.0",
+    version="0.1.0",
     lifespan=lifespan,
 )
 
@@ -159,7 +154,7 @@ async def root():
     """Root endpoint with API info."""
     return {
         "name": "Vault Analyzer API",
-        "version": "1.0.0",
+        "version": "0.1.0",
         "docs": "/docs",
         "health": "/health",
     }

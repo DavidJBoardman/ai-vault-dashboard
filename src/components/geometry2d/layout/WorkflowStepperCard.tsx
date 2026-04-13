@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { Check, Lock } from "lucide-react";
+import { Check, ChevronRight, Lock } from "lucide-react";
 
 import { Geometry2DWorkflowSection } from "@/components/geometry2d/types";
 
@@ -21,6 +21,8 @@ interface WorkflowStepperCardProps {
   sections: WorkflowStepperItem[];
   onReset?: () => void;
   resetDisabled?: boolean;
+  allComplete?: boolean;
+  onContinue?: () => void;
 }
 
 export function WorkflowStepperCard({
@@ -29,7 +31,10 @@ export function WorkflowStepperCard({
   sections,
   onReset,
   resetDisabled = false,
+  allComplete = false,
+  onContinue,
 }: WorkflowStepperCardProps) {
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-1 pt-3">
@@ -109,6 +114,19 @@ export function WorkflowStepperCard({
             );
           })}
         </div>
+
+        {allComplete && onContinue && (
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-2.5">
+            <div className="flex items-center gap-2 text-sm text-emerald-200">
+              <Check className="h-4 w-4 text-emerald-400" />
+              All sub-stages complete
+            </div>
+            <Button size="sm" onClick={onContinue} className="gap-1.5">
+              Continue to Step 5
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -5,13 +5,14 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 import numpy as np
 from uuid import uuid4
+from services.app_paths import get_data_root
 
 
 class ReprojectionService:
     """Service for reprojecting 2D annotations back to 3D."""
     
     def __init__(self):
-        self.data_dir = Path("./data")
+        self.data_dir = get_data_root()
         self.traces: Dict[str, Dict[str, Any]] = {}
     
     async def reproject(
@@ -184,4 +185,3 @@ class ReprojectionService:
     async def get_trace(self, trace_id: str) -> Optional[Dict[str, Any]]:
         """Get trace data by ID."""
         return self.traces.get(trace_id)
-
