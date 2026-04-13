@@ -714,14 +714,17 @@ async def list_projects():
             if project_dir.is_dir():
                 project_path = project_dir / "project.json"
                 if project_path.exists():
-                    with open(project_path, "r") as f:
-                        project_data = json.load(f)
-                    projects.append({
-                        "id": project_data.get("id"),
-                        "name": project_data.get("name"),
-                        "updatedAt": project_data.get("updatedAt"),
-                        "segmentationCount": project_data.get("segmentationCount", 0),
-                    })
+                    try:
+                        with open(project_path, "r") as f:
+                            project_data = json.load(f)
+                        projects.append({
+                            "id": project_data.get("id"),
+                            "name": project_data.get("name"),
+                            "updatedAt": project_data.get("updatedAt"),
+                            "segmentationCount": project_data.get("segmentationCount", 0),
+                        })
+                    except Exception as file_err:
+                        print(f"Skipping corrupt project file {project_path}: {file_err}")
         
         # Sort by updated time
         projects.sort(key=lambda p: p.get("updatedAt", ""), reverse=True)
