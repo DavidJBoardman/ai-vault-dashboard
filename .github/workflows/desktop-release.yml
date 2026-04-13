@@ -1,0 +1,121 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Sync backend dependencies
+        run: uv sync --directory backend --extra build --frozen
+
+      - name: Package macOS app
+        run: npm run package:ci:mac
+
+      - name: Archive macOS app
+        run: |
+          ditto -c -k --keepParent dist/mac*/Vault\ Analyser.app vault-analyser-macos.zip
+
+      - name: Upload macOS artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-analyser-macos
+          path: vault-analyser-macos.zip
+
+  package-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Sync backend dependencies
+        run: uv sync --directory backend --extra build --frozen
+
+      - name: Package Windows app
+        run: npm run package:ci:win
+
+      - name: Archive Windows app
+        shell: pwsh
+        run: Compress-Archive -Path dist/win-unpacked/* -DestinationPath vault-analyser-windows.zip
+
+      - name: Upload Windows artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-analyser-windows
+          path: vault-analyser-windows.zip
+          compression-level: 0
+
+  publish-release:
+    if: github.ref_type == 'tag'
+    needs:
+      - package-macos
+      - package-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: vault-analyser-macos
+          path: release-assets
+
+      - name: Download Windows artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: vault-analyser-windows
+          path: release-assets
+
+      - name: Publish GitHub release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            release-assets/vault-analyser-macos.zip \
+            release-assets/vault-analyser-windows.zip \
+          || gh release upload "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            release-assets/vault-analyser-macos.zip \
+            release-assets/vault-analyser-windows.zip \
+            --clobber

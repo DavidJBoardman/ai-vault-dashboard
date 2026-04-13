@@ -14,6 +14,7 @@ except ImportError:
     HAS_PIL = False
 
 from services.e57_processor import get_processor
+from services.app_paths import get_data_root
 from services.projection_gaussian_utils import (
     project_to_2d_gaussian_fast,
     prepare_export_images_gaussian,
@@ -23,6 +24,9 @@ from services.projection_gaussian_utils import (
 
 class ProjectionService:
     """Service for creating 2D projections from 3D point clouds using Gaussian splatting."""
+
+    MIN_PROJECTION_POINTS = 250_000
+    MAX_PROJECTION_POINTS = 2_000_000
     
     _instance = None
     
@@ -37,7 +41,7 @@ class ProjectionService:
         if self._initialized:
             return
         self._initialized = True
-        self.data_dir = Path("./data/projections")
+        self.data_dir = get_data_root() / "projections"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.projections: Dict[str, Dict[str, Any]] = {}
         
@@ -75,6 +79,30 @@ class ProjectionService:
                     print(f"Loaded existing projection: {projection_id}")
             except Exception as e:
                 print(f"Error loading projection {metadata_file}: {e}")
+
+    def register_projection(
+        self,
+        projection_id: str,
+        *,
+        perspective: str,
+        resolution: int,
+        sigma: float,
+        kernel_size: int,
+        bottom_up: bool,
+        metadata: Optional[Dict[str, Any]] = None,
+        paths: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Register an existing projection so downstream services can reuse it."""
+        self.projections[projection_id] = {
+            "id": projection_id,
+            "perspective": perspective,
+            "resolution": resolution,
+            "sigma": sigma,
+            "kernel_size": kernel_size,
+            "bottom_up": bottom_up,
+            "paths": paths or {},
+            "metadata": metadata or {},
+        }
     
     async def create_projection(
         self,
@@ -122,15 +150,35 @@ class ProjectionService:
         processor = get_processor()
         
         if processor.is_loaded() and processor.points is not None:
-            points = processor.points
-            colours = processor.colors
-            
+            all_points = processor.points
+            all_colours = processor.colors
+            source_point_count = len(all_points)
+            target_point_count = self._get_target_point_count(source_point_count, resolution)
+            sampled = target_point_count < source_point_count
+
+            if sampled:
+                sample_indices = np.linspace(
+                    0,
+                    source_point_count - 1,
+                    num=target_point_count,
+                    dtype=np.int64,
+                )
+                points = all_points[sample_indices]
+                colours = all_colours[sample_indices] if all_colours is not None else None
+                print(
+                    "Projection input sampled "
+                    f"from {source_point_count:,} to {target_point_count:,} points"
+                )
+            else:
+                points = all_points
+                colours = all_colours
+
             print(f"Creating Gaussian projection from {len(points):,} points...")
             print(f"  Perspective: {perspective}, Resolution: {resolution}")
             print(f"  Sigma: {sigma}, Kernel: {kernel_size}, Bottom-up: {bottom_up}")
             
             # Center the point cloud
-            centroid = np.mean(points, axis=0)
+            centroid = np.mean(all_points, axis=0)
             centred_points = points - centroid
             
             # Normalize colours to 0-1 range if needed
@@ -154,6 +202,9 @@ class ProjectionService:
             # Add centroid to metadata for reprojection
             metadata["centroid"] = centroid.tolist()
             metadata["scale"] = scale
+            metadata["source_point_count"] = int(source_point_count)
+            metadata["sampled_point_count"] = int(len(points))
+            metadata["sampling_applied"] = sampled
             
             # Save projection files
             paths = save_projection_gaussian(
@@ -165,7 +216,7 @@ class ProjectionService:
                 projection_id=projection_id,
             )
             
-            print(f"✓ Gaussian projection saved: {projection_id}")
+            print(f"[OK] Gaussian projection saved: {projection_id}")
             
         else:
             # Fallback to demo projection
@@ -198,6 +249,14 @@ class ProjectionService:
             "paths": paths,
             "metadata": metadata,
         }
+
+    def _get_target_point_count(self, point_count: int, resolution: int) -> int:
+        """Limit projection work to a practical point budget for desktop packaging."""
+        if point_count <= self.MIN_PROJECTION_POINTS:
+            return point_count
+
+        pixel_budget = max(resolution * resolution // 2, self.MIN_PROJECTION_POINTS)
+        return min(point_count, pixel_budget, self.MAX_PROJECTION_POINTS)
     
     def _generate_demo_gaussian(self, resolution: int) -> tuple:
         """Generate a demo Gaussian projection for testing."""

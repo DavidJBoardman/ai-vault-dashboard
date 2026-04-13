@@ -8,11 +8,13 @@ node_modules/
 out/
 dist/
 build/
+site/
 *.tsbuildinfo
 
 # Electron
 electron/*.js
 electron/*.js.map
+electron-dist/
 
 # Python
 __pycache__/
@@ -29,6 +31,7 @@ env/
 *.egg
 backend/dist/
 *.spec
+!backend/vault-backend.spec
 
 # IDE
 .idea/
@@ -73,7 +76,10 @@ projects/
 .cursorignore
 .cursorindexingignore
 
-pyproject.toml
-uv.lock
 .venv/
 backend/.python-version
+/.cursor
+
+.claude/
+docs/.obsidian/
+CLAUDE.md
