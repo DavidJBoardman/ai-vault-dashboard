@@ -261,7 +261,7 @@ export default function Step5ReprojectionPage() {
         enabled: true,
       });
     }
-  }, [exclusionBox, floorPlaneZ, pointCloudData]);
+  }, [exclusionBox, impostLineZ, pointCloudData]);
   
   // Initialize exclusion controls when point cloud is loaded
   useEffect(() => {
