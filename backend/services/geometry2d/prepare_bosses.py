@@ -84,7 +84,10 @@ def _extract_instance_centroids_from_index(
         if not isinstance(seg, dict):
             continue
         group_id = str(seg.get("groupId", "")).strip().lower()
-        if group_id != "boss_stone":
+        # Accept both the canonical "boss_stone" id and legacy per-mask ids
+        # like "boss_stone_e", "boss_stone_f" that were created before
+        # extract_group_id was updated to strip alphabetical suffixes.
+        if group_id != "boss_stone" and not group_id.startswith("boss_stone_"):
             continue
         mask_file = seg.get("maskFile")
         if not isinstance(mask_file, str) or not mask_file:
