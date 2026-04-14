@@ -1102,8 +1102,11 @@ export default function Step3SegmentationPage() {
         selectedProjectionId: selectedProjectionId || undefined,
       });
       
-      // Save ROI to step 3 data for carrying over to step 4
+      // Save ROI to step 3 data for carrying over to step 4.
+      // Merge with any existing step 3 data so we don't wipe segmentations.
+      const existingStep3Data = (currentProject?.steps?.[3]?.data || {}) as Record<string, unknown>;
       completeStep(3, {
+        ...existingStep3Data,
         roi: { x: roi.x, y: roi.y, width: roi.width, height: roi.height, rotation: roi.rotation },
         masksDeleted: masksOutside.length,
         masksRemaining: masksInside.length,
@@ -1522,7 +1525,16 @@ export default function Step3SegmentationPage() {
       source: m.source as "auto" | "manual",
     }));
     setSegmentations(storeSegmentations);
-    completeStep(3, { segmentations: storeSegmentations, intradosLines: currentProject?.intradosLines });
+    // Include ROI in step 3 data so step 4 can read it from steps[3].data.roi.
+    // completeStep replaces the whole data object, so the ROI must be included
+    // here even if it was saved separately by handleApplyROI earlier.
+    completeStep(3, {
+      segmentations: storeSegmentations,
+      intradosLines: currentProject?.intradosLines,
+      ...(isROISet && {
+        roi: { x: roi.x, y: roi.y, width: roi.width, height: roi.height, rotation: roi.rotation },
+      }),
+    });
     
     // Save project data to backend for persistence
     if (currentProject) {
