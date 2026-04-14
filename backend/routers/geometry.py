@@ -100,6 +100,10 @@ class MeasurementResult(BaseModel):
     pointDistances: List[float]
     segmentPoints: List[Point3D]
     arcCenter: Point3D
+    arcBasisU: Point3D
+    arcBasisV: Point3D
+    arcStartAngle: float
+    arcEndAngle: float
 
 
 class MeasurementResponse(BaseModel):
@@ -135,6 +139,10 @@ async def calculate_measurements(request: MeasurementRequest):
                 pointDistances=result["point_distances"],
                 segmentPoints=[Point3D(x=p[0], y=p[1], z=p[2]) for p in result["segment_points"]],
                 arcCenter=Point3D(**result["arc_center"]),
+                arcBasisU=Point3D(**result["arc_basis_u"]),
+                arcBasisV=Point3D(**result["arc_basis_v"]),
+                arcStartAngle=result["arc_start_angle"],
+                arcEndAngle=result["arc_end_angle"],
             ),
         )
     except Exception as e:
@@ -272,6 +280,7 @@ class RibGroupCombinedMeasurements(BaseModel):
 
 class RibGroupResult(BaseModel):
     groupId: str
+    groupName: Optional[str] = None
     ribIds: List[str]
     isGrouped: bool
     combinedMeasurements: RibGroupCombinedMeasurements
@@ -317,6 +326,7 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
             combined = service.calculate_group_measurements(group_ids)
             results.append(RibGroupResult(
                 groupId=f"group-{i}",
+                groupName=None,
                 ribIds=group_ids,
                 isGrouped=len(group_ids) > 1,
                 combinedMeasurements=RibGroupCombinedMeasurements(
@@ -332,3 +342,227 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
         return DetectRibGroupsResponse(success=True, data=results)
     except Exception as e:
         return DetectRibGroupsResponse(success=False, error=str(e))
+
+
+class CustomRibGroupInput(BaseModel):
+    groupId: str
+    ribIds: List[str]
+    groupName: Optional[str] = None
+
+
+class CalculateCustomRibGroupsRequest(BaseModel):
+    ribs: List[RibForGrouping]
+    groups: List[CustomRibGroupInput]
+
+
+@router.post("/measurements/custom-rib-groups", response_model=DetectRibGroupsResponse)
+async def calculate_custom_rib_groups_endpoint(request: CalculateCustomRibGroupsRequest):
+    """Calculate combined measurements for explicit user-defined rib groups."""
+    try:
+        service = MeasurementService()
+        for rib in request.ribs:
+            points = np.array(rib.points)
+            if len(points) >= 3:
+                service.traces[rib.id] = points
+
+        if not service.traces:
+            return DetectRibGroupsResponse(success=False, error="No valid rib traces provided")
+
+        results: List[RibGroupResult] = []
+        for group in request.groups:
+            rib_ids = [rid for rid in group.ribIds if rid in service.traces]
+            if not rib_ids:
+                continue
+
+            combined = service.calculate_group_measurements(rib_ids)
+            results.append(RibGroupResult(
+                groupId=group.groupId,
+                groupName=group.groupName,
+                ribIds=rib_ids,
+                isGrouped=len(rib_ids) > 1,
+                combinedMeasurements=RibGroupCombinedMeasurements(
+                    arc_radius=combined["arc_radius"],
+                    rib_length=combined["rib_length"],
+                    apex_point=Point3D(**combined["apex_point"]),
+                    arc_center=Point3D(**combined["arc_center"]),
+                    arc_center_z=combined["arc_center_z"],
+                    fit_error=combined["fit_error"],
+                ),
+            ))
+
+        return DetectRibGroupsResponse(success=True, data=results)
+    except Exception as e:
+        return DetectRibGroupsResponse(success=False, error=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Apex & Span Calculation
+# ---------------------------------------------------------------------------
+
+class BossPosition(BaseModel):
+    id: str
+    x: float
+    y: float
+    z: float
+    label: str = ""
+
+
+class PairingApexSideInput(BaseModel):
+    sideId: str
+    sideLabel: str = ""
+    ribIds: List[str] = []
+
+
+class PairingApexInput(BaseModel):
+    pairingId: str
+    pairingName: str
+    sides: List[PairingApexSideInput]
+
+
+class ApexSpanRequest(BaseModel):
+    ribs: List[RibForGrouping]
+    bosses: List[BossPosition]
+    maxBossDistance: float = 2.0
+    symmetryAngleTolerance: float = 30.0
+    impostHeight: Optional[float] = None
+    pairings: Optional[List[PairingApexInput]] = None
+
+
+class RibPairIntersection(BaseModel):
+    ribA: str
+    ribB: str
+    intersection: Point3D
+
+
+class BossApexResult(BaseModel):
+    bossId: str
+    bossLabel: str
+    bossPosition: Point3D
+    apex: Point3D
+    ribPairs: List[RibPairIntersection]
+    assignedRibs: List[str]
+
+
+class RibSpanResult(BaseModel):
+    ribId: str
+    bossId: str
+    span: float
+    springingPoint: Point3D
+    projectedApex: Point3D
+
+
+class PairingApexResult(BaseModel):
+    pairingId: str
+    pairingName: str
+    sideLabels: List[str]
+    apex: Optional[Point3D] = None
+    apexHeight: Optional[float] = None
+    status: Literal["ok", "no-intersection", "insufficient-data"] = "insufficient-data"
+    warning: Optional[str] = None
+
+
+class ApexSpanResult(BaseModel):
+    bosses: List[BossApexResult]
+    ribs: dict  # {rib_id: RibSpanResult}
+    pairingApex: List[PairingApexResult] = []
+
+
+class ApexSpanResponse(BaseModel):
+    success: bool
+    data: Optional[ApexSpanResult] = None
+    error: Optional[str] = None
+
+
+@router.post("/measurements/apex-span", response_model=ApexSpanResponse)
+async def calculate_apex_span_endpoint(request: ApexSpanRequest):
+    """Compute architectural apex per boss and span per rib.
+
+    The apex for each boss is the intersection point of extended arcs from
+    opposite symmetrical ribs converging at that boss.  Span is the
+    horizontal distance from each rib's springing point to the apex
+    projected down onto the springing plane.
+    """
+    try:
+        service = MeasurementService()
+
+        for rib in request.ribs:
+            points = np.array(rib.points)
+            if len(points) >= 3:
+                service.traces[rib.id] = points
+
+        if not service.traces:
+            return ApexSpanResponse(success=False, error="No valid rib traces provided")
+
+        bosses_raw = [
+            {"id": b.id, "x": b.x, "y": b.y, "z": b.z, "label": b.label}
+            for b in request.bosses
+        ]
+        pairings_raw = None
+        if request.pairings:
+            pairings_raw = [
+                {
+                    "pairingId": pairing.pairingId,
+                    "pairingName": pairing.pairingName,
+                    "sides": [
+                        {
+                            "sideId": side.sideId,
+                            "sideLabel": side.sideLabel,
+                            "ribIds": side.ribIds,
+                        }
+                        for side in pairing.sides
+                    ],
+                }
+                for pairing in request.pairings
+            ]
+
+        import asyncio as _asyncio
+        loop = _asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: service.calculate_apex_span(
+                bosses=bosses_raw,
+                max_boss_distance=request.maxBossDistance,
+                symmetry_angle_tol_deg=request.symmetryAngleTolerance,
+                impost_height=request.impostHeight,
+                pairings=pairings_raw,
+            ),
+        )
+
+        return ApexSpanResponse(
+            success=True,
+            data=ApexSpanResult(
+                bosses=[
+                    BossApexResult(
+                        bossId=b["bossId"],
+                        bossLabel=b["bossLabel"],
+                        bossPosition=Point3D(**b["bossPosition"]),
+                        apex=Point3D(**b["apex"]),
+                        ribPairs=[
+                            RibPairIntersection(
+                                ribA=p["ribA"],
+                                ribB=p["ribB"],
+                                intersection=Point3D(**p["intersection"]),
+                            )
+                            for p in b["ribPairs"]
+                        ],
+                        assignedRibs=b["assignedRibs"],
+                    )
+                    for b in result["bosses"]
+                ],
+                ribs=result["ribs"],
+                pairingApex=[
+                    PairingApexResult(
+                        pairingId=p["pairingId"],
+                        pairingName=p["pairingName"],
+                        sideLabels=p.get("sideLabels", []),
+                        apex=Point3D(**p["apex"]) if p.get("apex") else None,
+                        apexHeight=p.get("apexHeight"),
+                        status=p.get("status", "insufficient-data"),
+                        warning=p.get("warning"),
+                    )
+                    for p in result.get("pairingApex", [])
+                ],
+            ),
+        )
+    except Exception as e:
+        return ApexSpanResponse(success=False, error=str(e))

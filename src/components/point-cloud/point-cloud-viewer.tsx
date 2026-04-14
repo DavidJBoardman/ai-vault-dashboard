@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useEffect, useState, useCallback } from "react";
+import React, { useRef, useMemo, useEffect, useState, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Grid, Stats, Html } from "@react-three/drei";
 import * as THREE from "three";
@@ -61,6 +61,17 @@ export interface RibLabel {
   position: { x: number; y: number; z: number };
 }
 
+export interface BossStoneMarker {
+  id: string;
+  label: string;
+  groupId: string;
+  color: string;
+  /** Real-world X coordinate (data space, same convention as point cloud) */
+  x: number;
+  y: number;
+  z: number;
+}
+
 interface PointCloudViewerProps {
   points: Point[];
   lines?: Line3D[];
@@ -79,10 +90,18 @@ interface PointCloudViewerProps {
   showExclusionBox?: boolean;
   ribLabels?: RibLabel[];
   selectedLabelId?: string | null;
+  selectedLabelIds?: string[];
   onLabelClick?: (id: string) => void;
   onLineClick?: (ribId: string) => void;
   /** Full rib paths used for click hit-areas (one tube per rib, not per segment) */
   ribPaths?: Array<{ id: string; points: Array<{ x: number; y: number; z: number }> }>;
+  /** 3D sphere markers for boss stones / keystones (purely visual, for orientation) */
+  bossStoneMarkers?: BossStoneMarker[];
+  showBossStones?: boolean;
+  /** When false, hides only the text labels; spheres remain visible */
+  showBossStoneLabels?: boolean;
+  selectedBossStoneId?: string | null;
+  onBossStoneClick?: (id: string) => void;
 }
 
 function PointCloud({ 
@@ -177,126 +196,196 @@ function PointCloud({
   );
 }
 
+/**
+ * Parametric arc curve — defined once at module scope so it is never
+ * re-created inside the render loop.
+ */
+class ArcCurve extends THREE.Curve<THREE.Vector3> {
+  center: { x: number; y: number; z: number };
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+  u: { x: number; y: number; z: number };
+  v: { x: number; y: number; z: number };
+
+  constructor(
+    center: { x: number; y: number; z: number },
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    u: { x: number; y: number; z: number },
+    v: { x: number; y: number; z: number }
+  ) {
+    super();
+    this.center = center;
+    this.radius = radius;
+    this.startAngle = startAngle;
+    this.endAngle = endAngle;
+    this.u = u;
+    this.v = v;
+  }
+
+  getPoint(t: number): THREE.Vector3 {
+    let sweep = this.endAngle - this.startAngle;
+    const twoPi = Math.PI * 2;
+    if (!Number.isFinite(sweep)) {
+      sweep = 0;
+    } else if (Math.abs(sweep) > twoPi) {
+      sweep = sweep % twoPi;
+    }
+    const angle = this.startAngle + t * sweep;
+    const x = this.center.x + this.radius * (Math.cos(angle) * this.u.x + Math.sin(angle) * this.v.x);
+    const y = this.center.y + this.radius * (Math.cos(angle) * this.u.y + Math.sin(angle) * this.v.y);
+    const z = this.center.z + this.radius * (Math.cos(angle) * this.u.z + Math.sin(angle) * this.v.z);
+    return new THREE.Vector3(x, z, y); // Swap Y/Z for orientation
+  }
+}
+
+/** Shared sphere geometry — allocated once, reused by every endpoint marker. */
+const SHARED_SPHERE_GEO = new THREE.SphereGeometry(1, 16, 16);
+
+function getTubeSegments(pointCount: number, maxSegments: number = 128) {
+  return Math.min(maxSegments, Math.max(8, pointCount * 2));
+}
+
+/**
+ * Renders a single Line3D. Wrapped in React.memo so unchanged lines skip
+ * geometry reconstruction when sibling lines change (e.g. colour on selection).
+ */
+const MemoizedLine = React.memo(function MemoizedLine({
+  line,
+  lineWidth,
+}: {
+  line: Line3D;
+  lineWidth: number;
+}) {
+  // Segment lines (part of an error-heatmap trace) don't need endpoint spheres
+  // because they overlap with their neighbours.
+  const isSegment = line.id.includes("-segment-");
+  const sphereRadius = lineWidth * 2;
+
+  const color = useMemo(() => new THREE.Color(line.color), [line.color]);
+
+  const { mainGeo, glowGeo, startPos, endPos } = useMemo(() => {
+    if (line.arc) {
+      const { center, radius, startAngle, endAngle, u, v } = line.arc;
+      const arcCurve = new ArcCurve(center, radius, startAngle, endAngle, u, v);
+      return {
+        mainGeo: new THREE.TubeGeometry(arcCurve, 64, lineWidth, 8, false),
+        glowGeo: new THREE.TubeGeometry(arcCurve, 64, lineWidth * 1.5, 8, false),
+        startPos: new THREE.Vector3(line.points[0].x, line.points[0].z, line.points[0].y),
+        endPos: new THREE.Vector3(
+          line.points[line.points.length - 1].x,
+          line.points[line.points.length - 1].z,
+          line.points[line.points.length - 1].y,
+        ),
+      };
+    }
+
+    const pts = line.points.map((p) => new THREE.Vector3(p.x, p.z, p.y));
+    const curve = new THREE.CatmullRomCurve3(pts, false, "catmullrom", 0.5);
+    const segs = getTubeSegments(line.points.length);
+    return {
+      mainGeo: new THREE.TubeGeometry(curve, segs, lineWidth, 8, false),
+      glowGeo: new THREE.TubeGeometry(curve, segs, lineWidth * 1.5, 8, false),
+      startPos: new THREE.Vector3(line.points[0].x, line.points[0].z, line.points[0].y),
+      endPos: new THREE.Vector3(
+        line.points[line.points.length - 1].x,
+        line.points[line.points.length - 1].z,
+        line.points[line.points.length - 1].y,
+      ),
+    };
+  }, [line.points, line.arc, lineWidth]);
+
+  // Dispose previous geometries when they are replaced or the component unmounts.
+  useEffect(() => {
+    return () => {
+      mainGeo.dispose();
+      glowGeo.dispose();
+    };
+  }, [mainGeo, glowGeo]);
+
+  return (
+    <group>
+      <mesh geometry={mainGeo}>
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <mesh geometry={glowGeo}>
+        <meshBasicMaterial color={color} transparent opacity={0.3} />
+      </mesh>
+      {!isSegment && (
+        <>
+          <mesh position={startPos} scale={sphereRadius}>
+            <primitive object={SHARED_SPHERE_GEO} attach="geometry" />
+            <meshBasicMaterial color={color} />
+          </mesh>
+          <mesh position={endPos} scale={sphereRadius}>
+            <primitive object={SHARED_SPHERE_GEO} attach="geometry" />
+            <meshBasicMaterial color={color} />
+          </mesh>
+        </>
+      )}
+    </group>
+  );
+});
+
 function Lines3D({ lines, lineWidth = 0.03 }: { lines: Line3D[]; lineWidth?: number }) {
   return (
     <group>
       {lines.map((line) => {
         if (line.points.length < 2) return null;
-        
-        // Parse hex color to THREE.Color
-        const color = new THREE.Color(line.color);
-        const sphereRadius = lineWidth * 2;
-        
-        // If arc parameters are provided, render a true mathematical arc
-        if (line.arc) {
-          const { center, radius, startAngle, endAngle, u, v } = line.arc;
-          
-          // Create a parametric curve for the arc
-          class ArcCurve extends THREE.Curve<THREE.Vector3> {
-            center: { x: number; y: number; z: number };
-            radius: number;
-            startAngle: number;
-            endAngle: number;
-            u: { x: number; y: number; z: number };
-            v: { x: number; y: number; z: number };
-
-            constructor(
-              center: { x: number; y: number; z: number },
-              radius: number,
-              startAngle: number,
-              endAngle: number,
-              u: { x: number; y: number; z: number },
-              v: { x: number; y: number; z: number }
-            ) {
-              super();
-              this.center = center;
-              this.radius = radius;
-              this.startAngle = startAngle;
-              this.endAngle = endAngle;
-              this.u = u;
-              this.v = v;
-            }
-
-            getPoint(t: number): THREE.Vector3 {
-              const angle = this.startAngle + t * (this.endAngle - this.startAngle);
-              const x = this.center.x + this.radius * (Math.cos(angle) * this.u.x + Math.sin(angle) * this.v.x);
-              const y = this.center.y + this.radius * (Math.cos(angle) * this.u.y + Math.sin(angle) * this.v.y);
-              const z = this.center.z + this.radius * (Math.cos(angle) * this.u.z + Math.sin(angle) * this.v.z);
-              return new THREE.Vector3(x, z, y); // Swap Y/Z for orientation
-            }
-          }
-          
-          const arcCurve = new ArcCurve(center, radius, startAngle, endAngle, u, v);
-          
-          return (
-            <group key={line.id}>
-              {/* Main arc tube */}
-              <mesh>
-                <tubeGeometry args={[arcCurve, 64, lineWidth, 8, false]} />
-                <meshBasicMaterial color={color} />
-              </mesh>
-              {/* Glow effect */}
-              <mesh>
-                <tubeGeometry args={[arcCurve, 64, lineWidth * 1.5, 8, false]} />
-                <meshBasicMaterial color={color} transparent opacity={0.3} />
-              </mesh>
-              {/* Start sphere */}
-              <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
-                <sphereGeometry args={[sphereRadius, 16, 16]} />
-                <meshBasicMaterial color={color} />
-              </mesh>
-              {/* End sphere */}
-              <mesh position={[
-                line.points[line.points.length - 1].x,
-                line.points[line.points.length - 1].z,
-                line.points[line.points.length - 1].y
-              ]}>
-                <sphereGeometry args={[sphereRadius, 16, 16]} />
-                <meshBasicMaterial color={color} />
-              </mesh>
-            </group>
-          );
-        }
-        
-        // Fallback: use CatmullRomCurve3 for regular line rendering
-        const points: THREE.Vector3[] = line.points.map(
-          (p) => new THREE.Vector3(p.x, p.z, p.y) // Swap Y/Z for correct orientation
-        );
-        const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5);
-        const segments = Math.max(8, line.points.length * 2);
-
-        return (
-          <group key={line.id}>
-            {/* Main line using tube geometry for thickness */}
-            <mesh>
-              <tubeGeometry args={[curve, segments, lineWidth, 8, false]} />
-              <meshBasicMaterial color={color} />
-            </mesh>
-            {/* Glow/highlight effect */}
-            <mesh>
-              <tubeGeometry args={[curve, segments, lineWidth * 1.5, 8, false]} />
-              <meshBasicMaterial color={color} transparent opacity={0.3} />
-            </mesh>
-            {/* Start sphere */}
-            <mesh position={[line.points[0].x, line.points[0].z, line.points[0].y]}>
-              <sphereGeometry args={[sphereRadius, 16, 16]} />
-              <meshBasicMaterial color={color} />
-            </mesh>
-            {/* End sphere */}
-            <mesh position={[
-              line.points[line.points.length - 1].x,
-              line.points[line.points.length - 1].z,
-              line.points[line.points.length - 1].y
-            ]}>
-              <sphereGeometry args={[sphereRadius, 16, 16]} />
-              <meshBasicMaterial color={color} />
-            </mesh>
-          </group>
-        );
+        return <MemoizedLine key={line.id} line={line} lineWidth={lineWidth} />;
       })}
     </group>
   );
 }
+
+/**
+ * Memoized single hit-area tube per rib — avoids recreating curve geometry
+ * when sibling ribs change.
+ */
+const MemoizedHitArea = React.memo(function MemoizedHitArea({
+  rib,
+  lineWidth,
+  isHovered,
+  onLineClick,
+  onHover,
+  onUnhover,
+}: {
+  rib: { id: string; points: Array<{ x: number; y: number; z: number }> };
+  lineWidth: number;
+  isHovered: boolean;
+  onLineClick?: (ribId: string) => void;
+  onHover: (id: string) => void;
+  onUnhover: () => void;
+}) {
+  const geo = useMemo(() => {
+    const pts = rib.points.map((p) => new THREE.Vector3(p.x, p.z, p.y));
+    const curve = new THREE.CatmullRomCurve3(pts, false, "catmullrom", 0.5);
+    const segs = getTubeSegments(rib.points.length, 96);
+    return new THREE.TubeGeometry(curve, segs, lineWidth * 6, 6, false);
+  }, [rib.points, lineWidth]);
+
+  useEffect(() => {
+    return () => { geo.dispose(); };
+  }, [geo]);
+
+  return (
+    <mesh
+      geometry={geo}
+      onClick={(e) => { e.stopPropagation(); onLineClick?.(rib.id); }}
+      onPointerOver={(e) => { e.stopPropagation(); onHover(rib.id); document.body.style.cursor = "pointer"; }}
+      onPointerOut={() => { onUnhover(); document.body.style.cursor = "default"; }}
+    >
+      <meshBasicMaterial
+        transparent
+        opacity={isHovered ? 0.18 : 0}
+        color="#ffffff"
+        depthWrite={false}
+      />
+    </mesh>
+  );
+});
 
 /**
  * One invisible wide tube per rib — the only raycasting targets for click/hover.
@@ -312,30 +401,23 @@ function RibHitAreas({
   onLineClick?: (ribId: string) => void;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const handleHover = useCallback((id: string) => setHoveredId(id), []);
+  const handleUnhover = useCallback(() => setHoveredId(null), []);
 
   return (
     <group>
       {ribPaths.map((rib) => {
         if (rib.points.length < 2) return null;
-        const pts = rib.points.map((p) => new THREE.Vector3(p.x, p.z, p.y));
-        const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
-        const segs = Math.max(8, rib.points.length * 2);
-        const isHovered = hoveredId === rib.id;
         return (
-          <mesh
+          <MemoizedHitArea
             key={rib.id}
-            onClick={(e) => { e.stopPropagation(); onLineClick?.(rib.id); }}
-            onPointerOver={(e) => { e.stopPropagation(); setHoveredId(rib.id); document.body.style.cursor = "pointer"; }}
-            onPointerOut={() => { setHoveredId(null); document.body.style.cursor = "default"; }}
-          >
-            <tubeGeometry args={[curve, segs, lineWidth * 6, 6, false]} />
-            <meshBasicMaterial
-              transparent
-              opacity={isHovered ? 0.18 : 0}
-              color="#ffffff"
-              depthWrite={false}
-            />
-          </mesh>
+            rib={rib}
+            lineWidth={lineWidth}
+            isHovered={hoveredId === rib.id}
+            onLineClick={onLineClick}
+            onHover={handleHover}
+            onUnhover={handleUnhover}
+          />
         );
       })}
     </group>
@@ -498,52 +580,127 @@ function ExclusionBoxVisual({
   );
 }
 
+function BossStoneMarkers3D({
+  markers,
+  sphereRadius,
+  showLabels = true,
+  selectedId,
+  onBossStoneClick,
+}: {
+  markers: BossStoneMarker[];
+  sphereRadius: number;
+  showLabels?: boolean;
+  selectedId?: string | null;
+  onBossStoneClick?: (id: string) => void;
+}) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  return (
+    <>
+      {markers.map((marker) => {
+        // Y↔Z swap — same convention applied throughout the viewer
+        const threePos: [number, number, number] = [marker.x, marker.z, marker.y];
+        const isSelected = selectedId === marker.id;
+        const isHovered = hoveredId === marker.id;
+        const color = isSelected ? "#88CCFF" : "#4488FF";
+        const radius = isSelected || isHovered ? sphereRadius * 1.2 : sphereRadius;
+        const labelPos: [number, number, number] = [marker.x, marker.z + radius * 2.5, marker.y];
+
+        return (
+          <group key={marker.id}>
+            <mesh
+              position={threePos}
+              onClick={(e) => { e.stopPropagation(); onBossStoneClick?.(marker.id); }}
+              onPointerOver={(e) => { e.stopPropagation(); setHoveredId(marker.id); document.body.style.cursor = "pointer"; }}
+              onPointerOut={() => { setHoveredId(null); document.body.style.cursor = "default"; }}
+            >
+              <sphereGeometry args={[radius, 16, 12]} />
+              <meshBasicMaterial color={color} transparent opacity={isSelected ? 1.0 : isHovered ? 0.95 : 0.9} />
+            </mesh>
+            {showLabels && <Html
+              position={labelPos}
+              center
+              distanceFactor={8}
+              zIndexRange={[90, 0]}
+            >
+              <div
+                onClick={() => onBossStoneClick?.(marker.id)}
+                onMouseEnter={() => setHoveredId(marker.id)}
+                onMouseLeave={() => setHoveredId(null)}
+                style={{
+                  padding: "2px 6px",
+                  borderRadius: "9999px",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  userSelect: "none",
+                  cursor: "pointer",
+                  background: isSelected ? "rgba(68,136,255,0.2)" : "rgba(10,15,26,0.8)",
+                  color: "#f0f0f0",
+                  border: `1px solid ${color}`,
+                }}
+              >
+                {marker.label}
+              </div>
+            </Html>}
+          </group>
+        );
+      })}
+    </>
+  );
+}
+
 function RibLabelsOverlay({
   labels,
-  selectedId,
+  selectedIds,
   onLabelClick,
 }: {
   labels: RibLabel[];
-  selectedId?: string | null;
+  selectedIds?: string[];
   onLabelClick?: (id: string) => void;
 }) {
+  const selectedIdSet = useMemo(() => new Set(selectedIds ?? []), [selectedIds]);
+
   return (
     <>
-      {labels.map((label) => (
-        <Html
-          key={label.id}
-          position={[label.position.x, label.position.z, label.position.y]}
-          center
-          distanceFactor={8}
-          zIndexRange={[100, 0]}
-        >
-          <div
-            onClick={() => onLabelClick?.(label.id)}
-            style={{
-              cursor: "pointer",
-              padding: "2px 8px",
-              borderRadius: "9999px",
-              fontSize: "11px",
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              userSelect: "none",
-              background: selectedId === label.id
-                ? "rgba(255,255,255,0.95)"
-                : "rgba(10,15,26,0.75)",
-              color: selectedId === label.id ? "#0a0f1a" : "#e2e8f0",
-              border: selectedId === label.id
-                ? "1.5px solid rgba(255,255,255,1)"
-                : "1px solid rgba(255,255,255,0.25)",
-              boxShadow: selectedId === label.id
-                ? "0 0 0 3px rgba(255,255,255,0.2)"
-                : "none",
-              transition: "all 0.15s ease",
-            }}
+      {labels.map((label) => {
+        const isSelected = selectedIdSet.has(label.id);
+        return (
+          <Html
+            key={label.id}
+            position={[label.position.x, label.position.z, label.position.y]}
+            center
+            distanceFactor={8}
+            zIndexRange={[100, 0]}
           >
-            {label.label}
-          </div>
-        </Html>
-      ))}
+            <div
+              onClick={() => onLabelClick?.(label.id)}
+              style={{
+                cursor: "pointer",
+                padding: "2px 8px",
+                borderRadius: "9999px",
+                fontSize: "11px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                userSelect: "none",
+                background: isSelected
+                  ? "rgba(255,255,255,0.95)"
+                  : "rgba(10,15,26,0.75)",
+                color: isSelected ? "#0a0f1a" : "#e2e8f0",
+                border: isSelected
+                  ? "1.5px solid rgba(255,255,255,1)"
+                  : "1px solid rgba(255,255,255,0.25)",
+                boxShadow: isSelected
+                  ? "0 0 0 3px rgba(255,255,255,0.2)"
+                  : "none",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {label.label}
+            </div>
+          </Html>
+        );
+      })}
     </>
   );
 }
@@ -617,22 +774,41 @@ export function PointCloudViewer({
   showExclusionBox = false,
   ribLabels,
   selectedLabelId,
+  selectedLabelIds,
   onLabelClick,
   onLineClick,
   ribPaths,
+  bossStoneMarkers,
+  showBossStones = true,
+  showBossStoneLabels = true,
+  selectedBossStoneId,
+  onBossStoneClick,
 }: PointCloudViewerProps) {
   const [localColorMode, setLocalColorMode] = useState(colorMode);
   const [localPointSize, setLocalPointSize] = useState(pointSize);
   const [resetKey, setResetKey] = useState(0);
+  const resolvedSelectedLabelIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (selectedLabelId) {
+      ids.add(selectedLabelId);
+    }
+    selectedLabelIds?.forEach((id) => {
+      if (id) {
+        ids.add(id);
+      }
+    });
+    return Array.from(ids);
+  }, [selectedLabelId, selectedLabelIds]);
   
   // Calculate center for camera target
-  const { center, cameraDistance, gridPos, minZ } = useMemo(() => {
+  const { center, cameraDistance, gridPos, minZ, bossStoneRadius } = useMemo(() => {
     if (points.length === 0) {
       return { 
         center: { x: 0, y: 0, z: 0 }, 
         cameraDistance: 10,
         gridPos: { x: 0, y: 0, z: 0 },
-        minZ: 0
+        minZ: 0,
+        bossStoneRadius: 0.2,
       };
     }
     
@@ -660,12 +836,14 @@ export function PointCloudViewer({
     const rangeY = maxY - minY;
     const rangeZ = maxZ - minZ;
     const maxRange = Math.max(rangeX, rangeY, rangeZ);
+    const diagonal = Math.sqrt(rangeX ** 2 + rangeY ** 2 + rangeZ ** 2);
     
     return {
       center,
       cameraDistance: maxRange * 1.5,
       gridPos: { x: center.x, y: minZ - 0.1, z: center.z },
-      minZ
+      minZ,
+      bossStoneRadius: Math.max(diagonal / 60, 0.05),
     };
   }, [points]);
 
@@ -734,8 +912,18 @@ export function PointCloudViewer({
         {ribLabels && ribLabels.length > 0 && (
           <RibLabelsOverlay
             labels={ribLabels}
-            selectedId={selectedLabelId}
+            selectedIds={resolvedSelectedLabelIds}
             onLabelClick={onLabelClick}
+          />
+        )}
+
+        {bossStoneMarkers && bossStoneMarkers.length > 0 && (
+          <BossStoneMarkers3D
+            markers={bossStoneMarkers}
+            sphereRadius={bossStoneRadius}
+            showLabels={showBossStoneLabels}
+            selectedId={selectedBossStoneId}
+            onBossStoneClick={onBossStoneClick}
           />
         )}
         

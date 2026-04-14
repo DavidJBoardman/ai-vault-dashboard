@@ -36,6 +36,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MANUAL_TRACE_COLOR, normalizeImportedCurves } from "@/lib/traces";
 
 export default function Step6TracesPage() {
   const router = useRouter();
@@ -126,12 +127,18 @@ export default function Step6TracesPage() {
       
       try {
         const response = await getImportedTraces(currentProject.id);
-        if (response.success && response.data?.curves) {
-          setManualTraces(response.data.curves);
-          setManualSource(response.data.source || null);
+        if (response.success) {
+          const curves = normalizeImportedCurves(response.data?.curves, response.data?.source ?? null);
+          setManualTraces(curves);
+          setManualSource(response.data?.source ?? null);
+        } else {
+          setManualTraces([]);
+          setManualSource(null);
         }
       } catch (err) {
         console.error("Error loading manual traces:", err);
+        setManualTraces([]);
+        setManualSource(null);
       }
     };
     
@@ -148,10 +155,12 @@ export default function Step6TracesPage() {
   
   // Convert imported curves to Line3D format for viewer
   const manualLinesForViewer = useMemo((): Line3D[] => {
-    return manualTraces.map(curve => ({
+    return (manualTraces ?? [])
+      .filter(curve => Array.isArray(curve.points) && curve.points.length > 0)
+      .map(curve => ({
       id: curve.id,
       label: curve.name,
-      color: "#00ff88", // Distinct green color for manual traces
+      color: MANUAL_TRACE_COLOR,
       points: curve.points.map(([x, y, z]) => ({ x, y, z: z ?? 0 }))
     }));
   }, [manualTraces]);
@@ -203,12 +212,13 @@ export default function Step6TracesPage() {
     try {
       const response = await import3dmTraces(currentProject.id, filePath);
       
-      if (response.success && response.data) {
-        setManualTraces(response.data.curves);
-        setManualSource(filePath);
+      if (response.success) {
+        const curves = normalizeImportedCurves(response.data?.curves, filePath);
+        setManualTraces(curves);
+        setManualSource(response.data?.source ?? filePath);
         setTraceSource("manual");
         setSelectedTraceType("manual");
-        setLoadingMessage(`Imported ${response.data.curveCount} curves`);
+        setLoadingMessage(`Imported ${response.data?.curveCount ?? curves.length} curves`);
       } else {
         setError(response.error || "Failed to import 3DM file");
       }

@@ -101,12 +101,149 @@ class SaveProgressRequest(BaseModel):
     steps: Dict[str, StepState] = {}
 
 
+class MeasurementCustomGroup(BaseModel):
+    """User-defined rib group for measurements."""
+    id: str
+    name: str
+    ribIds: List[str]
+
+
+class RibPairing(BaseModel):
+    """User-defined symmetric pairing between ribs or rib groups."""
+    id: str
+    name: str
+    sides: List[str]
+
+
+class MeasurementConfig(BaseModel):
+    """Persistent measurement configuration for Step 7."""
+    ribNameById: Dict[str, str] = {}
+    customGroups: List[MeasurementCustomGroup] = []
+    disabledAutoGroupIds: List[str] = []
+    groupNameById: Dict[str, str] = {}
+    bossStoneNameById: Dict[str, str] = {}
+    ribPairings: List[RibPairing] = []
+
+
+class MeasurementConfigResponse(BaseModel):
+    """Response for measurement configuration endpoints."""
+    success: bool
+    data: Optional[MeasurementConfig] = None
+    error: Optional[str] = None
+
+
 def get_project_dir(project_id: str) -> Path:
     """Get or create project directory."""
     project_dir = PROJECT_DATA_DIR / "projects" / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
     append_project_log(f"ensure project_dir project_id={project_id} path={project_dir}")
     return project_dir
+
+
+def _load_intrados_rib_ids(project_dir: Path) -> set:
+    """Load valid rib ids from saved intrados lines."""
+    intrados_path = project_dir / "segmentations" / "intrados_lines.json"
+    if not intrados_path.exists():
+        return set()
+    try:
+        with open(intrados_path, "r") as f:
+            payload = json.load(f)
+        lines = payload.get("lines", []) if isinstance(payload, dict) else []
+        return {str(line.get("id")) for line in lines if line.get("id")}
+    except Exception:
+        return set()
+
+
+def _sanitize_measurement_config(raw: Dict[str, Any], valid_rib_ids: set) -> Dict[str, Any]:
+    """Normalize and validate persisted measurement config."""
+    rib_name_by_id = raw.get("ribNameById", {}) if isinstance(raw.get("ribNameById", {}), dict) else {}
+    custom_groups_raw = raw.get("customGroups", []) if isinstance(raw.get("customGroups", []), list) else []
+    disabled_auto_group_ids = raw.get("disabledAutoGroupIds", []) if isinstance(raw.get("disabledAutoGroupIds", []), list) else []
+    group_name_by_id = raw.get("groupNameById", {}) if isinstance(raw.get("groupNameById", {}), dict) else {}
+    rib_pairings_raw = raw.get("ribPairings", []) if isinstance(raw.get("ribPairings", []), list) else []
+
+    # Keep only valid rib ids and non-empty names
+    clean_rib_names: Dict[str, str] = {}
+    for rib_id, name in rib_name_by_id.items():
+        rib = str(rib_id)
+        nm = str(name).strip()
+        if (not valid_rib_ids or rib in valid_rib_ids) and nm:
+            clean_rib_names[rib] = nm[:100]
+
+    # Enforce unique rib ownership across custom groups
+    used_ribs = set()
+    clean_groups: List[Dict[str, Any]] = []
+    for g in custom_groups_raw:
+        if not isinstance(g, dict):
+            continue
+        gid = str(g.get("id", "")).strip()
+        gname = str(g.get("name", "")).strip()[:100]
+        rib_ids = g.get("ribIds", [])
+        if not gid:
+            continue
+        if not isinstance(rib_ids, list):
+            rib_ids = []
+        normalized_ribs: List[str] = []
+        for rib_id in rib_ids:
+            rid = str(rib_id)
+            if valid_rib_ids and rid not in valid_rib_ids:
+                continue
+            if rid in used_ribs:
+                continue
+            used_ribs.add(rid)
+            normalized_ribs.append(rid)
+
+        if normalized_ribs:
+            clean_groups.append({
+                "id": gid,
+                "name": gname if gname else gid,
+                "ribIds": normalized_ribs,
+            })
+
+    clean_disabled_ids = [str(v) for v in disabled_auto_group_ids if str(v).strip()]
+    clean_group_names = {
+        str(k): str(v).strip()[:100]
+        for k, v in group_name_by_id.items()
+        if str(k).strip() and str(v).strip()
+    }
+
+    boss_stone_name_by_id_raw = raw.get("bossStoneNameById", {})
+    if not isinstance(boss_stone_name_by_id_raw, dict):
+        boss_stone_name_by_id_raw = {}
+    clean_boss_stone_names = {
+        str(k): str(v).strip()[:100]
+        for k, v in boss_stone_name_by_id_raw.items()
+        if str(k).strip() and str(v).strip()
+    }
+
+    clean_pairings: List[Dict[str, Any]] = []
+    for pairing in rib_pairings_raw:
+        if not isinstance(pairing, dict):
+            continue
+        pairing_id = str(pairing.get("id", "")).strip()
+        pairing_name = str(pairing.get("name", "")).strip()[:100]
+        sides_raw = pairing.get("sides", [])
+        if not pairing_id or not pairing_name or not isinstance(sides_raw, list):
+            continue
+
+        normalized_sides = [str(side).strip() for side in sides_raw if str(side).strip()]
+        if len(normalized_sides) != 2 or normalized_sides[0] == normalized_sides[1]:
+            continue
+
+        clean_pairings.append({
+            "id": pairing_id,
+            "name": pairing_name,
+            "sides": normalized_sides,
+        })
+
+    return {
+        "ribNameById": clean_rib_names,
+        "customGroups": clean_groups,
+        "disabledAutoGroupIds": clean_disabled_ids,
+        "groupNameById": clean_group_names,
+        "bossStoneNameById": clean_boss_stone_names,
+        "ribPairings": clean_pairings,
+    }
 
 
 def copy_projection_to_project(projection_id: str, project_dir: Path) -> Dict[str, Any]:
@@ -672,14 +809,17 @@ async def list_projects():
                     f"list inspect project_dir={project_dir} project_json_exists={project_path.exists()}"
                 )
                 if project_path.exists():
-                    with open(project_path, "r") as f:
-                        project_data = json.load(f)
-                    projects.append({
-                        "id": project_data.get("id"),
-                        "name": project_data.get("name"),
-                        "updatedAt": project_data.get("updatedAt"),
-                        "segmentationCount": project_data.get("segmentationCount", 0),
-                    })
+                    try:
+                        with open(project_path, "r") as f:
+                            project_data = json.load(f)
+                        projects.append({
+                            "id": project_data.get("id"),
+                            "name": project_data.get("name"),
+                            "updatedAt": project_data.get("updatedAt"),
+                            "segmentationCount": project_data.get("segmentationCount", 0),
+                        })
+                    except Exception as file_err:
+                        print(f"Skipping corrupt project file {project_path}: {file_err}")
         
         # Sort by updated time
         projects.sort(key=lambda p: p.get("updatedAt", ""), reverse=True)
@@ -691,6 +831,52 @@ async def list_projects():
         print(f"Error listing projects: {e}")
         append_project_log(f"list exception error={type(e).__name__}: {e}")
         return {"projects": [], "error": str(e)}
+
+
+@router.get("/{project_id}/measurement-config", response_model=MeasurementConfigResponse)
+async def get_measurement_config(project_id: str):
+    """Load persisted Step 7 measurement configuration for a project."""
+    try:
+        project_dir = get_project_dir(project_id)
+        project_path = project_dir / "project.json"
+        if not project_path.exists():
+            return MeasurementConfigResponse(success=False, error=f"Project not found: {project_id}")
+
+        with open(project_path, "r") as f:
+            project_data = json.load(f)
+
+        raw_config = project_data.get("measurementConfig", {})
+        valid_rib_ids = _load_intrados_rib_ids(project_dir)
+        clean_config = _sanitize_measurement_config(raw_config if isinstance(raw_config, dict) else {}, valid_rib_ids)
+
+        return MeasurementConfigResponse(success=True, data=MeasurementConfig(**clean_config))
+    except Exception as e:
+        return MeasurementConfigResponse(success=False, error=str(e))
+
+
+@router.post("/{project_id}/measurement-config", response_model=MeasurementConfigResponse)
+async def save_measurement_config(project_id: str, config: MeasurementConfig):
+    """Persist Step 7 measurement configuration for a project."""
+    try:
+        project_dir = get_project_dir(project_id)
+        project_path = project_dir / "project.json"
+        if not project_path.exists():
+            return MeasurementConfigResponse(success=False, error=f"Project not found: {project_id}")
+
+        with open(project_path, "r") as f:
+            project_data = json.load(f)
+
+        valid_rib_ids = _load_intrados_rib_ids(project_dir)
+        normalized = _sanitize_measurement_config(config.dict(), valid_rib_ids)
+        project_data["measurementConfig"] = normalized
+        project_data["updatedAt"] = datetime.now().isoformat()
+
+        with open(project_path, "w") as f:
+            json.dump(project_data, f, indent=2)
+
+        return MeasurementConfigResponse(success=True, data=MeasurementConfig(**normalized))
+    except Exception as e:
+        return MeasurementConfigResponse(success=False, error=str(e))
 
 
 @router.delete("/delete/{project_id}")
@@ -1016,8 +1202,6 @@ async def save_roi(request: SaveROIRequest):
         
         # Update each segmentation with insideRoi flag
         segmentations = index_data.get("segmentations", [])
-        inside_count = 0
-        outside_count = 0
         
         for seg in segmentations:
             # Prefer robust pixel-overlap classification using mask image.
@@ -1027,11 +1211,31 @@ async def save_roi(request: SaveROIRequest):
                 overlap_inside = bbox_overlaps_roi(bbox, roi_dict) if bbox else False
 
             seg["insideRoi"] = bool(overlap_inside)
-            if seg["insideRoi"]:
-                inside_count += 1
+
+        # Permanently delete rib segmentations outside the ROI (mask files + index entries)
+        ribs_deleted = 0
+        kept_segmentations = []
+        for seg in segmentations:
+            if seg.get("groupId") == "rib" and not seg.get("insideRoi", True):
+                mask_file = seg.get("maskFile")
+                if mask_file:
+                    mask_path = seg_dir / mask_file
+                    if mask_path.exists():
+                        try:
+                            mask_path.unlink()
+                        except Exception as del_err:
+                            print(f"  Warning: could not delete rib mask file {mask_file}: {del_err}")
+                ribs_deleted += 1
             else:
-                outside_count += 1
-        
+                kept_segmentations.append(seg)
+
+        if ribs_deleted:
+            print(f"  → Permanently deleted {ribs_deleted} rib segmentation(s) outside ROI")
+            segmentations = kept_segmentations
+
+        inside_count = sum(1 for s in segmentations if s.get("insideRoi", False))
+        outside_count = sum(1 for s in segmentations if not s.get("insideRoi", True))
+
         index_data["segmentations"] = segmentations
         
         # Also update group summaries with counts
@@ -1048,13 +1252,14 @@ async def save_roi(request: SaveROIRequest):
         with open(seg_index_path, "w") as f:
             json.dump(index_data, f, indent=2)
         
-        print(f"[OK] Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f} degrees")
-        print(f"  {inside_count} masks inside ROI, {outside_count} outside")
+        print(f"✓ Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f}°")
+        print(f"  → {inside_count} masks inside ROI, {outside_count} outside, {ribs_deleted} rib(s) permanently removed")
         
         return {
             "success": True,
             "insideCount": inside_count,
             "outsideCount": outside_count,
+            "ribsDeleted": ribs_deleted,
         }
         
     except Exception as e:
@@ -1662,6 +1867,445 @@ async def get_intrados_lines(project_id: str):
 
 
 # =====================================================
+# Boss Stone / Keystone Marker Endpoints
+# =====================================================
+
+def _is_boss_stone(text: str) -> bool:
+    """Return True if the text corresponds to a boss stone / keystone label.
+
+    Normalises the input by lowercasing and stripping all spaces and underscores
+    before substring-matching against known slugs.  This accepts any casing and
+    space/underscore spacing variant, e.g.:
+      "boss stone", "boss_stone", "Boss Stone #2", "keystone", "crown stone"
+    """
+    slug = text.lower().replace(" ", "").replace("_", "")
+    known = ["bossstone", "keystone", "boss", "crown", "crownstone", "key"]
+    return any(k in slug for k in known)
+
+
+def _denormalize_xyz(norm_xyz, min_vals: list, range_vals: list, centroid: list):
+    """Denormalise a normalised centred coordinate to real-world E57 space."""
+    x = float(norm_xyz[0] * range_vals[0] + min_vals[0] + centroid[0])
+    y = float(norm_xyz[1] * range_vals[1] + min_vals[1] + centroid[1])
+    z = float(norm_xyz[2] * range_vals[2] + min_vals[2] + centroid[2])
+    return x, y, z
+
+
+def _boss_markers_from_reference_points(
+    project_dir,
+    coords,
+    min_vals: list,
+    range_vals: list,
+    centroid: list,
+    impost_z: Optional[float],
+) -> list:
+    """Return boss stone markers derived from step 4B reference points (node_points.json).
+
+    Only points with ``pointType == "boss"`` are used — ROI corner reference points
+    are excluded.  Each point's pixel coordinates (x, y) directly index the
+    projection's ``_coordinates.npy`` array, which uses the same pixel space.
+
+    Returns an empty list if the file does not exist or contains no boss points,
+    allowing the caller to fall back to segmentation-mask-based extraction.
+    """
+    import numpy as np
+
+    # Canonical location written by CutTypologyMatchingService
+    cut_dir = Path(project_dir) / "2d_geometry" / "cut_typology_matching"
+    old_path = cut_dir / "boss_points.json"
+    node_points_path = cut_dir / "node_points.json"
+    # Handle legacy rename (matches CutTypologyMatchingService._node_points_path)
+    if old_path.exists() and not node_points_path.exists():
+        old_path.rename(node_points_path)
+    if not node_points_path.exists():
+        return []
+
+    try:
+        with open(node_points_path, "r") as f:
+            node_data = json.load(f)
+    except Exception as e:
+        print(f"  Warning: could not load node_points.json: {e}")
+        return []
+
+    points = node_data.get("points", [])
+    boss_points = [p for p in points if p.get("pointType", "boss") == "boss"]
+
+    if not boss_points:
+        return []
+
+    coord_valid = np.any(coords != 0, axis=2)
+    markers = []
+
+    for point in boss_points:
+        try:
+            px = int(round(float(point["x"])))
+            py = int(round(float(point["y"])))
+            py = max(0, min(py, coords.shape[0] - 1))
+            px = max(0, min(px, coords.shape[1] - 1))
+
+            norm_xyz = coords[py, px]
+
+            if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
+                # Reference point pixel is in unscanned space — find the nearest
+                # valid pixel for XY and use impost Z as the vertical position.
+                all_valid_ys, all_valid_xs = np.where(coord_valid)
+                if len(all_valid_ys) == 0:
+                    print(f"  Warning: no valid coordinate data for ref point {point.get('id')}")
+                    continue
+                dists = (all_valid_ys - py) ** 2 + (all_valid_xs - px) ** 2
+                best_idx = int(np.argmin(dists))
+                norm_xyz = coords[all_valid_ys[best_idx], all_valid_xs[best_idx]]
+                x, y, _z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                z = impost_z if impost_z is not None else _z
+            else:
+                x, y, z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+
+            point_id = point.get("id")
+            label = f"Boss {point_id}"
+
+            markers.append({
+                "id": f"boss-ref-{point_id}",
+                "label": label,
+                "groupId": "boss_stone",
+                "color": "#FFD700",
+                "x": x,
+                "y": y,
+                "z": z,
+            })
+        except Exception as e:
+            print(f"  Warning: could not process reference point {point.get('id')}: {e}")
+
+    return markers
+
+
+def _boss_markers_from_segmentations(
+    boss_segs: list,
+    seg_dir,
+    coords,
+    min_vals: list,
+    range_vals: list,
+    centroid: list,
+    impost_z: Optional[float],
+    group_lookup: dict,
+) -> list:
+    """Extract boss stone markers from segmentation masks (legacy / fallback path).
+
+    For each boss segmentation, the centroid pixel of its alpha mask is looked up
+    in the projection's ``_coordinates.npy`` and denormalised to real-world XYZ.
+    """
+    import numpy as np
+    from PIL import Image
+
+    seg_dir = Path(seg_dir)
+    coord_valid = np.any(coords != 0, axis=2)
+    markers = []
+
+    for seg in boss_segs:
+        mask_file = seg.get("maskFile")
+        if not mask_file:
+            continue
+
+        mask_path = seg_dir / mask_file
+        if not mask_path.exists():
+            continue
+
+        # Load mask and extract alpha channel
+        mask_img = Image.open(mask_path)
+        if mask_img.mode == "RGBA":
+            alpha = np.array(mask_img)[:, :, 3]
+        elif mask_img.mode == "LA":
+            alpha = np.array(mask_img)[:, :, 1]
+        else:
+            alpha = np.array(mask_img.convert("L"))
+
+        ys, xs = np.where(alpha > 127)
+        if len(ys) == 0:
+            continue
+
+        cy = int(np.mean(ys))
+        cx = int(np.mean(xs))
+        cy = min(cy, coords.shape[0] - 1)
+        cx = min(cx, coords.shape[1] - 1)
+
+        norm_xyz = coords[cy, cx]
+
+        if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
+            valid_mask = (alpha > 127) & coord_valid
+            valid_ys, valid_xs = np.where(valid_mask)
+            if len(valid_ys) == 0:
+                # No scan data inside the mask at all — fall back to nearest valid
+                # pixel in the whole image and use impost Z for the vertical.
+                if impost_z is None:
+                    continue
+                all_valid_ys, all_valid_xs = np.where(coord_valid)
+                if len(all_valid_ys) == 0:
+                    continue
+                dists = (all_valid_ys - cy) ** 2 + (all_valid_xs - cx) ** 2
+                best_idx = int(np.argmin(dists))
+                norm_xyz = coords[all_valid_ys[best_idx], all_valid_xs[best_idx]]
+                x, y, _ = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                z = impost_z
+                group_id = seg.get("groupId") or extract_group_id(seg.get("label", ""))
+                group_info = group_lookup.get(group_id, {})
+                color = seg.get("color") or group_info.get("color") or "#FFD700"
+                markers.append({
+                    "id": seg.get("id", ""),
+                    "label": seg.get("label", group_id),
+                    "groupId": group_id,
+                    "color": color,
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                })
+                continue
+            cy = int(np.mean(valid_ys))
+            cx = int(np.mean(valid_xs))
+            cy = min(cy, coords.shape[0] - 1)
+            cx = min(cx, coords.shape[1] - 1)
+            norm_xyz = coords[cy, cx]
+
+        x, y, z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+        group_id = seg.get("groupId") or extract_group_id(seg.get("label", ""))
+        group_info = group_lookup.get(group_id, {})
+        color = seg.get("color") or group_info.get("color") or "#FFD700"
+
+        markers.append({
+            "id": seg.get("id", ""),
+            "label": seg.get("label", group_id),
+            "groupId": group_id,
+            "color": color,
+            "x": x,
+            "y": y,
+            "z": z,
+        })
+
+    return markers
+
+
+@router.get("/{project_id}/boss-stone-markers")
+async def get_boss_stone_markers(project_id: str):
+    """Get 3D centroid positions for boss stone / keystone markers.
+
+    Preferred source: step 4B reference points (node_points.json).  Each boss-type
+    reference point's pixel coordinates are looked up in the projection's
+    ``_coordinates.npy`` and denormalised to real-world XYZ.
+
+    Fallback: if no step 4B reference points exist, uses segmentation masks — for
+    every segmentation whose groupId or label is recognised as a boss stone the
+    centroid pixel of its alpha mask is used instead.
+
+    Returns a list of markers::
+        [{ id, label, groupId, color, x, y, z }, ...]
+    """
+    import numpy as np
+
+    try:
+        project_dir = get_project_dir(project_id)
+        seg_dir = project_dir / "segmentations"
+
+        # ------------------------------------------------------------------
+        # Load projection coordinates & metadata (shared by both paths)
+        # ------------------------------------------------------------------
+        proj_dir = project_dir / "projections"
+        proj_index_path = proj_dir / "index.json"
+
+        if not proj_index_path.exists():
+            return {"success": True, "data": {"markers": []}}
+
+        with open(proj_index_path, "r") as f:
+            proj_index = json.load(f)
+
+        projections = proj_index.get("projections", [])
+        if not projections:
+            return {"success": True, "data": {"markers": []}}
+
+        proj = projections[0]
+        files = proj.get("files", {})
+
+        coord_file = files.get("coordinates")
+        if not coord_file:
+            return {"success": True, "data": {"markers": []}}
+
+        coord_path = proj_dir / coord_file
+        if not coord_path.exists():
+            print(f"  Coordinates file not found: {coord_path}")
+            return {"success": True, "data": {"markers": []}}
+
+        meta_file = files.get("metadata")
+        meta_path = proj_dir / meta_file if meta_file else None
+
+        if meta_path and meta_path.exists():
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+        else:
+            metadata = proj.get("metadata", {})
+
+        min_vals = metadata.get("min_vals", [0.0, 0.0, 0.0])
+        range_vals = metadata.get("range_vals", [1.0, 1.0, 1.0])
+        centroid = metadata.get("centroid", [0.0, 0.0, 0.0])
+
+        coords = np.load(str(coord_path))
+
+        # Derive impost Z from intrados lines (used as fallback vertical for
+        # points that fall in unscanned space).
+        impost_z: Optional[float] = None
+        intrados_path = seg_dir / "intrados_lines.json"
+        if intrados_path.exists():
+            try:
+                with open(intrados_path, "r") as _f:
+                    _intrados = json.load(_f)
+                _min_zs = []
+                for _line in _intrados.get("lines", []):
+                    _pts = _line.get("points3d", [])
+                    _zs = [
+                        _p["value"][2]
+                        for _p in _pts
+                        if isinstance(_p, dict)
+                        and isinstance(_p.get("value"), list)
+                        and len(_p["value"]) >= 3
+                    ]
+                    if _zs:
+                        _min_zs.append(min(_zs))
+                if _min_zs:
+                    impost_z = float(np.median(_min_zs))
+                    print(f"  Impost Z derived from intrados lines: {impost_z:.4f}")
+            except Exception as _e:
+                print(f"  Warning: could not derive impost Z from intrados lines: {_e}")
+
+        # ------------------------------------------------------------------
+        # Primary: step 4B reference points
+        # ------------------------------------------------------------------
+        markers = _boss_markers_from_reference_points(
+            project_dir, coords, min_vals, range_vals, centroid, impost_z
+        )
+
+        if markers:
+            print(f"Boss stone markers for {project_id}: {len(markers)} from step 4B reference points")
+        else:
+            # ------------------------------------------------------------------
+            # Fallback: segmentation masks
+            # ------------------------------------------------------------------
+            seg_index_path = seg_dir / "index.json"
+            if not seg_index_path.exists():
+                return {"success": True, "data": {"markers": []}}
+
+            with open(seg_index_path, "r") as f:
+                seg_index = json.load(f)
+
+            if isinstance(seg_index, list):
+                seg_refs = seg_index
+                groups = []
+            else:
+                seg_refs = seg_index.get("segmentations", [])
+                groups = seg_index.get("groups", [])
+
+            group_lookup = {g["groupId"]: g for g in groups}
+
+            boss_segs = [
+                s for s in seg_refs
+                if _is_boss_stone(s.get("groupId", "")) or _is_boss_stone(s.get("label", ""))
+            ]
+
+            markers = _boss_markers_from_segmentations(
+                boss_segs, seg_dir, coords, min_vals, range_vals, centroid, impost_z, group_lookup
+            )
+
+            print(
+                f"Boss stone markers for {project_id}: {len(markers)} from segmentation masks"
+            )
+
+        # ------------------------------------------------------------------
+        # Always append ROI corner markers (both primary & fallback paths)
+        # ------------------------------------------------------------------
+        roi_corners = []
+        seg_index_path = seg_dir / "index.json"
+        if seg_index_path.exists():
+            try:
+                with open(seg_index_path, "r") as f:
+                    _seg_idx = json.load(f)
+                if isinstance(_seg_idx, dict):
+                    stored_roi = _seg_idx.get("roi")
+                    if stored_roi:
+                        roi_corners = stored_roi.get("corners", [])
+            except Exception:
+                pass
+
+        _corner_labels = ["Corner TL", "Corner TR", "Corner BR", "Corner BL"]
+        _corner_search_radius = 20
+        for i, corner in enumerate(roi_corners[:4]):
+            try:
+                cx_px = int(corner[0])
+                cy_px = int(corner[1])
+                cy_clamped = max(0, min(cy_px, coords.shape[0] - 1))
+                cx_clamped = max(0, min(cx_px, coords.shape[1] - 1))
+                norm_xyz = coords[cy_clamped, cx_clamped]
+                _corner_fallback = False
+                if norm_xyz[0] == 0.0 and norm_xyz[1] == 0.0 and norm_xyz[2] == 0.0:
+                    _corner_fallback = True
+                    r = _corner_search_radius
+                    cy_start = max(0, cy_clamped - r)
+                    cy_end = min(coords.shape[0], cy_clamped + r + 1)
+                    cx_start = max(0, cx_clamped - r)
+                    cx_end = min(coords.shape[1], cx_clamped + r + 1)
+                    patch = coords[cy_start:cy_end, cx_start:cx_end]
+                    valid_patch = np.any(patch != 0, axis=2)
+                    valid_ys, valid_xs = np.where(valid_patch)
+                    if len(valid_ys) == 0:
+                        if impost_z is None:
+                            continue
+                        coord_valid_full = np.any(coords != 0, axis=2)
+                        all_valid_ys, all_valid_xs = np.where(coord_valid_full)
+                        if len(all_valid_ys) == 0:
+                            continue
+                        dists = (all_valid_ys - cy_clamped) ** 2 + (all_valid_xs - cx_clamped) ** 2
+                        best_idx_full = int(np.argmin(dists))
+                        norm_xyz = coords[all_valid_ys[best_idx_full], all_valid_xs[best_idx_full]]
+                        x, y, _ = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                        z = impost_z
+                        corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
+                        markers.append({
+                            "id": f"roi-corner-{i}",
+                            "label": corner_label,
+                            "groupId": "roi_corner",
+                            "color": "#FFFFFF",
+                            "x": x,
+                            "y": y,
+                            "z": z,
+                        })
+                        continue
+                    origin_y = cy_clamped - cy_start
+                    origin_x = cx_clamped - cx_start
+                    dists = (valid_ys - origin_y) ** 2 + (valid_xs - origin_x) ** 2
+                    best = int(np.argmin(dists))
+                    norm_xyz = patch[valid_ys[best], valid_xs[best]]
+                x, y, _z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                z = impost_z if impost_z is not None else _z
+                corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
+                markers.append({
+                    "id": f"roi-corner-{i}",
+                    "label": corner_label,
+                    "groupId": "roi_corner",
+                    "color": "#FFFFFF",
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                })
+            except Exception as corner_err:
+                print(f"  Warning: could not resolve 3D position for ROI corner {i}: {corner_err}")
+
+        if roi_corners:
+            print(f"  + {len([m for m in markers if m['groupId'] == 'roi_corner'])} ROI corner markers")
+
+        return {"success": True, "data": {"markers": markers}}
+
+    except Exception as e:
+        print(f"Error getting boss stone markers: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
+# =====================================================
 # Rhino 3DM Export/Import Endpoints
 # =====================================================
 
@@ -1749,9 +2393,9 @@ class Import3dmRequest(BaseModel):
 @router.post("/{project_id}/import-3dm")
 async def import_3dm_traces(project_id: str, request: Import3dmRequest):
     """
-    Import curves from a Rhino 3DM file as manual traces.
+    Import curves from the Rhino Trace layer as manual traces.
     """
-    from services.rhino_exporter import import_3dm_curves, RHINO3DM_AVAILABLE
+    from services.rhino_exporter import import_3dm_curves, RHINO3DM_AVAILABLE, TRACE_IMPORT_LAYER_NAME
     
     if not RHINO3DM_AVAILABLE:
         return {
@@ -1770,7 +2414,7 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
         # Import curves
         result = import_3dm_curves(
             file_path=request.filePath,
-            layer_filter=request.layerFilter
+            layer_filter=TRACE_IMPORT_LAYER_NAME
         )
         
         if result["success"]:
@@ -1789,10 +2433,14 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
             
             return {
                 "success": True,
-                "curves": result["curves"],
-                "curveCount": result.get("curveCount", 0),
-                "layers": result.get("layers", []),
-                "message": f"Imported {result.get('curveCount', 0)} curves"
+                "data": {
+                    "curves": result["curves"],
+                    "curveCount": result.get("curveCount", 0),
+                    "layers": result.get("layers", []),
+                    "message": f"Imported {result.get('curveCount', 0)} curves from the {TRACE_IMPORT_LAYER_NAME} layer",
+                    "source": request.filePath,
+                    "importedAt": datetime.now().isoformat(),
+                }
             }
         else:
             return result
