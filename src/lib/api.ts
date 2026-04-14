@@ -712,6 +712,7 @@ export interface ROIData {
   height: number;
   rotation: number;  // Rotation angle in degrees
   corners?: number[][];  // 4 corners [[x,y], ...]
+  cornerLabels?: string[];  // Labels for the 4 corners, e.g. ["A","B","C","D"]
 }
 
 export async function saveROI(
@@ -889,17 +890,41 @@ export interface File3dmInfo {
   };
 }
 
+export type IntradosExportFormat = "3dm" | "obj" | "dxf";
+
+export interface IntradosVectorExportResponse {
+  filePath: string;
+  fileName: string;
+  curvesExported: number;
+  message: string;
+  format?: IntradosExportFormat;
+}
+
+/** Export intrados polylines to 3DM, OBJ, or DXF (writes under project exports/). */
+export async function exportIntradosVectors(
+  projectId: string,
+  format: IntradosExportFormat = "3dm",
+  layerName: string = "Intrados Lines",
+  outputPath?: string
+): Promise<ApiResponse<IntradosVectorExportResponse>> {
+  return apiRequest<IntradosVectorExportResponse>("/api/export/intrados", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      format,
+      layerName,
+      outputPath,
+    }),
+  });
+}
+
 export async function exportIntrados3dm(
   projectId: string,
   layerName: string = "Intrados Lines"
 ): Promise<ApiResponse<Export3dmResponse>> {
-  return apiRequest(`/api/project/${projectId}/export-3dm`, {
-    method: "POST",
-    body: JSON.stringify({ 
-      projectId,
-      layerName
-    }),
-  });
+  return exportIntradosVectors(projectId, "3dm", layerName) as Promise<
+    ApiResponse<Export3dmResponse>
+  >;
 }
 
 export async function import3dmTraces(
