@@ -26,6 +26,11 @@ Medieval Vault Architecture Analysis Platform - A cross-platform desktop applica
 - **Intrados Line Detection**: Automatic skeleton extraction along vault ribs
 - **Measurement Tools**: Calculate arc radius, rib length, apex and springing points
 - **Three-Circle Chord Method**: Analyse geometric construction techniques
+- **Trace export**: Intrados polylines export as **.3dm** (Rhino), **.obj** (Wavefront), or **.dxf** (3D line segments)
+
+### Project data (no bundled saves)
+
+Workflow state and exports live under `backend/data/projects/<project_id>/` (e.g. `segmentations/intrados_lines.json`, `exports/`). **You do not need to commit those folders** for the app to work—they are created when users create projects and run the pipeline. Exports read intrados data from the active project only (`POST /api/export/intrados`).
 
 ## Architecture
 

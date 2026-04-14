@@ -31,8 +31,8 @@ import {
   saveProgress
 } from "@/lib/api";
 import { 
-  ChevronLeft, 
-  ChevronRight, 
+  ChevronLeft,
+  ChevronRight,
   Wand2,
   Eye,
   EyeOff,
@@ -53,13 +53,51 @@ import {
   Move,
   Maximize2,
   RotateCw,
-  Scissors
+  Scissors,
+  Eraser,
+  Tag,
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
 // Image type for viewing projections
 type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
-type Tool = "polygon" | "box" | "roi";
+type Tool = "polygon" | "box" | "roi" | "eraser";
+
+// ── Labelling helpers ────────────────────────────────────────────────────────
+
+/** Strip trailing alphabetical or numeric suffix to get the group base label */
+function getBaseLabel(label: string): string {
+  return (
+    label
+      .replace(/\s+[A-Z][a-z]?$/, "") // " A", " B", " Aa", " Ab", …
+      .replace(/\s*#?\d+$/, "")        // " #1", " 1", …
+      .trim() || label
+  );
+}
+
+/**
+ * Convert a 0-based index to an alphabetical identifier.
+ * 0→A, 1→B, … 25→Z, 26→Aa, 27→Ab, … 51→Az, 52→Ba, …
+ */
+function getAlphabeticalLabel(index: number): string {
+  if (index < 26) return String.fromCharCode(65 + index);
+  const i = index - 26;
+  return (
+    String.fromCharCode(65 + Math.floor(i / 26)) +
+    String.fromCharCode(97 + (i % 26))
+  );
+}
+
+/**
+ * Get the short display label for a mask.
+ * For alphabetically-suffixed groups (e.g. "boss stone E", "corner A"),
+ * return just the suffix letter(s) so the canvas/sidebar stays uncluttered.
+ * For numeric groups (e.g. "rib #1") return the full label.
+ */
+function getMaskDisplayLabel(label: string): string {
+  const m = label.match(/^.+\s+([A-Z][a-z]?)$/);
+  return m ? m[1] : label;
+}
 
 // ROI state interface
 interface ROIState {
@@ -120,7 +158,7 @@ export default function Step3SegmentationPage() {
   const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   
   // Tools
-  const [activeTool, setActiveTool] = useState<Tool>("polygon");
+  const [activeTool, setActiveTool] = useState<Tool>("roi");
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState("");
   
@@ -158,13 +196,14 @@ export default function Step3SegmentationPage() {
     height: 0.6,
     rotation: 0,
   });
-  const [showROI, setShowROI] = useState(false);
+  const [showROI, setShowROI] = useState(true);
   const [roiInteractionMode, setRoiInteractionMode] = useState<ROIInteractionMode>("none");
   const [roiDragStart, setRoiDragStart] = useState<{ x: number; y: number; roi: ROIState } | null>(null);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [isApplyingROI, setIsApplyingROI] = useState(false);
   // Corner boss stone markers placed at ROI corners after ROI is applied
   const [roiAppliedCorners, setRoiAppliedCorners] = useState<Array<{ x: number; y: number; label: string }>>([]);
+  const [roiConfirmed, setRoiConfirmed] = useState(false);
   
   // Box naming dialog state
   const [boxNamingDialog, setBoxNamingDialog] = useState<{
@@ -180,6 +219,16 @@ export default function Step3SegmentationPage() {
   // Drag and drop state
   const [draggingMaskId, setDraggingMaskId] = useState<string | null>(null);
   const [dropTargetGroup, setDropTargetGroup] = useState<string | null>(null);
+
+  // Eraser tool state
+  const [eraserSize, setEraserSize] = useState(30); // radius in screen pixels
+  const [activeMaskId, setActiveMaskId] = useState<string | null>(null);
+  const [isEraserDown, setIsEraserDown] = useState(false);
+  const [eraserPos, setEraserPos] = useState<{ x: number; y: number } | null>(null);
+  const eraserStrokesRef = useRef<Array<{ x: number; y: number }>>([]);
+
+  // Mask label overlay toggle
+  const [showMaskLabels, setShowMaskLabels] = useState(false);
   
   // Get selected projection
   const selectedProjection = useMemo(() => {
@@ -317,13 +366,24 @@ export default function Step3SegmentationPage() {
       handlePolygonClick(e);
       return;
     }
-    
+
     // Handle ROI tool
     if (activeTool === "roi") {
       handleROIMouseDown(e);
       return;
     }
-    
+
+    // Handle eraser tool
+    if (activeTool === "eraser") {
+      if (!activeMaskId) return;
+      e.preventDefault();
+      setIsEraserDown(true);
+      eraserStrokesRef.current = [];
+      const coords = getImageCoordinates(e);
+      if (coords) eraserStrokesRef.current.push(coords);
+      return;
+    }
+
     // Box tool
     if (activeTool !== "box" || !selectedProjection) {
       return;
@@ -352,12 +412,25 @@ export default function Step3SegmentationPage() {
   };
   
   const handleMouseMove = (e: MouseEvent<HTMLDivElement>) => {
+    // Eraser: track cursor position + accumulate strokes
+    if (activeTool === "eraser") {
+      if (imageContainerRef.current) {
+        const rect = imageContainerRef.current.getBoundingClientRect();
+        setEraserPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }
+      if (isEraserDown && activeMaskId) {
+        const coords = getImageCoordinates(e);
+        if (coords) eraserStrokesRef.current.push(coords);
+      }
+      return;
+    }
+
     // Handle ROI tool
     if (activeTool === "roi" && roiInteractionMode !== "none") {
       handleROIMouseMove(e);
       return;
     }
-    
+
     const coords = getImageCoordinates(e);
     if (!coords) return;
     
@@ -399,10 +472,24 @@ export default function Step3SegmentationPage() {
   const handleMouseUp = (e: MouseEvent<HTMLDivElement>) => {
     // Polygon tool doesn't use mouse up for drawing
     if (activeTool === "polygon") return;
-    
+
     // Handle ROI tool
     if (activeTool === "roi") {
       handleROIMouseUp();
+      return;
+    }
+
+    // Handle eraser tool
+    if (activeTool === "eraser") {
+      if (isEraserDown && activeMaskId && eraserStrokesRef.current.length > 0) {
+        const rect = imageContainerRef.current?.getBoundingClientRect();
+        const containerWidth = rect?.width || 600;
+        const imgWidth = imageSize?.width || selectedProjection?.settings?.resolution || 2048;
+        const radiusInImgPx = eraserSize * (imgWidth / containerWidth);
+        applyEraserStrokes(activeMaskId, [...eraserStrokesRef.current], radiusInImgPx);
+      }
+      setIsEraserDown(false);
+      eraserStrokesRef.current = [];
       return;
     }
     
@@ -521,12 +608,230 @@ export default function Step3SegmentationPage() {
   const isMaskInsideROI = (mask: SegmentationMask): boolean => {
     if (!mask.bbox) return false;
     const resolution = selectedProjection?.settings?.resolution || 2048;
-    // bbox is [x, y, w, h] in pixels
-    const centerX = (mask.bbox[0] + mask.bbox[2] / 2) / resolution;
-    const centerY = (mask.bbox[1] + mask.bbox[3] / 2) / resolution;
-    return isPointInROI(centerX, centerY, roi);
+    const [bx, by, bw, bh] = mask.bbox;
+    // Keep mask if its center OR any bbox corner touches the ROI boundary.
+    // This prevents ribs that straddle the edge from being incorrectly removed.
+    const pts: [number, number][] = [
+      [(bx + bw / 2) / resolution, (by + bh / 2) / resolution], // center
+      [bx / resolution,            by / resolution],              // top-left
+      [(bx + bw) / resolution,     by / resolution],              // top-right
+      [(bx + bw) / resolution,     (by + bh) / resolution],       // bottom-right
+      [bx / resolution,            (by + bh) / resolution],       // bottom-left
+    ];
+    return pts.some(([cx, cy]) => isPointInROI(cx, cy, roi));
   };
-  
+
+  /** True once the user has drawn and confirmed a non-trivial ROI */
+  const isROISet = showROI && roi.width > 0.02 && roi.height > 0.02;
+
+  /**
+   * If an ROI is set, filter `masks` to only those inside the boundary.
+   * Returns the original array unchanged when no ROI has been defined.
+   */
+  const filterMasksByROI = useCallback(
+    (masks: SegmentationMask[]): SegmentationMask[] => {
+      if (!isROISet) return masks;
+      return masks.filter((m) => {
+        if (!m.bbox) return true; // no bbox → keep
+        const resolution = selectedProjection?.settings?.resolution || 2048;
+        const [bx, by, bw, bh] = m.bbox;
+        // Keep if center OR any bbox corner is inside the ROI
+        const pts: [number, number][] = [
+          [(bx + bw / 2) / resolution, (by + bh / 2) / resolution],
+          [bx / resolution,            by / resolution],
+          [(bx + bw) / resolution,     by / resolution],
+          [(bx + bw) / resolution,     (by + bh) / resolution],
+          [bx / resolution,            (by + bh) / resolution],
+        ];
+        return pts.some(([cx, cy]) => isPointInROI(cx, cy, roi));
+      });
+    },
+    [isROISet, roi, selectedProjection]
+  );
+
+  // ── Shared mask-update helper ────────────────────────────────────────────
+  /**
+   * Merge `newMasks` (from SAM) into `existingMasks`, handling:
+   *  - Duplicate removal (IoU > 0.5)
+   *  - Alphabetical labels for "corner" (A, B, C, D) and "boss stone" (E, F, …)
+   *  - Sequential #N labels for all other groups
+   *  - Consistent colours per group
+   */
+  const computeUpdatedMasks = useCallback(
+    (existingMasks: SegmentationMask[], newMasks: SegmentationMask[]): SegmentationMask[] => {
+      // ── IoU helper ──
+      const calculateBboxIoU = (b1: number[], b2: number[]): number => {
+        const [x1, y1, w1, h1] = b1;
+        const [x2, y2, w2, h2] = b2;
+        const xA = Math.max(x1, x2), yA = Math.max(y1, y2);
+        const xB = Math.min(x1 + w1, x2 + w2), yB = Math.min(y1 + h1, y2 + h2);
+        const inter = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+        const union = w1 * h1 + w2 * h2 - inter;
+        return union > 0 ? inter / union : 0;
+      };
+
+      // IoU threshold: 0.35 catches rib overlaps better than 0.5.
+      // Quality-based: if the new mask has higher predictedIou, replace the old one.
+      const IOU_THRESHOLD = 0.35;
+
+      const replacedExistingIds = new Set<string>();
+      for (const nm of newMasks) {
+        if (!nm.bbox) continue;
+        for (const em of existingMasks) {
+          if (!em.bbox) continue;
+          if (calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD &&
+              (nm.predictedIou ?? 0) > (em.predictedIou ?? 0)) {
+            replacedExistingIds.add(em.id);
+          }
+        }
+      }
+
+      // Work only with the masks that survive (not replaced by better ones)
+      const survivingExisting = existingMasks.filter(m => !replacedExistingIds.has(m.id));
+
+      // Build counts and color map from survivors
+      const labelCounts: Record<string, number> = {};
+      const groupColors: Record<string, string> = {};
+      survivingExisting.forEach((m) => {
+        const bl = getBaseLabel(m.label).toLowerCase();
+        labelCounts[bl] = (labelCounts[bl] || 0) + 1;
+        if (!groupColors[bl]) groupColors[bl] = m.color;
+      });
+
+      // Pre-compute alphabetical offsets from survivors
+      const existingCornerCount = survivingExisting.filter(
+        (m) => getBaseLabel(m.label).toLowerCase() === "corner"
+      ).length;
+      const existingBossStoneCount = survivingExisting.filter(
+        (m) => getBaseLabel(m.label).toLowerCase() === "boss stone"
+      ).length;
+      const newCornerCount = newMasks.filter(
+        (m) => m.label.replace(/\s*#?\d+$/, "").trim().toLowerCase() === "corner"
+      ).length;
+      const totalCornerCount = existingCornerCount + newCornerCount;
+
+      let newCornersSoFar = 0;
+      let newBossStonesSoFar = 0;
+
+      // A new mask is a plain duplicate only when it overlaps a surviving existing mask
+      // (and the existing mask was at least as good, so it wasn't replaced above).
+      const isDuplicate = (nm: SegmentationMask) =>
+        survivingExisting.some(
+          (em) => em.bbox && nm.bbox && calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD
+        );
+
+      const colorPalette = [
+        "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
+        "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
+      ];
+      let colorIndex = Object.keys(groupColors).length;
+
+      const renumbered = newMasks
+        .filter((m) => !isDuplicate(m))
+        .map((m) => {
+          const baseLabel = m.label.replace(/\s*#?\d+$/, "").trim();
+          const baseLabelLower = baseLabel.toLowerCase();
+
+          let newLabel: string;
+          if (baseLabelLower === "corner") {
+            const idx = existingCornerCount + newCornersSoFar++;
+            newLabel = `corner ${getAlphabeticalLabel(idx)}`;
+          } else if (baseLabelLower === "boss stone") {
+            const idx = totalCornerCount + existingBossStoneCount + newBossStonesSoFar++;
+            newLabel = `boss stone ${getAlphabeticalLabel(idx)}`;
+          } else {
+            labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
+            newLabel = `${baseLabel} #${labelCounts[baseLabelLower]}`;
+          }
+
+          let maskColor = groupColors[baseLabelLower];
+          if (!maskColor) {
+            maskColor = colorPalette[colorIndex % colorPalette.length];
+            groupColors[baseLabelLower] = maskColor;
+            colorIndex++;
+          }
+
+          return {
+            ...m,
+            id: `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            label: newLabel,
+            color: maskColor,
+          };
+        });
+
+      return [...survivingExisting, ...renumbered];
+    },
+    []
+  );
+
+  // ── Eraser: apply accumulated strokes to a mask's base64 PNG ─────────────
+  const applyEraserStrokes = useCallback(
+    async (
+      maskId: string,
+      strokes: Array<{ x: number; y: number }>,
+      radiusInImagePixels: number
+    ) => {
+      if (strokes.length === 0) return;
+
+      setMasks((prev) => {
+        const mask = prev.find((m) => m.id === maskId);
+        if (!mask) return prev;
+
+        const imgW = imageSize?.width || selectedProjection?.settings?.resolution || 2048;
+        const imgH = imageSize?.height || selectedProjection?.settings?.resolution || 2048;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = imgW;
+        canvas.height = imgH;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return prev;
+
+        const img = new Image();
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, imgW, imgH);
+          ctx.globalCompositeOperation = "destination-out";
+          for (const s of strokes) {
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, radiusInImagePixels, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(0,0,0,1)";
+            ctx.fill();
+          }
+          const newBase64 = canvas.toDataURL("image/png").split(",")[1];
+          setMasks((current) => {
+            const updated = current.map((m) =>
+              m.id === maskId ? { ...m, maskBase64: newBase64 } : m
+            );
+            setTimeout(() => {
+              setSegmentations(
+                updated.map((m) => ({
+                  id: m.id,
+                  label: m.label,
+                  color: m.color,
+                  mask: m.maskBase64,
+                  visible: m.visible,
+                  source: m.source as "auto" | "manual",
+                }))
+              );
+            }, 0);
+            return updated;
+          });
+        };
+        img.src = toImageSrc(mask.maskBase64);
+        return prev; // actual update happens inside img.onload
+      });
+    },
+    [imageSize, selectedProjection, setSegmentations]
+  );
+
+  // Clear eraser state when switching away from eraser tool
+  useEffect(() => {
+    if (activeTool !== "eraser") {
+      setEraserPos(null);
+      setIsEraserDown(false);
+      eraserStrokesRef.current = [];
+    }
+  }, [activeTool]);
+
   // ROI mouse handlers
   const handleROIMouseDown = (e: MouseEvent<HTMLDivElement>) => {
     if (activeTool !== "roi" || !imageContainerRef.current) return;
@@ -628,11 +933,104 @@ export default function Step3SegmentationPage() {
     if (roiInteractionMode === "drawing" && roi.width > 0.02 && roi.height > 0.02) {
       setShowROI(true);
     }
+    // Any change to the ROI shape invalidates the previous confirmation
+    if (roiInteractionMode !== "none") {
+      setRoiConfirmed(false);
+    }
     setRoiInteractionMode("none");
     setRoiDragStart(null);
     setResizeHandle(null);
   };
   
+  // Confirm ROI — place labeled corner point masks A-D, save ROI, unlock segmentation
+  const handleConfirmROI = async () => {
+    if (!isROISet) return;
+
+    const resolution = selectedProjection?.settings?.resolution || 2048;
+    const corners = getROICorners(roi);
+
+    // Create a small circular dot mask for each corner on a 256×256 canvas
+    // (mask-image: contain scales it correctly to the display image)
+    const createDotMask = (nx: number, ny: number): string => {
+      const size = 256;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return "";
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(nx * size, ny * size, 8, 0, Math.PI * 2);
+      ctx.fill();
+      return canvas.toDataURL("image/png").split(",")[1];
+    };
+
+    const CORNER_COLOR = "#FFD700"; // gold
+    const dotBboxR = Math.round(resolution * 0.006); // ~12px on 2048
+
+    const cornerMasks: SegmentationMask[] = corners.map(([cx, cy], i) => {
+      const px = cx * resolution;
+      const py = cy * resolution;
+      return {
+        id: `roi-corner-${i}-${Date.now()}`,
+        label: `corner ${getAlphabeticalLabel(i)}`, // "corner A" … "corner D"
+        color: CORNER_COLOR,
+        maskBase64: createDotMask(cx, cy),
+        bbox: [
+          Math.max(0, Math.round(px - dotBboxR)),
+          Math.max(0, Math.round(py - dotBboxR)),
+          dotBboxR * 2,
+          dotBboxR * 2,
+        ] as [number, number, number, number],
+        area: Math.round(Math.PI * dotBboxR * dotBboxR),
+        predictedIou: 1.0,
+        stabilityScore: 1.0,
+        visible: true,
+        source: "manual",
+      };
+    });
+
+    // Replace any existing corner-A/B/C/D masks and add the new ones
+    setMasks((prev) => {
+      const withoutOldCorners = prev.filter(
+        (m) => getBaseLabel(m.label).toLowerCase() !== "corner"
+      );
+      const updated = [...withoutOldCorners, ...cornerMasks];
+      setTimeout(() => {
+        setSegmentations(
+          updated.map((m) => ({
+            id: m.id,
+            label: m.label,
+            color: m.color,
+            mask: m.maskBase64,
+            visible: m.visible,
+            source: m.source as "auto" | "manual",
+          }))
+        );
+      }, 0);
+      return updated;
+    });
+
+    // Save ROI with corner labels to backend
+    if (currentProject?.id) {
+      const roiData: ROIData = {
+        x: roi.x * resolution,
+        y: roi.y * resolution,
+        width: roi.width * resolution,
+        height: roi.height * resolution,
+        rotation: roi.rotation,
+        corners: corners.map(([cx, cy]) => [cx * resolution, cy * resolution]),
+        cornerLabels: ["A", "B", "C", "D"],
+      };
+      await saveROI(currentProject.id, roiData).catch(console.error);
+    }
+
+    setRoiConfirmed(true);
+    setShowMaskLabels(true); // make the A-D labels immediately visible
+    setActiveTool("box");    // nudge user toward segmentation
+  };
+
   // Apply ROI - delete rib masks outside ROI using backend pixel-overlap classification
   const handleApplyROI = async () => {
     if (!currentProject?.id) return;
@@ -819,10 +1217,9 @@ export default function Step3SegmentationPage() {
   // Remove all masks in a group
   const removeGroup = (groupLabel: string) => {
     setMasks(prev => {
-      const filtered = prev.filter(mask => {
-        const baseLabel = mask.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
-        return baseLabel !== groupLabel.toLowerCase();
-      });
+      const filtered = prev.filter(
+        (mask) => getBaseLabel(mask.label).toLowerCase() !== groupLabel.toLowerCase()
+      );
       return [...filtered];
     });
   };
@@ -892,33 +1289,36 @@ export default function Step3SegmentationPage() {
   const handleDrop = (e: DragEvent<HTMLDivElement>, targetGroupLabel: string) => {
     e.preventDefault();
     setDropTargetGroup(null);
-    
+
     if (draggingMaskId) {
-      // Rename the mask to the target group's label + number
       setMasks(prev => {
-        // Count how many masks are already in the target group (excluding the one being dragged)
+        const targetLower = targetGroupLabel.toLowerCase();
         const existingInGroup = prev.filter(m => {
           if (m.id === draggingMaskId) return false;
-          const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim();
-          return baseLabel.toLowerCase() === targetGroupLabel.toLowerCase();
+          return getBaseLabel(m.label).toLowerCase() === targetLower;
         }).length;
-        
+
+        const groupMask = prev.find(m => {
+          if (m.id === draggingMaskId) return false;
+          return getBaseLabel(m.label).toLowerCase() === targetLower;
+        });
+
         const updated = prev.map(mask => {
-          if (mask.id === draggingMaskId) {
-            const newNumber = existingInGroup + 1;
-            // Find group color
-            const groupMask = prev.find(m => {
-              if (m.id === draggingMaskId) return false;
-              const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim();
-              return baseLabel.toLowerCase() === targetGroupLabel.toLowerCase();
-            });
-            return { 
-              ...mask, 
-              label: `${targetGroupLabel} #${newNumber}`,
-              color: groupMask?.color || mask.color
-            };
+          if (mask.id !== draggingMaskId) return mask;
+
+          let newLabel: string;
+          if (targetLower === "corner") {
+            newLabel = `corner ${getAlphabeticalLabel(existingInGroup)}`;
+          } else if (targetLower === "boss stone") {
+            const totalCorners = prev.filter(
+              m => getBaseLabel(m.label).toLowerCase() === "corner"
+            ).length;
+            newLabel = `boss stone ${getAlphabeticalLabel(totalCorners + existingInGroup)}`;
+          } else {
+            newLabel = `${targetGroupLabel} #${existingInGroup + 1}`;
           }
-          return mask;
+
+          return { ...mask, label: newLabel, color: groupMask?.color || mask.color };
         });
         return [...updated];
       });
@@ -978,134 +1378,18 @@ export default function Step3SegmentationPage() {
       
       if (isSuccess) {
         setSamStatus(prev => ({ ...prev, loaded: true }));
-        
+
         if (newMasks.length > 0) {
-          // Append to existing masks with proper renumbering, color consistency, and duplicate detection
-          // We need to compute the updated masks outside setState to avoid calling store actions during render
-          const computeUpdatedMasks = (existingMasks: SegmentationMask[]) => {
-            // Track label counts as we renumber
-            const labelCounts: Record<string, number> = {};
-            // Track colors for each group (for consistency)
-            const groupColors: Record<string, string> = {};
-            
-            // First, count existing masks by base label and collect their colors
-            existingMasks.forEach(m => {
-              const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
-              labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
-              // Store the first color found for this group
-              if (!groupColors[baseLabel]) {
-                groupColors[baseLabel] = m.color;
-              }
-            });
-            
-            // Helper to calculate bounding box IoU (Intersection over Union)
-            const calculateBboxIoU = (bbox1: number[], bbox2: number[]): number => {
-              // Both bboxes in [x, y, w, h] format
-              const [x1, y1, w1, h1] = bbox1;
-              const [x2, y2, w2, h2] = bbox2;
-              
-              const xA = Math.max(x1, x2);
-              const yA = Math.max(y1, y2);
-              const xB = Math.min(x1 + w1, x2 + w2);
-              const yB = Math.min(y1 + h1, y2 + h2);
-              
-              const interWidth = Math.max(0, xB - xA);
-              const interHeight = Math.max(0, yB - yA);
-              const interArea = interWidth * interHeight;
-              
-              const area1 = w1 * h1;
-              const area2 = w2 * h2;
-              const unionArea = area1 + area2 - interArea;
-              
-              return unionArea > 0 ? interArea / unionArea : 0;
-            };
-            
-            // Check if a new mask overlaps significantly with existing masks
-            const isDuplicateMask = (newMask: SegmentationMask): boolean => {
-              const IOU_THRESHOLD = 0.5; // Consider duplicate if >50% overlap
-              
-              for (const existingMask of existingMasks) {
-                if (existingMask.bbox && newMask.bbox) {
-                  const iou = calculateBboxIoU(existingMask.bbox, newMask.bbox);
-                  if (iou > IOU_THRESHOLD) {
-                    console.log(`Skipping duplicate mask (IoU=${iou.toFixed(2)}): ${newMask.label}`);
-                    return true;
-                  }
-                }
-              }
-              return false;
-            };
-            
-            // Default color palette for new groups
-            const colorPalette = [
-              "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
-              "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
-            ];
-            let colorIndex = Object.keys(groupColors).length;
-            
-            // Filter out duplicates and renumber new masks
-            const renumberedMasks = newMasks
-              .filter((newMask: SegmentationMask) => !isDuplicateMask(newMask))
-              .map((newMask: SegmentationMask) => {
-                // Extract base label (e.g., "boss stone" from "boss stone #1")
-                const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
-                const baseLabelLower = baseLabel.toLowerCase();
-                
-                // Increment count for this label
-                labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
-                const newNumber = labelCounts[baseLabelLower];
-                
-                // Create new label with proper numbering
-                const newLabel = `${baseLabel} #${newNumber}`;
-                
-                // Get consistent color for this group
-                let maskColor = groupColors[baseLabelLower];
-                if (!maskColor) {
-                  // New group - assign a color from palette
-                  maskColor = colorPalette[colorIndex % colorPalette.length];
-                  groupColors[baseLabelLower] = maskColor;
-                  colorIndex++;
-                }
-                
-                // Generate unique ID to avoid conflicts
-                const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                
-                return {
-                  ...newMask,
-                  id: newId,
-                  label: newLabel,
-                  color: maskColor, // Use consistent group color
-                };
-              });
-            
-            if (renumberedMasks.length < newMasks.length) {
-              console.log(`Filtered ${newMasks.length - renumberedMasks.length} duplicate masks`);
-            }
-            
-            return [...existingMasks, ...renumberedMasks];
-          };
-          
-          // Get current masks and compute updated list
           setMasks(prev => {
-            const allMasks = computeUpdatedMasks(prev);
-            
-            // Schedule store update after this render cycle
+            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
             setTimeout(() => {
-              const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
-                id: m.id,
-                label: m.label,
-                color: m.color,
-                mask: m.maskBase64,
-                visible: m.visible,
-                source: m.source as "auto" | "manual",
-              }));
-              setSegmentations(storeSegmentations);
+              setSegmentations(allMasks.map((m: SegmentationMask) => ({
+                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
+                visible: m.visible, source: m.source as "auto" | "manual",
+              })));
             }, 0);
-            
             return allMasks;
           });
-          
-          // Clear boxes after successful segmentation
           setDrawnBoxes([]);
         } else {
           alert("No similar objects found for the selected region(s). Try drawing a box around a more distinct feature.");
@@ -1163,94 +1447,18 @@ export default function Step3SegmentationPage() {
       
       if (isSuccess) {
         setSamStatus(prev => ({ ...prev, loaded: true }));
-        
+
         if (newMasks.length > 0) {
-          // Same mask processing as box segment
-          const computeUpdatedMasks = (existingMasks: SegmentationMask[]) => {
-            const labelCounts: Record<string, number> = {};
-            const groupColors: Record<string, string> = {};
-            
-            existingMasks.forEach(m => {
-              const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
-              labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
-              if (!groupColors[baseLabel]) {
-                groupColors[baseLabel] = m.color;
-              }
-            });
-            
-            const calculateBboxIoU = (bbox1: number[], bbox2: number[]): number => {
-              const [x1, y1, w1, h1] = bbox1;
-              const [x2, y2, w2, h2] = bbox2;
-              const xA = Math.max(x1, x2);
-              const yA = Math.max(y1, y2);
-              const xB = Math.min(x1 + w1, x2 + w2);
-              const yB = Math.min(y1 + h1, y2 + h2);
-              const interWidth = Math.max(0, xB - xA);
-              const interHeight = Math.max(0, yB - yA);
-              const interArea = interWidth * interHeight;
-              const area1 = w1 * h1;
-              const area2 = w2 * h2;
-              const unionArea = area1 + area2 - interArea;
-              return unionArea > 0 ? interArea / unionArea : 0;
-            };
-            
-            const isDuplicateMask = (newMask: SegmentationMask): boolean => {
-              const IOU_THRESHOLD = 0.5;
-              for (const existingMask of existingMasks) {
-                if (existingMask.bbox && newMask.bbox) {
-                  const iou = calculateBboxIoU(existingMask.bbox, newMask.bbox);
-                  if (iou > IOU_THRESHOLD) return true;
-                }
-              }
-              return false;
-            };
-            
-            const colorPalette = [
-              "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
-              "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
-            ];
-            let colorIndex = Object.keys(groupColors).length;
-            
-            const renumberedMasks = newMasks
-              .filter((newMask: SegmentationMask) => !isDuplicateMask(newMask))
-              .map((newMask: SegmentationMask) => {
-                const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
-                const baseLabelLower = baseLabel.toLowerCase();
-                labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
-                const newNumber = labelCounts[baseLabelLower];
-                const newLabel = `${baseLabel} #${newNumber}`;
-                
-                let maskColor = groupColors[baseLabelLower];
-                if (!maskColor) {
-                  maskColor = colorPalette[colorIndex % colorPalette.length];
-                  groupColors[baseLabelLower] = maskColor;
-                  colorIndex++;
-                }
-                
-                const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                return { ...newMask, id: newId, label: newLabel, color: maskColor };
-              });
-            
-            return [...existingMasks, ...renumberedMasks];
-          };
-          
           setMasks(prev => {
-            const allMasks = computeUpdatedMasks(prev);
+            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
             setTimeout(() => {
-              const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
-                id: m.id,
-                label: m.label,
-                color: m.color,
-                mask: m.maskBase64,
-                visible: m.visible,
-                source: m.source as "auto" | "manual",
-              }));
-              setSegmentations(storeSegmentations);
+              setSegmentations(allMasks.map((m: SegmentationMask) => ({
+                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
+                visible: m.visible, source: m.source as "auto" | "manual",
+              })));
             }, 0);
             return allMasks;
           });
-          
-          // Clear polygons after successful segmentation
           setDrawnPolygons([]);
         } else {
           alert("No objects found in the selected polygon region(s).");
@@ -1292,140 +1500,24 @@ export default function Step3SegmentationPage() {
       // Handle the response - check both wrapper success and inner success
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
-      const masks = data?.masks || [];
+      const autoMasks = data?.masks || [];
       const errorMsg = response.error || data?.error;
-      
+
       if (isSuccess) {
-        // Update SAM status
         setSamStatus(prev => ({ ...prev, loaded: true }));
-        
-        if (masks.length > 0) {
-          // Append to existing masks with proper renumbering, color consistency, and duplicate detection
-          // Compute updated masks outside setState to avoid calling store actions during render
-          const computeUpdatedMasks = (existingMasks: SegmentationMask[]) => {
-            // Track label counts as we renumber
-            const labelCounts: Record<string, number> = {};
-            // Track colors for each group (for consistency)
-            const groupColors: Record<string, string> = {};
-            
-            // First, count existing masks by base label and collect their colors
-            existingMasks.forEach(m => {
-              const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
-              labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
-              // Store the first color found for this group
-              if (!groupColors[baseLabel]) {
-                groupColors[baseLabel] = m.color;
-              }
-            });
-            
-            // Helper to calculate bounding box IoU (Intersection over Union)
-            const calculateBboxIoU = (bbox1: number[], bbox2: number[]): number => {
-              // Both bboxes in [x, y, w, h] format
-              const [x1, y1, w1, h1] = bbox1;
-              const [x2, y2, w2, h2] = bbox2;
-              
-              const xA = Math.max(x1, x2);
-              const yA = Math.max(y1, y2);
-              const xB = Math.min(x1 + w1, x2 + w2);
-              const yB = Math.min(y1 + h1, y2 + h2);
-              
-              const interWidth = Math.max(0, xB - xA);
-              const interHeight = Math.max(0, yB - yA);
-              const interArea = interWidth * interHeight;
-              
-              const area1 = w1 * h1;
-              const area2 = w2 * h2;
-              const unionArea = area1 + area2 - interArea;
-              
-              return unionArea > 0 ? interArea / unionArea : 0;
-            };
-            
-            // Check if a new mask overlaps significantly with existing masks
-            const isDuplicateMask = (newMask: SegmentationMask): boolean => {
-              const IOU_THRESHOLD = 0.5; // Consider duplicate if >50% overlap
-              
-              for (const existingMask of existingMasks) {
-                if (existingMask.bbox && newMask.bbox) {
-                  const iou = calculateBboxIoU(existingMask.bbox, newMask.bbox);
-                  if (iou > IOU_THRESHOLD) {
-                    console.log(`Skipping duplicate mask (IoU=${iou.toFixed(2)}): ${newMask.label}`);
-                    return true;
-                  }
-                }
-              }
-              return false;
-            };
-            
-            // Default color palette for new groups
-            const colorPalette = [
-              "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
-              "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
-            ];
-            let colorIndex = Object.keys(groupColors).length;
-            
-            // Filter out duplicates and renumber new masks
-            const renumberedMasks = masks
-              .filter((newMask: SegmentationMask) => !isDuplicateMask(newMask))
-              .map((newMask: SegmentationMask) => {
-                // Extract base label
-                const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
-                const baseLabelLower = baseLabel.toLowerCase();
-                
-                // Increment count for this label
-                labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
-                const newNumber = labelCounts[baseLabelLower];
-                
-                // Create new label with proper numbering
-                const newLabel = `${baseLabel} #${newNumber}`;
-                
-                // Get consistent color for this group
-                let maskColor = groupColors[baseLabelLower];
-                if (!maskColor) {
-                  // New group - assign a color from palette
-                  maskColor = colorPalette[colorIndex % colorPalette.length];
-                  groupColors[baseLabelLower] = maskColor;
-                  colorIndex++;
-                }
-                
-                // Generate unique ID
-                const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                
-                return {
-                  ...newMask,
-                  id: newId,
-                  label: newLabel,
-                  color: maskColor, // Use consistent group color
-                };
-              });
-            
-            if (renumberedMasks.length < masks.length) {
-              console.log(`Filtered ${masks.length - renumberedMasks.length} duplicate masks`);
-            }
-            
-            return [...existingMasks, ...renumberedMasks];
-          };
-          
-          // Update masks and schedule store update after render
+
+        if (autoMasks.length > 0) {
           setMasks(prev => {
-            const allMasks = computeUpdatedMasks(prev);
-            
-            // Schedule store update after this render cycle
+            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, autoMasks));
             setTimeout(() => {
-              const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
-                id: m.id,
-                label: m.label,
-                color: m.color,
-                mask: m.maskBase64,
-                visible: m.visible,
-                source: m.source as "auto" | "manual",
-              }));
-              setSegmentations(storeSegmentations);
+              setSegmentations(allMasks.map((m: SegmentationMask) => ({
+                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
+                visible: m.visible, source: m.source as "auto" | "manual",
+              })));
             }, 0);
-            
             return allMasks;
           });
         } else {
-          // No masks found - don't clear existing, just show message
           alert(`No objects found matching your prompts. Try different terms like:\n• "rib" - vault ribs\n• "arch" - arched sections\n• "stone" - stone surfaces\n• "boss" - decorative bosses`);
         }
       } else {
@@ -1472,8 +1564,18 @@ export default function Step3SegmentationPage() {
       source: m.source as "auto" | "manual",
     }));
     setSegmentations(storeSegmentations);
+    // Include ROI in step 3 data so step 4 can read it from steps[3].data.roi.
+    // completeStep replaces the whole data object, so the ROI must be included
+    // here even if it was saved separately by handleApplyROI earlier.
     const existingStep3Data = currentProject?.steps?.[3]?.data || {};
-    completeStep(3, { ...existingStep3Data, segmentations: storeSegmentations, intradosLines: currentProject?.intradosLines });
+    completeStep(3, {
+      ...existingStep3Data,
+      segmentations: storeSegmentations,
+      intradosLines: currentProject?.intradosLines,
+      ...(isROISet && {
+        roi: { x: roi.x, y: roi.y, width: roi.width, height: roi.height, rotation: roi.rotation },
+      }),
+    });
     
     // Save project data to backend for persistence
     if (currentProject) {
@@ -1522,49 +1624,27 @@ export default function Step3SegmentationPage() {
   const hasProjections = (currentProject?.projections?.length || 0) > 0;
   const visibleMasks = masks.filter(m => m.visible);
   
-  // Group masks by label (extract base label without number)
+  // Group masks by base label (handles both #N and alphabetical suffixes)
   const groupedMasks = useMemo(() => {
     const groups: Record<string, SegmentationMask[]> = {};
-    
     masks.forEach(mask => {
-      // Extract base label (remove trailing numbers like "rib #1" -> "rib")
-      const baseLabel = mask.label.replace(/\s*#?\d+$/, '').trim() || mask.label;
-      
-      if (!groups[baseLabel]) {
-        groups[baseLabel] = [];
-      }
+      const baseLabel = getBaseLabel(mask.label);
+      if (!groups[baseLabel]) groups[baseLabel] = [];
       groups[baseLabel].push(mask);
     });
-    
-    // Debug: log grouping
-    if (masks.length > 0) {
-      console.log("Mask grouping:", Object.entries(groups).map(([label, items]) => ({
-        label,
-        count: items.length,
-        colors: Array.from(new Set(items.map(m => m.color))),
-        items: items.map(m => ({ id: m.id, label: m.label, color: m.color }))
-      })));
-    }
-    
     return groups;
   }, [masks]);
-  
+
   const toggleGroupVisibility = (groupLabel: string, visible: boolean) => {
     setMasks(prev => {
       const updated = prev.map(m => {
-        const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim() || m.label;
-        if (baseLabel.toLowerCase() === groupLabel.toLowerCase()) {
+        if (getBaseLabel(m.label).toLowerCase() === groupLabel.toLowerCase()) {
           return { ...m, visible };
         }
         return m;
       });
       return [...updated];
     });
-  };
-  
-  const isGroupVisible = (groupLabel: string): boolean => {
-    const group = groupedMasks[groupLabel];
-    return group?.some(m => m.visible) || false;
   };
   
   const isGroupFullyVisible = (groupLabel: string): boolean => {
@@ -1658,11 +1738,42 @@ export default function Step3SegmentationPage() {
             {/* Segmentation Tools */}
             <Card>
               <CardHeader className="py-2 px-3">
-                <CardTitle className="text-sm font-medium">Segmentation</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Segmentation</CardTitle>
+                  {/* Workflow step pills */}
+                  <div className="flex items-center gap-1 text-[10px]">
+                    <span className={cn(
+                      "px-1.5 py-0.5 rounded-full font-medium",
+                      roiConfirmed ? "bg-green-500/20 text-green-400"
+                        : isROISet ? "bg-amber-500/20 text-amber-400"
+                        : "bg-muted/30 text-muted-foreground/40"
+                    )}>
+                      {roiConfirmed ? "✓" : "1"} ROI
+                    </span>
+                    <span className="text-muted-foreground/40">→</span>
+                    <span className={cn(
+                      "px-1.5 py-0.5 rounded-full font-medium",
+                      !roiConfirmed ? "bg-muted/30 text-muted-foreground/40" : "bg-primary/20 text-primary"
+                    )}>
+                      2 Segment
+                    </span>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="px-3 pb-3 pt-0 space-y-3">
+                {/* ROI required notice */}
+                {!roiConfirmed && (
+                  <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <Square className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-300/90">
+                      {!isROISet
+                        ? "Draw the vault boundary first. Click & drag on the image, then confirm to label corners A–D."
+                        : "Confirm the ROI to place corner markers A–D before segmenting."}
+                    </p>
+                  </div>
+                )}
                 {/* Text Prompts Input */}
-                <div className="space-y-1.5">
+                <div className={cn("space-y-1.5", !roiConfirmed && "opacity-40 pointer-events-none")}>
                   <Label className="text-xs text-muted-foreground flex items-center gap-1">
                     <Type className="w-3 h-3" />
                     Text Prompts
@@ -1670,7 +1781,7 @@ export default function Step3SegmentationPage() {
                   
                   {/* Quick Presets */}
                   <div className="flex flex-wrap gap-1">
-                    {["rib", "boss stone", "keystone", "intrados", "tiercerons", "lierne", "vault cell"].map((preset) => (
+                    {["rib", "boss stone", "corner", "keystone", "intrados", "tiercerons", "lierne", "vault cell"].map((preset) => (
                       <button
                         key={preset}
                         onClick={() => {
@@ -1734,11 +1845,11 @@ export default function Step3SegmentationPage() {
                   )}
                 </div>
                 
-                <Button 
+                <Button
                   size="sm"
                   className="w-full gap-1.5"
                   onClick={handleAutoSegment}
-                  disabled={isProcessing || !selectedProjection}
+                  disabled={isProcessing || !selectedProjection || !roiConfirmed}
                 >
                   {isProcessing ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -1748,18 +1859,31 @@ export default function Step3SegmentationPage() {
                   {textPrompts.length > 0 ? "Run SAM Segmentation" : "Run SAM Segmentation"}
                 </Button>
                 
-                <div className="grid grid-cols-2 gap-1">
+                <div className="grid grid-cols-4 gap-1">
                   {[
-                    { tool: "polygon", icon: Hexagon, label: "Polygon", needsMasks: false },
-                    { tool: "box", icon: Scan, label: "Box", needsMasks: false },
-                  ].map(({ tool, icon: Icon, label, needsMasks }) => (
+                    { tool: "polygon", icon: Hexagon, label: "Polygon", needsMasks: false, needsRoi: true },
+                    { tool: "box", icon: Scan, label: "Box", needsMasks: false, needsRoi: true },
+                    { tool: "roi", icon: Square, label: "ROI", needsMasks: false, needsRoi: false },
+                    { tool: "eraser", icon: Eraser, label: "Eraser", needsMasks: true, needsRoi: true },
+                  ].map(({ tool, icon: Icon, label, needsMasks, needsRoi }) => (
                     <Button
                       key={tool}
                       variant={activeTool === tool ? "default" : "outline"}
                       size="sm"
-                      className="gap-1.5 h-7 text-xs"
-                      onClick={() => setActiveTool(tool as Tool)}
-                      disabled={!selectedProjection || (needsMasks && masks.length === 0)}
+                      className={cn(
+                        "gap-1 h-7 text-xs",
+                        tool === "eraser" && activeTool === "eraser" && "bg-red-600 hover:bg-red-700 border-red-600",
+                        tool === "roi" && !isROISet && activeTool !== "roi" && "ring-1 ring-amber-500/50"
+                      )}
+                      onClick={() => {
+                        setActiveTool(tool as Tool);
+                        if (tool === "roi") setShowROI(true);
+                      }}
+                      disabled={
+                        !selectedProjection ||
+                        (needsMasks && masks.length === 0) ||
+                        (needsRoi && !roiConfirmed)
+                      }
                     >
                       <Icon className="w-3 h-3" />
                       {label}
@@ -1841,11 +1965,11 @@ export default function Step3SegmentationPage() {
                       </div>
                     )}
                     
-                    <Button 
+                    <Button
                       size="sm"
                       className="w-full gap-1.5 bg-blue-600 hover:bg-blue-700"
                       onClick={handleBoxSegment}
-                      disabled={isProcessing || drawnBoxes.length === 0}
+                      disabled={isProcessing || drawnBoxes.length === 0 || !roiConfirmed}
                     >
                       {isProcessing ? (
                         <Loader2 className="w-3 h-3 animate-spin" />
@@ -1949,11 +2073,11 @@ export default function Step3SegmentationPage() {
                     
                     {/* Run SAM on polygons */}
                     {drawnPolygons.length > 0 && (
-                      <Button 
+                      <Button
                         size="sm"
                         className="w-full gap-1.5 bg-purple-600 hover:bg-purple-700"
                         onClick={handlePolygonSegment}
-                        disabled={isProcessing}
+                        disabled={isProcessing || !roiConfirmed}
                       >
                         {isProcessing ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -1966,117 +2090,163 @@ export default function Step3SegmentationPage() {
                   </div>
                 )}
                 
-              </CardContent>
-            </Card>
+                {/* Eraser Section */}
+                {activeTool === "eraser" && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Eraser className="w-3 h-3" />
+                      Eraser
+                    </span>
 
-            {/* Region of Interest — dedicated card */}
-            <Card className={cn(activeTool === "roi" && "ring-1 ring-green-500/40")}>
-              <CardHeader className="py-2 px-3">
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-                    <Square className="w-3.5 h-3.5 text-green-500" />
-                    Region of Interest
-                  </CardTitle>
-                  <Button
-                    variant={activeTool === "roi" ? "default" : "outline"}
-                    size="sm"
-                    className={cn(
-                      "h-7 text-xs gap-1.5",
-                      activeTool === "roi" && "bg-green-600 hover:bg-green-700 border-green-600"
-                    )}
-                    onClick={() => {
-                      if (activeTool === "roi") {
-                        setActiveTool("polygon");
-                      } else {
-                        setActiveTool("roi" as Tool);
-                        setShowROI(true);
-                      }
-                    }}
-                    disabled={!selectedProjection}
-                  >
-                    <Square className="w-3 h-3" />
-                    {activeTool === "roi" ? "Stop Drawing" : "Draw ROI"}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="px-3 pb-3 pt-0 space-y-2">
-                <p className="text-xs text-muted-foreground/70">
-                  Define the vault bay boundary. Ribs outside will be permanently deleted and 4 corner boss stone reference points will be created for Step 4.
-                </p>
-
-                {/* Active drawing hint */}
-                {activeTool === "roi" && (!showROI || roi.width <= 0.02) && (
-                  <p className="text-xs text-green-500 italic">
-                    Click and drag on the image to draw the ROI rectangle.
-                  </p>
-                )}
-
-                {/* ROI stats — once a rectangle is drawn */}
-                {showROI && roi.width > 0.02 && (
-                  <>
-                    <div className="space-y-1 p-2 bg-muted/30 rounded text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Size:</span>
-                        <span>{Math.round(roi.width * 100)}% × {Math.round(roi.height * 100)}%</span>
+                    {/* Size slider */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Brush size</span>
+                        <span>{eraserSize}px</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Rotation:</span>
-                        <span>{Math.round(roi.rotation)}°</span>
-                      </div>
-                      {masks.length > 0 && (
-                        <>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Inside ROI:</span>
-                            <span className="text-green-600">{masks.filter(isMaskInsideROI).length} masks</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Ribs to delete:</span>
-                            <span className="text-red-600">
-                              {masks.filter(m => {
-                                const base = m.label.replace(/\s*#?\d+$/, "").trim().toLowerCase();
-                                return base === "rib" && !isMaskInsideROI(m);
-                              }).length} ribs
-                            </span>
-                          </div>
-                        </>
-                      )}
+                      <Slider
+                        value={[eraserSize]}
+                        onValueChange={([v]) => setEraserSize(v)}
+                        min={5}
+                        max={100}
+                        step={1}
+                      />
                     </div>
 
-                    {/* Corner boss stones already applied */}
-                    {roiAppliedCorners.length > 0 && (
-                      <div className="flex items-center gap-2 text-xs text-purple-400 bg-purple-500/10 px-2 py-1.5 rounded">
-                        <div className="w-2.5 h-2.5 rounded-full bg-purple-500 flex-shrink-0" />
-                        4 corner boss stones applied
+                    {/* Mask selector */}
+                    {masks.length > 0 ? (
+                      <div className="space-y-1">
+                        <span className="text-xs text-muted-foreground">Select mask to erase:</span>
+                        <div className="max-h-32 overflow-y-auto space-y-0.5">
+                          {masks.filter(m => m.visible).map(mask => (
+                            <button
+                              key={mask.id}
+                              className={cn(
+                                "w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-left transition-colors",
+                                activeMaskId === mask.id
+                                  ? "bg-red-500/20 border border-red-500/50 text-red-400"
+                                  : "hover:bg-muted/50"
+                              )}
+                              onClick={() =>
+                                setActiveMaskId(mask.id === activeMaskId ? null : mask.id)
+                              }
+                            >
+                              <div
+                                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: mask.color }}
+                              />
+                              <span className="truncate" title={mask.label}>{getMaskDisplayLabel(mask.label)}</span>
+                              {activeMaskId === mask.id && (
+                                <Eraser className="w-3 h-3 ml-auto text-red-400 flex-shrink-0" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
                       </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground/70 italic">
+                        Run segmentation first to create masks to erase.
+                      </p>
                     )}
 
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="w-full gap-1.5"
-                      onClick={handleApplyROI}
-                      disabled={isApplyingROI}
-                    >
-                      {isApplyingROI ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <Scissors className="w-3 h-3" />
+                    {activeMaskId && (
+                      <p className="text-xs text-red-400 flex items-center gap-1">
+                        <Eraser className="w-3 h-3" />
+                        Paint over the canvas to erase
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* ROI Section */}
+                {activeTool === "roi" && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Square className="w-3 h-3" />
+                        Region of Interest
+                      </span>
+                      {showROI && (
+                        <button
+                          onClick={() => setShowROI(false)}
+                          className="text-xs text-muted-foreground hover:text-destructive"
+                        >
+                          Hide
+                        </button>
                       )}
-                      Apply ROI
-                    </Button>
-
-                    {activeTool !== "roi" && (
-                      <button
-                        onClick={() => {
-                          setActiveTool("roi" as Tool);
-                          setShowROI(true);
-                        }}
-                        className="text-xs text-muted-foreground hover:text-foreground w-full text-center"
-                      >
-                        Edit ROI
-                      </button>
+                    </div>
+                    
+                    {!isROISet ? (
+                      <p className="text-xs text-muted-foreground/70">
+                        Click and drag on the image to outline the vault boundary. Corners will be labelled A–D.
+                      </p>
+                    ) : roiConfirmed ? (
+                      <div className="flex items-center gap-1.5 py-1 text-xs text-green-400">
+                        <Check className="w-3 h-3" />
+                        Corners A–D set — use Box or Polygon to segment
+                      </div>
+                    ) : (
+                      <p className="text-xs text-amber-300/80">
+                        Happy with the boundary? Confirm to place corner markers A–D.
+                      </p>
                     )}
-                  </>
+
+                    {isROISet && (
+                      <>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Size:</span>
+                            <span>{Math.round(roi.width * 100)}% × {Math.round(roi.height * 100)}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Rotation:</span>
+                            <span>{Math.round(roi.rotation)}°</span>
+                          </div>
+                          {masks.length > 0 && (
+                            <>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Masks inside:</span>
+                                <span className="text-green-600">{masks.filter(isMaskInsideROI).length}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Masks outside:</span>
+                                <span className="text-red-600">{masks.filter(m => !isMaskInsideROI(m)).length}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Confirm ROI — place A-D corner markers */}
+                        {!roiConfirmed && (
+                          <Button
+                            size="sm"
+                            className="w-full gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+                            onClick={handleConfirmROI}
+                          >
+                            <Check className="w-3 h-3" />
+                            Confirm ROI &amp; Set Corners A–D
+                          </Button>
+                        )}
+
+                        {roiConfirmed && masks.filter(m => !isMaskInsideROI(m)).length > 0 && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="w-full gap-1.5"
+                            onClick={handleApplyROI}
+                            disabled={isApplyingROI}
+                          >
+                            {isApplyingROI ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Scissors className="w-3 h-3" />
+                            )}
+                            Remove {masks.filter(m => !isMaskInsideROI(m)).length} Outside ROI
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -2193,12 +2363,12 @@ export default function Step3SegmentationPage() {
                                   className="h-5 text-xs px-1 flex-1"
                                 />
                               ) : (
-                                <span 
+                                <span
                                   className="flex-1 truncate text-xs"
                                   onDoubleClick={() => startEditingMask(mask.id, mask.label)}
-                                  title="Double-click to rename"
+                                  title={mask.label}
                                 >
-                                  {mask.label}
+                                  {getMaskDisplayLabel(mask.label)}
                                 </span>
                               )}
                               {/* Actions - visible on hover */}
@@ -2268,7 +2438,7 @@ export default function Step3SegmentationPage() {
                 <div className="space-y-4">
                   {/* Display Controls */}
                   {masks.length > 0 && (
-                    <div className="flex items-center gap-3 p-2 bg-muted/50 rounded-lg">
+                    <div className="flex items-center gap-3 p-2 bg-muted/50 rounded-lg flex-wrap">
                       <Label className="text-sm whitespace-nowrap">Overlay</Label>
                       <Slider
                         value={[overlayOpacity * 100]}
@@ -2281,15 +2451,27 @@ export default function Step3SegmentationPage() {
                       <span className="text-sm text-muted-foreground w-10">
                         {Math.round(overlayOpacity * 100)}%
                       </span>
+                      {/* Label toggle */}
+                      <Button
+                        variant={showMaskLabels ? "default" : "outline"}
+                        size="sm"
+                        className="gap-1.5 h-8 ml-auto"
+                        onClick={() => setShowMaskLabels(v => !v)}
+                        title="Toggle mask labels"
+                      >
+                        <Tag className="w-3 h-3" />
+                        Labels
+                      </Button>
                     </div>
                   )}
                   
                   {/* Image Preview */}
-                  <div 
+                  <div
                     ref={imageContainerRef}
                     className={cn(
                       "relative aspect-square max-w-2xl mx-auto bg-[#0a0f1a] rounded-lg overflow-hidden",
-                      (activeTool === "box" || activeTool === "polygon" || activeTool === "roi") && "cursor-crosshair"
+                      (activeTool === "box" || activeTool === "polygon" || activeTool === "roi") && "cursor-crosshair",
+                      activeTool === "eraser" && "cursor-none"
                     )}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
@@ -2299,6 +2481,11 @@ export default function Step3SegmentationPage() {
                         setIsDrawing(false);
                         setDrawStart(null);
                         setCurrentBox(null);
+                      }
+                      if (activeTool === "eraser") {
+                        setEraserPos(null);
+                        setIsEraserDown(false);
+                        eraserStrokesRef.current = [];
                       }
                     }}
                   >
@@ -2363,6 +2550,52 @@ export default function Step3SegmentationPage() {
                           </div>
                         ))}
                         
+                        {/* Mask label overlays */}
+                        {showMaskLabels && visibleMasks.map(mask => {
+                          if (!mask.bbox) return null;
+                          const imgW = imageSize?.width || selectedProjection?.settings?.resolution || 2048;
+                          const imgH = imageSize?.height || selectedProjection?.settings?.resolution || 2048;
+                          const cx = ((mask.bbox[0] + mask.bbox[2] / 2) / imgW) * 100;
+                          const cy = ((mask.bbox[1] + mask.bbox[3] / 2) / imgH) * 100;
+                          const isActive = mask.id === activeMaskId;
+                          return (
+                            <div
+                              key={`lbl-${mask.id}`}
+                              className="absolute pointer-events-none z-10"
+                              style={{
+                                left: `${cx}%`,
+                                top: `${cy}%`,
+                                transform: "translate(-50%, -50%)",
+                              }}
+                            >
+                              <div
+                                className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-lg"
+                                style={{
+                                  backgroundColor: mask.color + "cc",
+                                  outline: isActive ? "2px solid rgba(248,113,113,0.8)" : undefined,
+                                }}
+                              >
+                                {getMaskDisplayLabel(mask.label)}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Eraser cursor */}
+                        {activeTool === "eraser" && eraserPos && (
+                          <div
+                            className="absolute pointer-events-none z-20 rounded-full border-2"
+                            style={{
+                              left: eraserPos.x - eraserSize,
+                              top: eraserPos.y - eraserSize,
+                              width: eraserSize * 2,
+                              height: eraserSize * 2,
+                              borderColor: activeMaskId ? "rgba(248,113,113,0.9)" : "rgba(156,163,175,0.7)",
+                              boxShadow: activeMaskId ? "0 0 6px rgba(248,113,113,0.5)" : undefined,
+                            }}
+                          />
+                        )}
+
                         {/* Info overlays - combined top bar */}
                         <div className="absolute top-2 left-2 right-2 flex justify-between items-center pointer-events-none">
                           <div className="bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] capitalize">
@@ -2697,6 +2930,17 @@ export default function Step3SegmentationPage() {
                           </div>
                         )}
                         
+                        {/* Eraser mode indicator */}
+                        {activeTool === "eraser" && (
+                          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
+                            <Eraser className="w-3.5 h-3.5" />
+                            {activeMaskId
+                              ? `Erasing: ${masks.find(m => m.id === activeMaskId)?.label ?? "selected mask"}`
+                              : "Select a mask from the left panel to erase"
+                            }
+                          </div>
+                        )}
+
                         {/* ROI mode indicator */}
                         {activeTool === "roi" && (
                           <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-green-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
@@ -2709,9 +2953,9 @@ export default function Step3SegmentationPage() {
                               ? "Resizing ROI..."
                               : roiInteractionMode === "rotating"
                               ? "Rotating ROI..."
-                              : showROI && roi.width > 0.02
-                              ? "Drag to move • Corners to resize • Top handle to rotate"
-                              : "Click and drag to draw ROI"
+                              : isROISet
+                              ? "ROI set ✓ — Drag to move • Corners to resize • Top handle to rotate"
+                              : "Step 1: Click and drag to outline the vault boundary"
                             }
                           </div>
                         )}
@@ -2800,7 +3044,7 @@ export default function Step3SegmentationPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <p className="text-xs text-muted-foreground w-full mb-1">Quick select:</p>
-              {["rib", "boss stone", "keystone", "intrados", "tiercerons", "lierne"].map((name) => (
+              {["rib", "boss stone", "corner", "keystone", "intrados", "tiercerons", "lierne"].map((name) => (
                 <Badge
                   key={name}
                   variant="outline"

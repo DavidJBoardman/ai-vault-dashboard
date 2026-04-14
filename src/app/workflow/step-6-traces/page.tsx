@@ -17,7 +17,8 @@ import {
   ReprojectionPoint, 
   getIntradosLines, 
   IntradosLine,
-  exportIntrados3dm,
+  exportIntradosVectors,
+  type IntradosExportFormat,
   import3dmTraces,
   getImportedTraces,
   ImportedCurve
@@ -70,6 +71,7 @@ export default function Step6TracesPage() {
   // Export state
   const [isExporting, setIsExporting] = useState(false);
   const [exportedFile, setExportedFile] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<IntradosExportFormat>("3dm");
   
   // Final selection
   const [selectedTraceType, setSelectedTraceType] = useState<"auto" | "manual" | "both">("auto");
@@ -230,21 +232,40 @@ export default function Step6TracesPage() {
     }
   };
   
-  // Handle exporting to 3DM
-  const handleExport3dm = async () => {
+  const handleExportIntrados = async () => {
     if (!currentProject?.id) return;
     
     setIsExporting(true);
     setError(null);
     
     try {
-      const response = await exportIntrados3dm(currentProject.id, "Intrados Lines");
+      let outputPath: string | undefined;
+      if (typeof window !== "undefined" && window.electronAPI) {
+        const ext = exportFormat;
+        const filters = [
+          { name: `Intrados Traces (${ext.toUpperCase()})`, extensions: [ext] },
+          { name: "All Files", extensions: ["*"] },
+        ];
+        const result = await window.electronAPI.saveFile({ filters });
+        if (result.canceled) {
+          setIsExporting(false);
+          return;
+        }
+        outputPath = result.filePath || undefined;
+      }
+
+      const response = await exportIntradosVectors(
+        currentProject.id,
+        exportFormat,
+        "Intrados Lines",
+        outputPath
+      );
       
       if (response.success && response.data) {
-        setExportedFile(response.data.filePath);
-        
-        // Show success message
-        alert(`Exported ${response.data.curvesExported} curves to:\n${response.data.fileName}`);
+        setExportedFile(response.data.fileName);
+        alert(
+          `Exported ${response.data.curvesExported} curves (${response.data.format ?? exportFormat}) to:\n${response.data.filePath}`
+        );
       } else {
         setError(response.error || "Export failed");
       }
@@ -381,11 +402,38 @@ export default function Step6TracesPage() {
                     </Label>
                   </div>
                   
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Format</Label>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(
+                        [
+                          { id: "3dm" as const, label: ".3dm" },
+                          { id: "obj" as const, label: ".obj" },
+                          { id: "dxf" as const, label: ".dxf" },
+                        ]
+                      ).map(({ id, label }) => (
+                        <Button
+                          key={id}
+                          type="button"
+                          variant={exportFormat === id ? "default" : "outline"}
+                          size="sm"
+                          className="h-8 text-xs px-2"
+                          onClick={() => setExportFormat(id)}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-tight">
+                      3DM: Rhino. OBJ: mesh apps / Blender. DXF: AutoCAD-style 3D lines.
+                    </p>
+                  </div>
+                  
                   <Button
                     variant="outline"
                     size="sm"
                     className="w-full gap-2"
-                    onClick={handleExport3dm}
+                    onClick={handleExportIntrados}
                     disabled={isExporting}
                   >
                     {isExporting ? (
@@ -393,12 +441,12 @@ export default function Step6TracesPage() {
                     ) : (
                       <Download className="w-4 h-4" />
                     )}
-                    Export as .3dm
+                    Export traces
                   </Button>
                   
                   {exportedFile && (
                     <p className="text-xs text-muted-foreground text-center">
-                      Exported successfully
+                      Last export: {exportedFile}
                     </p>
                   )}
                 </>
