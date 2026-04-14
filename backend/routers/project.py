@@ -165,11 +165,19 @@ def copy_projection_to_project(projection_id: str, project_dir: Path) -> Dict[st
 
 
 def extract_group_id(label: str) -> str:
-    """Extract group ID from label (e.g., 'rib #1' -> 'rib')."""
+    """Extract group ID from label.
+
+    Handles both numeric suffixes (e.g. 'rib #1' -> 'rib') and the
+    alphabetical suffixes used for corners/boss stones (e.g. 'boss stone E'
+    -> 'boss_stone', 'corner A' -> 'corner').
+    """
     import re
-    # Remove trailing numbers and hash symbols
+    # Remove trailing numeric suffix (" #1", " 1", etc.)
     base_label = re.sub(r'\s*#?\d+$', '', label).strip()
-    # Convert to lowercase and replace spaces with underscores for ID
+    # Remove trailing single-letter or two-letter alphabetical suffix
+    # added by our labelling scheme: " A", " B", " Aa", " Ab", …
+    base_label = re.sub(r'\s+[A-Z][a-z]?$', '', base_label).strip()
+    # Convert to lowercase snake_case
     group_id = base_label.lower().replace(' ', '_')
     return group_id if group_id else 'unknown'
 
