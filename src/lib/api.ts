@@ -564,6 +564,7 @@ export interface ROIData {
   height: number;
   rotation: number;  // Rotation angle in degrees
   corners?: number[][];  // 4 corners [[x,y], ...]
+  cornerLabels?: string[];  // Labels for the 4 corners, e.g. ["A","B","C","D"]
 }
 
 export async function saveROI(
