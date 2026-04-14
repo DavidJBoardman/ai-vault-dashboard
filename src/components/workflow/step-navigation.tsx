@@ -114,11 +114,11 @@ export function StepNavigation() {
   );
 }
 
-export function StepHeader({ title, description }: { title: string; description: string }) {
+export function StepHeader({ title, description }: { title: string; description?: string }) {
   return (
-    <div className="mb-6">
+    <div className="mb-5">
       <h1 className="font-display text-2xl font-bold tracking-tight">{title}</h1>
-      <p className="text-muted-foreground mt-1">{description}</p>
+      {description ? <p className="mt-1 text-muted-foreground">{description}</p> : null}
     </div>
   );
 }
@@ -130,4 +130,3 @@ export function StepActions({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-

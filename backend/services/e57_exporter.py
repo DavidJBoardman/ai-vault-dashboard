@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import numpy as np
+from services.app_paths import get_data_root
 
 # pye57 for E57 export
 try:
@@ -17,7 +18,7 @@ class E57Exporter:
     """Export point clouds with annotations to E57 format."""
     
     def __init__(self):
-        self.data_dir = Path("./data")
+        self.data_dir = get_data_root()
     
     async def export(
         self,
@@ -128,4 +129,3 @@ class E57Exporter:
         output_file.write_text(json.dumps(annotations, indent=2))
         
         return str(output_file)
-

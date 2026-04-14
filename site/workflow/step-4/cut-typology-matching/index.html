@@ -1,0 +1,262 @@
+<!DOCTYPE html><html class="writer-html5" lang="en"><head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="canonical" href="https://davidjboardman.github.io/ai-vault-dashboard/workflow/step-4/cut-typology-matching/">
+      <link rel="shortcut icon" href="../../../img/favicon.ico">
+    <title>Cut-Typology Matching - Vault Analyser Documentation</title>
+    <link rel="stylesheet" href="../../../css/theme.css">
+    <link rel="stylesheet" href="../../../css/theme_extra.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+        <link href="../../../stylesheets/extra.css" rel="stylesheet">
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Cut-Typology Matching";
+        var mkdocs_page_input_path = "workflow/step-4/cut-typology-matching.md";
+        var mkdocs_page_url = "/ai-vault-dashboard/workflow/step-4/cut-typology-matching/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+<link href="../../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+        </style></head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../../.." class="icon icon-home"> Vault Analyser Documentation
+        </a><div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here">
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../../installation/">Installation</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Workflow</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../../pipeline/">Before You Start</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../step-1-upload/">Step 1: Upload E57 Scan</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../step-2-projection/">Step 2: Generate Projection</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../step-3-segmentation/">Step 3: Segmentation</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current">Step 4: 2D Geometry Analysis</a>
+    <ul class="current">
+                <li class="toctree-l2"><a class="reference internal" href="../">Overview</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../roi-and-bay-proportion/">ROI and Bay Proportion</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../reference-points/">Reference Points</a>
+                </li>
+                <li class="toctree-l2 current"><a class="reference internal current" href="#">Cut-Typology Matching</a>
+                </li>
+                <li class="toctree-l2"><a class="reference internal" href="../bay-plan-reconstruction/">Bay-Plan Reconstruction</a>
+                </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../step-5-reprojection/">Step 5: Reprojection to 3D</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../step-6-traces/">Step 6: 3D Geometry Traces</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../step-7-measurements/">Step 7: Measurements and Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../step-8-analysis/">Step 8: Three-Circle Chord Method Analysis</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">System</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../system/">Technical Overview</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../..">Vault Analyser Documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Workflow</li>
+          <li class="breadcrumb-item">Step 4: 2D Geometry Analysis</li>
+      <li class="breadcrumb-item active">Cut-Typology Matching</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard/edit/master/docs/workflow/step-4/cut-typology-matching.md" class="icon icon-github"> Edit on GitHub</a>
+    </li>
+  </ul>
+  <hr>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="step-4c-cut-typology-matching">Step 4C: Cut-Typology Matching<a class="headerlink" href="#step-4c-cut-typology-matching" title="Permanent link">¶</a></h1>
+<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
+<p>This sub-stage identifies which <strong>geometric template</strong> best explains the boss positions inside the bay. The result helps the app regularise the plan before reconstruction.</p>
+<h2 id="background-starcuts-and-circlecuts">Background: starcuts and circlecuts<a class="headerlink" href="#background-starcuts-and-circlecuts" title="Permanent link">¶</a></h2>
+<p>Medieval vault designers set out rib plans by drawing construction lines through a starting figure inscribed within the rectangular bay. The intersections of these lines defined the positions of bosses and the start/end points of ribs.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup></p>
+<p>Vault Analyser tests several template families derived from this tradition:</p>
+<p><strong>Starcut (standard grid)</strong>
+:   An <em>n</em>-by-<em>n</em> regular grid that divides the bay into equal fractions along both axes. A starcut with <em>n</em> = 3 divides each side into thirds; <em>n</em> = 6 divides into sixths. The grid intersections correspond to the fractional positions at which medieval designers placed tiercerons and lierne junctions. The application tests a configurable range of divisors (default <em>n</em> = 2 to <em>n</em> = 6).</p>
+<p><strong>Inner circlecut</strong>
+:   An extension of the starcut in which a circle with radius equal to the bay's longest side is drawn centred on the bay. The intersections between this circle, the bay's perpendicular bisectors, and lines connecting these intersections to the bay corners produce a set of keypoints that no longer correspond to neat fractional divisions. This variant captures the geometry of vaults designed with the <em>inner circle starcut</em> method.</p>
+<p><strong>Outer circlecut</strong>
+:   Similar to the inner circlecut, but the circle passes through all four corners of the bay (i.e. has a radius of half the bay diagonal). This produces a different set of construction-line intersections and fractional relationships, corresponding to the <em>outer circle starcut</em> method.</p>
+<p><strong>Cross templates</strong>
+:   Hybrid variants that combine the <em>x</em>-axis ratios from one family with the <em>y</em>-axis ratios from another (e.g. starcut <em>x</em> + circlecut inner <em>y</em>). These capture asymmetric designs where the longitudinal and transverse rib geometry follow different proportional systems.</p>
+<h2 id="what-the-application-does">What the application does<a class="headerlink" href="#what-the-application-does" title="Permanent link">¶</a></h2>
+<p>When you run matching, the backend performs the following:</p>
+<ol>
+<li><strong>Build template variants</strong> — for each enabled family, generate keypoints in (u, v) unit space. Standard grids use <code>n</code>-by-<code>n</code> intersections; circle variants compute ray–circle intersections and construction-line crossings.</li>
+<li><strong>Extract ratio sets</strong> — from each variant's keypoints, extract the unique <em>x</em>-ratios and <em>y</em>-ratios (the fractional positions along each axis).</li>
+<li><strong>Match bosses to ratios</strong> — for every boss, find the nearest <em>x</em>-ratio and <em>y</em>-ratio. If both distances fall within the configured tolerance, the boss is counted as matched to that variant.</li>
+<li><strong>Rank variants</strong> — variants are sorted by the number of matched bosses, with ties usually broken in favour of simpler templates.</li>
+<li><strong>Persist results</strong> — the full matching payload is saved to <code>cut_typology_result.json</code> and a per-boss CSV to <code>boss_cut_typology_match.csv</code>.</li>
+</ol>
+<p>For each matched boss the result includes an idealised template position. These ideal positions can then be preferred over raw centroids during reconstruction.</p>
+<h2 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Starcut Min <em>n</em></td>
+<td>2</td>
+<td>Lower bound for standard-grid divisors</td>
+</tr>
+<tr>
+<td>Starcut Max <em>n</em></td>
+<td>6</td>
+<td>Upper bound for standard-grid divisors</td>
+</tr>
+<tr>
+<td>Include starcut</td>
+<td>On</td>
+<td>Enable standard <em>n</em>-by-<em>n</em> grid variants</td>
+</tr>
+<tr>
+<td>Include circlecut inner</td>
+<td>On</td>
+<td>Enable the inner circle variant</td>
+</tr>
+<tr>
+<td>Include circlecut outer</td>
+<td>On</td>
+<td>Enable the outer circle variant</td>
+</tr>
+<tr>
+<td>Allow cross templates</td>
+<td>On</td>
+<td>Allow <em>x</em>/<em>y</em> ratios from different families</td>
+</tr>
+<tr>
+<td>Ratio tolerance</td>
+<td>0.01</td>
+<td>Maximum absolute ratio distance for a coordinate to count as matched</td>
+</tr>
+</tbody>
+</table>
+<h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
+<ul>
+<li>Review the matching settings if you need to narrow or widen the search.</li>
+<li>Run the matching and inspect the ranked result.</li>
+<li>Compare the template overlays against the boss positions on the canvas.</li>
+<li>Continue only when the leading result looks plausible against the visible geometry.</li>
+</ul>
+<h2 id="why-it-matters">Why it matters<a class="headerlink" href="#why-it-matters" title="Permanent link">¶</a></h2>
+<p>The matching result directly informs reconstruction. A good match can stabilise the bay plan; a bad match can push the reconstruction toward the wrong geometry.</p>
+<h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
+<p>Before continuing to sub-stage 4D you should have:</p>
+<ul>
+<li>a completed matching result with a believable leading template</li>
+<li>boss placements that broadly agree with the chosen overlay</li>
+<li>enough confidence to proceed to reconstruction</li>
+</ul>
+<div class="footnote">
+<hr>
+<ol>
+<li id="fn:1">
+<p>For a detailed account of starcut geometry and its application in medieval vaulting see <a href="https://www.tracingthepast.org.uk/2021/04/07/designing_plans/">Plans — Tracing the Past</a>.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+</li>
+</ol>
+</div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../reference-points/" class="btn btn-neutral float-left" title="Reference Points"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../bay-plan-reconstruction/" class="btn btn-neutral float-right" title="Bay-Plan Reconstruction">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/DavidJBoardman/ai-vault-dashboard" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
+    
+      <span><a href="../reference-points/" style="color: #fcfcfc">« Previous</a></span>
+    
+    
+      <span><a href="../bay-plan-reconstruction/" style="color: #fcfcfc">Next »</a></span>
+    
+  </span>
+</div>
+    <script src="../../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../../..";</script>
+    <script src="../../../js/theme_extra.js"></script>
+    <script src="../../../js/theme.js"></script>
+      <script src="../../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+
+
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+</script></body></html>
