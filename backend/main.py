@@ -14,7 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
-from routers import upload, projection, segmentation, geometry, export, project
+from routers import upload, projection, segmentation, geometry, geometry2d, export, project
+from services.app_paths import ensure_data_dirs
 from services.progress_manager import ProgressManager
 from services.e57_processor import get_processor
 
@@ -30,13 +31,7 @@ async def lifespan(app: FastAPI):
     print("=" * 50)
     
     # Create necessary directories
-    data_dir = Path("./data")
-    data_dir.mkdir(exist_ok=True)
-    (data_dir / "uploads").mkdir(exist_ok=True)
-    (data_dir / "projections").mkdir(exist_ok=True)
-    (data_dir / "segmentations").mkdir(exist_ok=True)
-    (data_dir / "exports").mkdir(exist_ok=True)
-    (data_dir / "projects").mkdir(exist_ok=True)
+    data_dir = ensure_data_dirs()
     
     print(f"Data directory: {data_dir.absolute()}")
     print("Backend ready!")
@@ -51,7 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Vault Analyser API",
     description="Backend API for Medieval Vault Architecture Analysis",
-    version="1.0.0",
+    version="0.1.0",
     lifespan=lifespan,
 )
 
@@ -69,6 +64,7 @@ app.include_router(upload.router, prefix="/api/upload", tags=["Upload"])
 app.include_router(projection.router, prefix="/api/projection", tags=["Projection"])
 app.include_router(segmentation.router, prefix="/api/segmentation", tags=["Segmentation"])
 app.include_router(geometry.router, prefix="/api/geometry", tags=["Geometry"])
+app.include_router(geometry2d.router, prefix="/api/geometry2d", tags=["Geometry2D"])
 app.include_router(export.router, prefix="/api/export", tags=["Export"])
 app.include_router(project.router, prefix="/api/project", tags=["Project"])
 
@@ -158,7 +154,7 @@ async def root():
     """Root endpoint with API info."""
     return {
         "name": "Vault Analyzer API",
-        "version": "1.0.0",
+        "version": "0.1.0",
         "docs": "/docs",
         "health": "/health",
     }

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1510"/>
+      <stop offset="100%" style="stop-color:#12100a"/>
+    </linearGradient>
+    <linearGradient id="rib" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0c050"/>
+      <stop offset="100%" style="stop-color:#d4922a"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect x="16" y="16" width="480" height="480" rx="80" fill="url(#bg)"/>
+
+  <!-- Two diagonal ribs — the vault X -->
+  <!-- Top-left to bottom-right, bows right -->
+  <path d="M 100 100 Q 330 182 412 412" fill="none" stroke="url(#rib)" stroke-width="18" stroke-linecap="round" filter="url(#glow)"/>
+  <!-- Bottom-left to top-right, bows left (mirror) -->
+  <path d="M 100 412 Q 182 330 412 100" fill="none" stroke="url(#rib)" stroke-width="18" stroke-linecap="round" filter="url(#glow)"/>
+
+  <!-- Keystone -->
+  <circle cx="256" cy="256" r="28" fill="#f0c050" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="14" fill="#12100a"/>
+</svg>

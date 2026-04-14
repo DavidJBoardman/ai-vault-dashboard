@@ -10,11 +10,42 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from services.app_paths import get_data_root
+from services.projection import get_projection_service
+
 router = APIRouter()
 
 # Project data directory
-PROJECT_DATA_DIR = Path(__file__).parent.parent / "data"
+PROJECT_DATA_DIR = get_data_root()
 PROJECTIONS_DIR = PROJECT_DATA_DIR / "projections"
+PROJECT_LOG_PATH = get_data_root() / "logs" / "project.log"
+MAX_LOG_BYTES = 5 * 1024 * 1024
+RETAINED_LOG_BYTES = 1 * 1024 * 1024
+
+
+def rotate_log_if_needed(log_path: Path) -> None:
+    """Trim oversized logs so packaged diagnostics stay bounded."""
+    try:
+        if not log_path.exists() or log_path.stat().st_size <= MAX_LOG_BYTES:
+            return
+        with log_path.open("rb") as handle:
+            handle.seek(max(0, log_path.stat().st_size - RETAINED_LOG_BYTES))
+            trimmed = handle.read()
+        with log_path.open("wb") as handle:
+            handle.write(trimmed)
+    except Exception:
+        pass
+
+
+def append_project_log(message: str) -> None:
+    """Write project list/load/save diagnostics to the runtime log folder."""
+    try:
+        PROJECT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        rotate_log_if_needed(PROJECT_LOG_PATH)
+        with PROJECT_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(f"[{datetime.utcnow().isoformat()}Z] {message}\n")
+    except Exception:
+        pass
 
 
 class SegmentationData(BaseModel):
@@ -74,6 +105,7 @@ def get_project_dir(project_id: str) -> Path:
     """Get or create project directory."""
     project_dir = PROJECT_DATA_DIR / "projects" / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
+    append_project_log(f"ensure project_dir project_id={project_id} path={project_dir}")
     return project_dir
 
 
@@ -208,6 +240,11 @@ async def save_project(request: ProjectSaveRequest):
     - segmentations/group_{group_id}.png: Combined masks per group
     """
     try:
+        append_project_log(
+            f"save start project_id={request.projectId} name={request.projectName!r} "
+            f"projection_count={len(request.projections)} segmentation_count={len(request.segmentations)} "
+            f"data_root={PROJECT_DATA_DIR}"
+        )
         from PIL import Image
         
         project_dir = get_project_dir(request.projectId)
@@ -286,7 +323,7 @@ async def save_project(request: ProjectSaveRequest):
         if all_masks:
             combined_all_path = seg_dir / "combined_all.png"
             if create_combined_mask(all_masks, combined_all_path):
-                print(f"  ✓ Created combined_all.png ({len(all_masks)} masks)")
+                print(f"  [OK] Created combined_all.png ({len(all_masks)} masks)")
         
         # Create combined masks for each group
         group_summary = []
@@ -296,7 +333,7 @@ async def save_project(request: ProjectSaveRequest):
                 group_path = seg_dir / group_filename
                 
                 if create_combined_mask(group_data["masks"], group_path):
-                    print(f"  ✓ Created {group_filename} ({group_data['count']} masks)")
+                    print(f"  [OK] Created {group_filename} ({group_data['count']} masks)")
                 
                 group_summary.append({
                     "groupId": group_id,
@@ -340,9 +377,9 @@ async def save_project(request: ProjectSaveRequest):
                     "files": proj_info.get("files", {}),
                     "metadata": proj_info.get("metadata", {}),
                 })
-                print(f"  ✓ Copied projection {proj.id}: {len(proj_info.get('files', {}))} files")
+                print(f"  [OK] Copied projection {proj.id}: {len(proj_info.get('files', {}))} files")
             except Exception as e:
-                print(f"  ✗ Error copying projection {proj.id}: {e}")
+                print(f"  [ERROR] Error copying projection {proj.id}: {e}")
                 import traceback
                 traceback.print_exc()
                 # Still include the projection reference without local files
@@ -366,8 +403,21 @@ async def save_project(request: ProjectSaveRequest):
                 "totalCount": len(projection_refs),
             }, f, indent=2)
         
-        # Build project metadata
+        # Preserve existing progress fields when saving project assets.
+        project_path = project_dir / "project.json"
+        existing_project_data: Dict[str, Any] = {}
+        if project_path.exists():
+            try:
+                with open(project_path, "r") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    existing_project_data = loaded
+            except Exception as e:
+                print(f"Warning: failed to read existing project metadata before save: {e}")
+
+        # Build project metadata and merge over existing fields
         project_data = {
+            **existing_project_data,
             "id": request.projectId,
             "name": request.projectName,
             "e57Path": request.e57Path,
@@ -380,13 +430,16 @@ async def save_project(request: ProjectSaveRequest):
         }
         
         # Save project.json
-        project_path = project_dir / "project.json"
         with open(project_path, "w") as f:
             json.dump(project_data, f, indent=2)
         
-        print(f"✓ Project saved: {request.projectId}")
+        print(f"[OK] Project saved: {request.projectId}")
         print(f"  - {len(projection_refs)} projections")
         print(f"  - {len(segmentation_refs)} segmentations in {len(groups)} groups")
+        append_project_log(
+            f"save complete project_id={request.projectId} path={project_path} "
+            f"projection_index={proj_index_path.exists()} segmentation_index={seg_index_path.exists()}"
+        )
         
         return {
             "success": True,
@@ -398,6 +451,7 @@ async def save_project(request: ProjectSaveRequest):
         
     except Exception as e:
         print(f"Error saving project: {e}")
+        append_project_log(f"save exception project_id={request.projectId} error={type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -411,10 +465,17 @@ async def save_progress(request: SaveProgressRequest):
     This updates project.json with currentStep and steps state.
     """
     try:
-        project_dir = get_project_dir(request.projectId)
+        project_dir = PROJECT_DATA_DIR / "projects" / request.projectId
         project_path = project_dir / "project.json"
+        append_project_log(
+            f"save-progress start project_id={request.projectId} current_step={request.currentStep} "
+            f"project_dir_exists={project_dir.exists()} project_json_exists={project_path.exists()}"
+        )
         
         if not project_path.exists():
+            append_project_log(
+                f"save-progress skipped project_id={request.projectId} reason=project.json missing path={project_path}"
+            )
             return {"success": False, "error": f"Project not found: {request.projectId}"}
         
         # Load existing project data
@@ -430,7 +491,10 @@ async def save_progress(request: SaveProgressRequest):
         with open(project_path, "w") as f:
             json.dump(project_data, f, indent=2)
         
-        print(f"✓ Progress saved: step {request.currentStep}, {len(request.steps)} completed steps")
+        print(f"[OK] Progress saved: step {request.currentStep}, {len(request.steps)} completed steps")
+        append_project_log(
+            f"save-progress complete project_id={request.projectId} current_step={request.currentStep}"
+        )
         
         return {
             "success": True,
@@ -440,6 +504,7 @@ async def save_progress(request: SaveProgressRequest):
         
     except Exception as e:
         print(f"Error saving progress: {e}")
+        append_project_log(f"save-progress exception project_id={request.projectId} error={type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
         return {"success": False, "error": str(e)}
@@ -455,8 +520,12 @@ async def load_project(project_id: str):
     try:
         project_dir = get_project_dir(project_id)
         project_path = project_dir / "project.json"
+        append_project_log(
+            f"load start project_id={project_id} project_dir={project_dir} project_json_exists={project_path.exists()}"
+        )
         
         if not project_path.exists():
+            append_project_log(f"load missing project_id={project_id} path={project_path}")
             return ProjectLoadResponse(
                 success=False,
                 error=f"Project not found: {project_id}"
@@ -512,6 +581,7 @@ async def load_project(project_id: str):
         proj_index_path = proj_dir / "index.json"
         
         projections = []
+        projection_service = get_projection_service()
         if proj_index_path.exists():
             with open(proj_index_path, "r") as f:
                 proj_index = json.load(f)
@@ -520,23 +590,54 @@ async def load_project(project_id: str):
             
             for proj_ref in proj_refs:
                 proj_data = proj_ref.copy()
-                
+
                 # Load images as base64 if files exist
                 files = proj_ref.get("files", {})
                 images = {}
-                
+                projection_paths: Dict[str, str] = {}
+
                 for img_type, filename in files.items():
+                    img_path = proj_dir / filename
+                    if not img_path.exists():
+                        continue
+
                     if img_type in ["colour", "depthGrayscale", "depthPlasma"]:
-                        img_path = proj_dir / filename
-                        if img_path.exists():
-                            with open(img_path, "rb") as f:
-                                img_bytes = f.read()
-                            images[img_type] = f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}"
-                
+                        with open(img_path, "rb") as f:
+                            img_bytes = f.read()
+                        images[img_type] = f"data:image/png;base64,{base64.b64encode(img_bytes).decode()}"
+
+                    projection_paths[img_type] = str(img_path)
+
+                projection_service.register_projection(
+                    proj_ref["id"],
+                    perspective=proj_ref.get("perspective", "top"),
+                    resolution=proj_ref.get("resolution", 2048),
+                    sigma=proj_ref.get("sigma", 1.0),
+                    kernel_size=proj_ref.get("kernelSize", 5),
+                    bottom_up=proj_ref.get("bottomUp", True),
+                    metadata=proj_ref.get("metadata", {}),
+                    paths={
+                        "colour": projection_paths.get("colour", ""),
+                        "depth_grayscale": projection_paths.get("depthGrayscale", ""),
+                        "depth_plasma": projection_paths.get("depthPlasma", ""),
+                        "depth_raw": projection_paths.get("depthRaw", ""),
+                        "coordinates": projection_paths.get("coordinates", ""),
+                        "metadata": projection_paths.get("metadata", ""),
+                    },
+                )
+
                 proj_data["images"] = images
                 projections.append(proj_data)
+                append_project_log(
+                    f"load projection project_id={project_id} projection_id={proj_ref['id']} "
+                    f"file_keys={sorted(files.keys())} image_keys={sorted(images.keys())}"
+                )
         
         project_data["projections"] = projections
+        append_project_log(
+            f"load complete project_id={project_id} projections={len(projections)} "
+            f"segmentations={len(segmentations)} selected_projection_id={project_data.get('selectedProjectionId')}"
+        )
         
         return ProjectLoadResponse(
             success=True,
@@ -545,6 +646,7 @@ async def load_project(project_id: str):
         
     except Exception as e:
         print(f"Error loading project: {e}")
+        append_project_log(f"load exception project_id={project_id} error={type(e).__name__}: {e}")
         return ProjectLoadResponse(
             success=False,
             error=str(e)
@@ -556,14 +658,19 @@ async def list_projects():
     """List all saved projects."""
     try:
         projects_dir = PROJECT_DATA_DIR / "projects"
+        append_project_log(f"list start projects_dir={projects_dir} exists={projects_dir.exists()}")
         
         if not projects_dir.exists():
+            append_project_log("list complete count=0 reason=projects dir missing")
             return {"projects": []}
         
         projects = []
         for project_dir in projects_dir.iterdir():
             if project_dir.is_dir():
                 project_path = project_dir / "project.json"
+                append_project_log(
+                    f"list inspect project_dir={project_dir} project_json_exists={project_path.exists()}"
+                )
                 if project_path.exists():
                     with open(project_path, "r") as f:
                         project_data = json.load(f)
@@ -576,11 +683,13 @@ async def list_projects():
         
         # Sort by updated time
         projects.sort(key=lambda p: p.get("updatedAt", ""), reverse=True)
+        append_project_log(f"list complete count={len(projects)}")
         
         return {"projects": projects}
         
     except Exception as e:
         print(f"Error listing projects: {e}")
+        append_project_log(f"list exception error={type(e).__name__}: {e}")
         return {"projects": [], "error": str(e)}
 
 
@@ -613,7 +722,7 @@ async def delete_project(project_id: str):
         # Remove the entire project directory
         shutil.rmtree(project_dir)
         
-        print(f"✓ Deleted project '{project_name}' ({project_id})")
+        print(f"[OK] Deleted project '{project_name}' ({project_id})")
         
         return {"success": True, "projectId": project_id, "name": project_name}
         
@@ -723,30 +832,151 @@ def point_in_rotated_rect(px: float, py: float, roi: dict) -> bool:
     return abs(local_x) <= w / 2 and abs(local_y) <= h / 2
 
 
-def bbox_overlaps_roi(bbox: List[int], roi: dict, overlap_threshold: float = 0.5) -> bool:
+def _roi_corners_from_params(roi: dict) -> List[List[float]]:
+    """Compute 4 ROI corners from centre/size/rotation when explicit corners are absent."""
+    import math
+
+    cx = float(roi.get("x", 0.0))
+    cy = float(roi.get("y", 0.0))
+    w = float(roi.get("width", 0.0))
+    h = float(roi.get("height", 0.0))
+    angle = math.radians(float(roi.get("rotation", 0.0)))
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+    hw = w / 2.0
+    hh = h / 2.0
+    local = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
+    return [[cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a] for dx, dy in local]
+
+
+def _roi_polygon(roi: dict) -> List[List[float]]:
+    """Return ROI polygon, preferring explicit corners if present."""
+    corners = roi.get("corners")
+    if isinstance(corners, list) and len(corners) == 4:
+        try:
+            parsed = [[float(p[0]), float(p[1])] for p in corners]
+            return parsed
+        except Exception:
+            pass
+    return _roi_corners_from_params(roi)
+
+
+def _roi_polygon_variants_for_image(roi: dict, img_w: int, img_h: int) -> List[List[List[float]]]:
+    """Generate plausible ROI polygons for the mask image coordinate space."""
+    poly = _roi_polygon(roi)
+    variants: List[List[List[float]]] = [poly]
+
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    max_abs = max([1.0] + [abs(v) for v in xs + ys])
+
+    # Variant 1: ROI stored in unit space [0..1] -> image pixels.
+    if max_abs <= 2.0:
+        variants.append([[x * img_w, y * img_h] for x, y in poly])
+
+    # Variant 2: ROI stored in a larger pixel frame (e.g. 2048) than current mask.
+    # Downscale uniformly to fit mask extent.
+    limit = float(max(img_w, img_h))
+    if max_abs > limit * 1.2:
+        scale = limit / max_abs
+        variants.append([[x * scale, y * scale] for x, y in poly])
+
+    # Deduplicate near-identical variants
+    unique: List[List[List[float]]] = []
+    seen = set()
+    for v in variants:
+        key = tuple((round(p[0], 2), round(p[1], 2)) for p in v)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(v)
+    return unique
+
+
+def _bbox_to_xywh_candidates(bbox: List[float]) -> List[List[float]]:
     """
-    Check if a bounding box overlaps with the ROI.
-    
-    Uses the bbox center point for simple check, or can use overlap area.
-    
-    Args:
-        bbox: [x, y, width, height] in pixels
-        roi: ROI dict with x, y (center), width, height, rotation
-        overlap_threshold: Minimum overlap ratio to consider "inside"
-    
-    Returns:
-        True if bbox center is inside ROI or significant overlap
+    Build plausible bbox interpretations.
+    Input may be [x,y,w,h] or [x1,y1,x2,y2].
     """
     if not bbox or len(bbox) < 4:
+        return []
+    x1, y1, a, b = [float(v) for v in bbox[:4]]
+    candidates: List[List[float]] = []
+
+    # As [x,y,w,h]
+    if a > 0 and b > 0:
+        candidates.append([x1, y1, a, b])
+
+    # As [x1,y1,x2,y2]
+    w2 = a - x1
+    h2 = b - y1
+    if w2 > 0 and h2 > 0:
+        candidates.append([x1, y1, w2, h2])
+
+    return candidates
+
+
+def bbox_overlaps_roi(bbox: List[int], roi: dict) -> bool:
+    """Fallback inside test using bbox points against rotated ROI."""
+    if not bbox or len(bbox) < 4:
         return False
-    
-    # Get bbox center
-    bx, by, bw, bh = bbox
-    center_x = bx + bw / 2
-    center_y = by + bh / 2
-    
-    # Check if center is inside ROI
-    return point_in_rotated_rect(center_x, center_y, roi)
+
+    for bx, by, bw, bh in _bbox_to_xywh_candidates([float(v) for v in bbox]):
+        points = [
+            (bx + bw / 2.0, by + bh / 2.0),  # centre
+            (bx, by),                        # corners
+            (bx + bw, by),
+            (bx + bw, by + bh),
+            (bx, by + bh),
+        ]
+        if any(point_in_rotated_rect(px, py, roi) for px, py in points):
+            return True
+    return False
+
+
+def _mask_inside_roi(seg: dict, roi: dict, seg_dir: Path, overlap_threshold: float = 0.05) -> Optional[bool]:
+    """
+    Determine insideRoi by pixel overlap between saved mask image and ROI polygon.
+    Returns None when mask image is unavailable.
+    """
+    mask_file = seg.get("maskFile")
+    if not isinstance(mask_file, str):
+        return None
+    mask_path = seg_dir / mask_file
+    if not mask_path.exists():
+        return None
+
+    try:
+        from PIL import Image, ImageDraw
+        import numpy as np
+
+        with Image.open(mask_path).convert("RGBA") as img:
+            w, h = img.size
+            arr = np.array(img)
+
+        # Use alpha as primary signal; fallback to RGB non-black.
+        alpha = arr[:, :, 3]
+        rgb_sum = arr[:, :, 0] + arr[:, :, 1] + arr[:, :, 2]
+        mask_pixels = (alpha > 0) | (rgb_sum > 0)
+        mask_count = int(mask_pixels.sum())
+        if mask_count == 0:
+            return False
+
+        best_overlap_ratio = 0.0
+        for roi_poly in _roi_polygon_variants_for_image(roi, w, h):
+            roi_img = Image.new("L", (w, h), 0)
+            draw = ImageDraw.Draw(roi_img)
+            draw.polygon([(float(x), float(y)) for x, y in roi_poly], fill=255)
+            roi_pixels = np.array(roi_img) > 0
+            overlap = int((mask_pixels & roi_pixels).sum())
+            overlap_ratio = overlap / mask_count
+            if overlap_ratio > best_overlap_ratio:
+                best_overlap_ratio = overlap_ratio
+
+        return best_overlap_ratio >= overlap_threshold
+    except Exception as e:
+        print(f"Warning: failed ROI overlap check from maskFile '{mask_file}': {e}")
+        return None
 
 
 @router.post("/save-roi")
@@ -755,9 +985,9 @@ async def save_roi(request: SaveROIRequest):
     Save Region of Interest (ROI) for a project and update all segmentations
     with insideRoi flag.
     
-    The ROI is stored in the segmentation index.json, and each segmentation
-    is updated with insideRoi: true/false based on whether its bbox center
-    falls within the ROI.
+    The ROI is stored in segmentations/index.json. Each segmentation receives
+    insideRoi=true/false using pixel overlap against the saved mask image
+    when available, with bbox-based fallback.
     """
     try:
         project_dir = get_project_dir(request.projectId)
@@ -790,17 +1020,16 @@ async def save_roi(request: SaveROIRequest):
         outside_count = 0
         
         for seg in segmentations:
-            bbox = seg.get("bbox")
-            if bbox:
-                is_inside = bbox_overlaps_roi(bbox, roi_dict)
-                seg["insideRoi"] = is_inside
-                if is_inside:
-                    inside_count += 1
-                else:
-                    outside_count += 1
+            # Prefer robust pixel-overlap classification using mask image.
+            overlap_inside = _mask_inside_roi(seg, roi_dict, seg_dir)
+            if overlap_inside is None:
+                bbox = seg.get("bbox")
+                overlap_inside = bbox_overlaps_roi(bbox, roi_dict) if bbox else False
+
+            seg["insideRoi"] = bool(overlap_inside)
+            if seg["insideRoi"]:
+                inside_count += 1
             else:
-                # No bbox, can't determine - default to False
-                seg["insideRoi"] = False
                 outside_count += 1
         
         index_data["segmentations"] = segmentations
@@ -819,8 +1048,8 @@ async def save_roi(request: SaveROIRequest):
         with open(seg_index_path, "w") as f:
             json.dump(index_data, f, indent=2)
         
-        print(f"✓ Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f}°")
-        print(f"  → {inside_count} masks inside ROI, {outside_count} outside")
+        print(f"[OK] Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f} degrees")
+        print(f"  {inside_count} masks inside ROI, {outside_count} outside")
         
         return {
             "success": True,
@@ -1123,7 +1352,7 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
                     "label": "",
                 })
         
-        print(f"✓ Applied masks to E57 point cloud:")
+        print("[OK] Applied masks to E57 point cloud:")
         print(f"  - Total points processed: {len(points_subset):,}")
         print(f"  - Masked points: {masked_count:,}")
         print(f"  - Unmasked points: {unmasked_count:,}")
@@ -1363,7 +1592,7 @@ async def trace_intrados(request: IntradosTraceRequest):
         with open(intrados_path, "w") as f:
             json.dump(intrados_data, f, indent=2)
         
-        print(f"✓ Traced {len(lines)} intrados lines from {len(rib_segmentations)} ribs")
+        print(f"[OK] Traced {len(lines)} intrados lines from {len(rib_segmentations)} ribs")
         print(f"  Saved to: {intrados_path}")
         
         # Verify save

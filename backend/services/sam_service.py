@@ -7,6 +7,7 @@ Reference: https://huggingface.co/facebook/sam3/discussions/11
 
 import base64
 import io
+import os
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -20,46 +21,37 @@ print(f"Python executable: {sys.executable}")
 print(f"Python version: {sys.version.split()[0]}")
 print("=" * 60)
 
-try:
-    from PIL import Image
-    HAS_PIL = True
-    print("✓ PIL/Pillow imported")
-except ImportError as e:
-    HAS_PIL = False
-    print(f"✗ PIL import failed: {e}")
+Image = None
+torch = None
+Sam3Processor = None
+Sam3Model = None
 
-# PyTorch import and device detection
-HAS_TORCH = False
+HAS_PIL = None
+HAS_TORCH = None
+HAS_SAM3 = None
 DEVICE = "cpu"
-try:
-    import torch
-    HAS_TORCH = True
-    # Prefer MPS on macOS, then CUDA, then CPU
-    if torch.backends.mps.is_available():
-        DEVICE = "mps"
-        print(f"✓ PyTorch {torch.__version__} (MPS - Apple Silicon)")
-    elif torch.cuda.is_available():
-        DEVICE = "cuda"
-        print(f"✓ PyTorch {torch.__version__} (CUDA)")
-    else:
-        print(f"✓ PyTorch {torch.__version__} (CPU)")
-except ImportError as e:
-    print(f"✗ PyTorch import failed: {e}")
-
-# SAM 3 via HuggingFace Transformers
-HAS_SAM3 = False
-try:
-    print("Attempting to import SAM 3 via HuggingFace Transformers...")
-    from transformers import Sam3Processor, Sam3Model
-    HAS_SAM3 = True
-    print("✓ SAM 3 (HuggingFace) imported successfully!")
-except ImportError as e:
-    print(f"✗ SAM 3 HuggingFace import failed: {e}")
-    print("  Install with: pip install git+https://github.com/huggingface/transformers torchvision")
-except Exception as e:
-    print(f"✗ SAM 3 error: {type(e).__name__}: {e}")
 
 print("=" * 60)
+
+DEFAULT_SAM3_MODEL_ID = "jetjodh/sam3"
+
+
+def resolve_hf_token() -> Optional[str]:
+    """Resolve a Hugging Face token from supported environment variable names."""
+    for env_name in ("HF_TOKEN", "HF_TOKAN", "HUGGINGFACE_HUB_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        token = os.getenv(env_name)
+        if token:
+            return token
+    return None
+
+
+def resolve_sam3_model_id() -> str:
+    """Resolve the configured SAM 3 model, defaulting to the public model."""
+    return os.getenv("SAM3_MODEL_ID") or DEFAULT_SAM3_MODEL_ID
+
+
+SAM3_MODEL_ID = resolve_sam3_model_id()
+HF_TOKEN = resolve_hf_token()
 
 
 class SAM3Service:
@@ -83,23 +75,85 @@ class SAM3Service:
         self.model_loaded = False
         self.current_image = None
         self.current_image_id = None
-        
+        self.last_error = None
+
+    def _ensure_runtime_loaded(self) -> bool:
+        """Lazy-load heavy ML dependencies so backend startup stays responsive."""
+        global Image, torch, Sam3Processor, Sam3Model, HAS_PIL, HAS_TORCH, HAS_SAM3, DEVICE
+
+        if HAS_PIL is None:
+            try:
+                from PIL import Image as PILImage
+                Image = PILImage
+                HAS_PIL = True
+                print("[OK] PIL/Pillow imported")
+            except ImportError as e:
+                HAS_PIL = False
+                self.last_error = f"Pillow import failed: {e}"
+                print(f"[ERROR] PIL import failed: {e}")
+
+        if HAS_TORCH is None:
+            try:
+                import torch as torch_module
+                torch = torch_module
+                HAS_TORCH = True
+                if torch.backends.mps.is_available():
+                    DEVICE = "mps"
+                    print(f"[OK] PyTorch {torch.__version__} (MPS - Apple Silicon)")
+                elif torch.cuda.is_available():
+                    DEVICE = "cuda"
+                    print(f"[OK] PyTorch {torch.__version__} (CUDA)")
+                else:
+                    DEVICE = "cpu"
+                    print(f"[OK] PyTorch {torch.__version__} (CPU)")
+            except ImportError as e:
+                HAS_TORCH = False
+                self.last_error = f"PyTorch import failed: {e}"
+                print(f"[ERROR] PyTorch import failed: {e}")
+
+        if HAS_SAM3 is None:
+            try:
+                print("Attempting to import SAM 3 via HuggingFace Transformers...")
+                from transformers import Sam3Processor as Sam3ProcessorClass, Sam3Model as Sam3ModelClass
+                Sam3Processor = Sam3ProcessorClass
+                Sam3Model = Sam3ModelClass
+                HAS_SAM3 = True
+                print("[OK] SAM 3 (HuggingFace) imported successfully!")
+            except ImportError as e:
+                HAS_SAM3 = False
+                self.last_error = f"SAM 3 HuggingFace import failed: {e}"
+                print(f"[ERROR] SAM 3 HuggingFace import failed: {e}")
+                print("  Install with: pip install git+https://github.com/huggingface/transformers torchvision")
+            except Exception as e:
+                HAS_SAM3 = False
+                self.last_error = f"SAM 3 runtime failed to load: {type(e).__name__}: {e}"
+                print(f"[ERROR] SAM 3 error: {type(e).__name__}: {e}")
+
+        return bool(HAS_PIL and HAS_TORCH and HAS_SAM3)
+    
     def load_model(self) -> bool:
         """Load the SAM 3 model from HuggingFace."""
-        if not HAS_SAM3:
+        self.last_error = None
+        if not self._ensure_runtime_loaded():
             print("SAM 3 not available - transformers package not installed correctly")
+            self.last_error = self.last_error or "SAM 3 runtime is unavailable. Install transformers with SAM 3 support."
             return False
         
         if self.model_loaded:
             return True
         
         try:
-            print("Loading SAM 3 model from HuggingFace (facebook/sam3)...")
+            print(f"Loading SAM 3 model from HuggingFace ({SAM3_MODEL_ID})...")
             print("This may take a few minutes on first run to download the model...")
+            if HF_TOKEN:
+                print("Using HuggingFace token from environment.")
+            else:
+                print(f"No HuggingFace token found. Using public model access for {SAM3_MODEL_ID}.")
             
             # Load processor and model from HuggingFace
-            self.processor = Sam3Processor.from_pretrained("facebook/sam3")
-            self.model = Sam3Model.from_pretrained("facebook/sam3")
+            from_pretrained_kwargs = {"token": HF_TOKEN} if HF_TOKEN else {}
+            self.processor = Sam3Processor.from_pretrained(SAM3_MODEL_ID, **from_pretrained_kwargs)
+            self.model = Sam3Model.from_pretrained(SAM3_MODEL_ID, **from_pretrained_kwargs)
             
             # Move model to appropriate device
             if DEVICE != "cpu":
@@ -108,10 +162,26 @@ class SAM3Service:
             
             self.model.eval()  # Set to evaluation mode
             self.model_loaded = True
-            print(f"✓ SAM 3 model loaded successfully on {DEVICE}")
+            print(f"[OK] SAM 3 model loaded successfully on {DEVICE}")
             return True
             
         except Exception as e:
+            models_dir = Path(__file__).resolve().parents[2] / "models"
+            has_sam_v1_checkpoint = (models_dir / "sam_vit_h_4b8939.pth").exists()
+            if "gated repo" in str(e).lower():
+                if has_sam_v1_checkpoint:
+                    self.last_error = (
+                        f"Cannot access HuggingFace model {SAM3_MODEL_ID} (gated repo). "
+                        "Local checkpoint models/sam_vit_h_4b8939.pth is SAM v1 and is not compatible with this SAM 3 pipeline."
+                    )
+                else:
+                    self.last_error = (
+                        f"Cannot access HuggingFace model {SAM3_MODEL_ID} (gated repo). "
+                        "Request access and authenticate with HF_TOKEN."
+                    )
+            else:
+                self.last_error = f"Error loading SAM 3 model: {e}"
+
             print(f"Error loading SAM 3 model: {e}")
             import traceback
             traceback.print_exc()
@@ -119,6 +189,9 @@ class SAM3Service:
     
     def set_image_from_base64(self, image_base64: str, image_id: str) -> bool:
         """Set the image for prediction from base64 string."""
+        if not self._ensure_runtime_loaded():
+            return False
+
         if not self.model_loaded:
             if not self.load_model():
                 return False
@@ -135,11 +208,12 @@ class SAM3Service:
             self.current_image = image
             self.current_image_id = image_id
             
-            print(f"✓ Image set for SAM 3: {image.size}")
+            print(f"[OK] Image set for SAM 3: {image.size}")
             return True
             
         except Exception as e:
             print(f"Error setting image: {e}")
+            self.last_error = f"Error setting image: {e}"
             import traceback
             traceback.print_exc()
             return False
@@ -160,6 +234,8 @@ class SAM3Service:
         Returns:
             List of mask dictionaries with id, label, color, maskBase64, etc.
         """
+        self.last_error = None
+
         if not self.model_loaded or self.current_image is None:
             print("Model not loaded or no image set")
             return []
@@ -217,7 +293,7 @@ class SAM3Service:
                 boxes = results.get("boxes", [])
                 scores = results.get("scores", [])
                 
-                print(f"  → Found {len(masks)} masks for '{prompt}'")
+                print(f"  Found {len(masks)} masks for '{prompt}'")
                 
                 # Process each mask for this prompt
                 for mask_idx, mask in enumerate(masks):
@@ -255,14 +331,15 @@ class SAM3Service:
                     
                     if mask_info:
                         all_masks.append(mask_info)
-                        print(f"    → Mask {mask_idx + 1}: label='{mask_info['label']}', "
+                        print(f"    Mask {mask_idx + 1}: label='{mask_info['label']}', "
                               f"color={mask_info['color']}, area={mask_info['area']}")
             
-            print(f"✓ SAM 3 segmentation complete: {len(all_masks)} total masks")
+            print(f"[OK] SAM 3 segmentation complete: {len(all_masks)} total masks")
             return all_masks
                 
         except Exception as e:
             print(f"Error with SAM 3 text segmentation: {e}")
+            self.last_error = f"SAM 3 text segmentation failed: {type(e).__name__}: {e}"
             import traceback
             traceback.print_exc()
             return []
@@ -287,6 +364,8 @@ class SAM3Service:
         Returns:
             List of mask dictionaries
         """
+        self.last_error = None
+
         if not self.model_loaded or self.current_image is None:
             print("Model not loaded or no image set")
             return []
@@ -348,7 +427,7 @@ class SAM3Service:
             result_boxes = results.get("boxes", [])
             scores = results.get("scores", [])
             
-            print(f"  → Found {len(masks)} masks from box prompt")
+            print(f"  Found {len(masks)} masks from box prompt")
             
             # Bright colors for box-prompted masks
             color_palette = [
@@ -394,13 +473,14 @@ class SAM3Service:
                 
                 if mask_info:
                     all_masks.append(mask_info)
-                    print(f"    → Mask {mask_idx + 1}: area={mask_info['area']}, score={score:.2f}")
+                    print(f"    Mask {mask_idx + 1}: area={mask_info['area']}, score={score:.2f}")
             
-            print(f"✓ Box segmentation complete: {len(all_masks)} masks")
+            print(f"[OK] Box segmentation complete: {len(all_masks)} masks")
             return all_masks
             
         except Exception as e:
             print(f"Error with box segmentation: {e}")
+            self.last_error = f"SAM 3 box segmentation failed: {type(e).__name__}: {e}"
             import traceback
             traceback.print_exc()
             return []
@@ -410,6 +490,8 @@ class SAM3Service:
         Generate masks automatically without prompts.
         Uses a generic prompt to detect all objects.
         """
+        self.last_error = None
+
         if not self.model_loaded or self.current_image is None:
             return []
         
@@ -420,6 +502,7 @@ class SAM3Service:
             
         except Exception as e:
             print(f"Error generating automatic masks: {e}")
+            self.last_error = f"SAM 3 automatic segmentation failed: {type(e).__name__}: {e}"
             return []
     
     def _process_mask(
@@ -523,7 +606,7 @@ class SAM3Service:
     
     def is_available(self) -> bool:
         """Check if SAM 3 is available."""
-        return HAS_SAM3 and HAS_TORCH
+        return self._ensure_runtime_loaded()
     
     def is_loaded(self) -> bool:
         """Check if model is loaded."""

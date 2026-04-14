@@ -47,28 +47,74 @@ export default function HomePage() {
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
 
-  // Check backend and fetch saved projects on mount
+  // Check backend and fetch saved projects on mount and whenever the window
+  // becomes active again, so packaged builds recover after the backend comes up.
   useEffect(() => {
-    const init = async () => {
+    let cancelled = false;
+    let retryTimer: number | null = null;
+    const maxAttempts = 30;
+
+    const clearRetryTimer = () => {
+      if (retryTimer) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
+
+    const refreshProjects = async (attempt: number = 0) => {
+      clearRetryTimer();
+
       try {
+        if (!cancelled) {
+          setIsLoadingProjects(true);
+        }
+
         const isHealthy = await checkBackendHealth();
+        if (cancelled) return;
         setBackendOnline(isHealthy);
         
         if (isHealthy) {
-          setIsLoadingProjects(true);
           const response = await listProjects();
-          if (response.success && response.data) {
+          if (!cancelled && response.success && response.data) {
             setSavedProjects(response.data.projects);
           }
+          return;
+        }
+
+        if (attempt < maxAttempts) {
+          retryTimer = window.setTimeout(() => {
+            void refreshProjects(attempt + 1);
+          }, 1000);
         }
       } catch (error) {
         console.error("Failed to initialize:", error);
       } finally {
-        setIsLoadingProjects(false);
+        if (!cancelled) {
+          setIsLoadingProjects(false);
+        }
+      }
+    };
+
+    const handleWindowFocus = () => {
+      void refreshProjects();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshProjects();
       }
     };
     
-    init();
+    void refreshProjects();
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearRetryTimer();
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   const handleCreateProject = async () => {
@@ -88,19 +134,25 @@ export default function HomePage() {
       if (response.success && response.data?.project) {
         const projectData = response.data.project;
         
-        // Use the store's loadProjectFromData to properly set all project state
-        loadProjectFromData({
-          id: projectData.id,
-          name: projectData.name,
-          e57Path: projectData.e57Path,
-          selectedProjectionId: projectData.selectedProjectionId,
-          projections: projectData.projections,
-          segmentations: projectData.segmentations,
-          segmentationGroups: projectData.segmentationGroups,
-        });
-        
-        // Navigate to the appropriate step based on available data
-        if (projectData.segmentations?.length > 0) {
+        // Pass through full backend payload so persisted workflow state is restored.
+        loadProjectFromData(projectData);
+
+        // Resume from the saved workflow step when available.
+        const stepRouteMap: Record<number, string> = {
+          1: "/workflow/step-1-upload",
+          2: "/workflow/step-2-projection",
+          3: "/workflow/step-3-segmentation",
+          4: "/workflow/step-4-geometry-2d",
+          5: "/workflow/step-5-reprojection",
+          6: "/workflow/step-6-traces",
+          7: "/workflow/step-7-measurements",
+          8: "/workflow/step-8-analysis",
+        };
+        const savedStep = projectData.currentStep;
+        const savedRoute = typeof savedStep === "number" ? stepRouteMap[savedStep] : undefined;
+        if (savedRoute) {
+          router.push(savedRoute);
+        } else if (projectData.segmentations?.length > 0) {
           router.push("/workflow/step-4-geometry-2d");
         } else if (projectData.projections?.length > 0) {
           router.push("/workflow/step-3-segmentation");
@@ -388,12 +440,21 @@ export default function HomePage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border/40 py-4">
-        <div className="container mx-auto px-6 text-center text-sm text-muted-foreground">
-          <p>Vault Analyser v1.0.0 • Medieval Architecture Analysis Platform</p>
+      <footer className="border-t border-border/40 py-6">
+        <div className="container mx-auto px-6 flex flex-col items-center gap-4">
+          <div className="flex items-center gap-6">
+            <a href="https://www.liverpool.ac.uk/" target="_blank" rel="noopener noreferrer">
+              <img src="/logo-uol.svg" alt="University of Liverpool" className="h-8 opacity-70 hover:opacity-100 transition-opacity" />
+            </a>
+            <a href="https://www.virtualengineeringcentre.com/" target="_blank" rel="noopener noreferrer">
+              <img src="/logo-vec.png" alt="Virtual Engineering Centre" className="h-8 opacity-70 hover:opacity-100 transition-opacity" />
+            </a>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Vault Analyser v0.1.0 • Medieval Architecture Analysis Platform
+          </p>
         </div>
       </footer>
     </div>
   );
 }
-

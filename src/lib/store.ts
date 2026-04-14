@@ -85,6 +85,7 @@ export interface Project {
   updatedAt: Date;
   currentStep: number;
   steps: Record<number, StepState>;
+  stepData: Record<number, Record<string, any>>;  // Data saved by each step
   
   // Step 1: E57 data
   e57Path?: string;
@@ -161,6 +162,9 @@ interface ProjectStore {
     name: string;
     e57Path?: string;
     selectedProjectionId?: string;
+    currentStep?: number;
+    steps?: Record<string, { completed: boolean; data?: any }>;
+    roi?: { x: number; y: number; width: number; height: number; rotation?: number; corners?: number[][] };
     projections?: Array<{
       id: string;
       name?: string;
@@ -193,6 +197,8 @@ interface ProjectStore {
       label: string;
       color?: string;
       count?: number;
+      insideRoiCount?: number;
+      outsideRoiCount?: number;
     }>;
   }) => void;
   saveProject: () => Promise<void>;
@@ -207,11 +213,12 @@ interface ProjectStore {
   setE57Path: (path: string) => void;
   setPointCloudStats: (stats: Project["pointCloudStats"]) => void;
   addProjection: (projection: Project["projections"][0]) => void;
+  updateProjection: (id: string, updates: Partial<Project["projections"][0]>) => void;
   removeProjection: (id: string) => void;
   setSegmentations: (segmentations: Segmentation[]) => void;
   updateSegmentation: (id: string, updates: Partial<Segmentation>) => void;
   setIntradosLines: (lines: IntradosLine[]) => void;
-  setGeometryResult: (result: GeometryResult) => void;
+  setGeometryResult: (result: GeometryResult | null) => void;
   setReprojectionSelections: (selections: string[]) => void;
   addTrace3D: (trace: Project["traces3D"][0]) => void;
   addMeasurement: (measurement: Measurement) => void;
@@ -227,6 +234,7 @@ const initialProject = (): Project => ({
   updatedAt: new Date(),
   currentStep: 1,
   steps: {},
+  stepData: {},
   projections: [],
   segmentations: [],
   intradosLines: [],
@@ -375,7 +383,7 @@ export const useProjectStore = create<ProjectStore>()(
         // Type assertion for extended data that might include these fields
         const extendedData = data as typeof data & { 
           currentStep?: number; 
-          steps?: Record<number, StepState>;
+          steps?: Record<string, StepState>;
           roi?: { x: number; y: number; width: number; height: number; rotation?: number; corners?: number[][] };
         };
         
@@ -386,6 +394,38 @@ export const useProjectStore = create<ProjectStore>()(
         if (extendedData.steps && Object.keys(extendedData.steps).length > 0) {
           // Restore saved step states
           project.steps = extendedData.steps;
+
+          // One-time migration: move legacy Step-4 flat keys under data.geometry2d.
+          const step4 = project.steps[4];
+          const step4Data = step4?.data as
+            | {
+                geometry2d?: Record<string, unknown>;
+                roi?: unknown;
+                geometry2dPrep?: unknown;
+                geometryResult?: unknown;
+              }
+            | undefined;
+          if (step4Data) {
+            const hasLegacy =
+              step4Data.roi !== undefined ||
+              step4Data.geometry2dPrep !== undefined ||
+              step4Data.geometryResult !== undefined;
+            if (hasLegacy) {
+              project.steps[4] = {
+                completed: step4?.completed || false,
+                data: {
+                  ...step4Data,
+                  geometry2d: {
+                    ...(step4Data.geometry2d || {}),
+                    roi: (step4Data.geometry2d as { roi?: unknown } | undefined)?.roi ?? step4Data.roi,
+                    prep: (step4Data.geometry2d as { prep?: unknown } | undefined)?.prep ?? step4Data.geometry2dPrep,
+                    analysis:
+                      (step4Data.geometry2d as { analysis?: unknown } | undefined)?.analysis ?? step4Data.geometryResult,
+                  },
+                },
+              };
+            }
+          }
         } else {
           // Fallback: infer step completion from data
           project.steps[1] = { completed: true, data: { hasPointCloud: true } };
@@ -397,15 +437,44 @@ export const useProjectStore = create<ProjectStore>()(
           }
         }
         
-        // Store ROI if available (for step 4)
-        if (extendedData.roi) {
-          // Store ROI in step 4 data for restoration
-          project.steps[4] = { 
-            completed: project.steps[4]?.completed || false, 
-            data: { 
+        // Store ROI fallback if available (for step 4).
+        // `data.roi` from backend load is sourced from segmentations/index.json and
+        // can be in pixel units. Do not override an existing step-4 ROI snapshot.
+        const existingGeometry2dRoi = (
+          project.steps[4]?.data as { geometry2d?: { roi?: unknown } } | undefined
+        )?.geometry2d?.roi;
+        if (extendedData.roi && !existingGeometry2dRoi && !project.steps[4]?.data?.roi) {
+          const selectedProjection =
+            project.projections.find((p) => p.id === project.selectedProjectionId) || project.projections[0];
+          const resolution = selectedProjection?.settings?.resolution || 2048;
+          const roi = extendedData.roi;
+          const appearsPixelUnits =
+            roi.x > 1 || roi.y > 1 || roi.width > 1 || roi.height > 1;
+          const normalisedRoi = appearsPixelUnits
+            ? {
+                x: roi.x / resolution,
+                y: roi.y / resolution,
+                width: roi.width / resolution,
+                height: roi.height / resolution,
+                rotation: roi.rotation || 0,
+              }
+            : {
+                x: roi.x,
+                y: roi.y,
+                width: roi.width,
+                height: roi.height,
+                rotation: roi.rotation || 0,
+              };
+
+          project.steps[4] = {
+            completed: project.steps[4]?.completed || false,
+            data: {
               ...project.steps[4]?.data,
-              roi: extendedData.roi 
-            } 
+              geometry2d: {
+                ...((project.steps[4]?.data as { geometry2d?: Record<string, unknown> } | undefined)?.geometry2d || {}),
+                roi: normalisedRoi,
+              },
+            },
           };
         }
         
@@ -428,11 +497,43 @@ export const useProjectStore = create<ProjectStore>()(
       saveProject: async () => {
         const { currentProject } = get();
         if (!currentProject) return;
-        
+
+        const { saveProject } = await import("@/lib/api");
+        const response = await saveProject({
+          projectId: currentProject.id,
+          projectName: currentProject.name,
+          e57Path: currentProject.e57Path,
+          projections: currentProject.projections.map((projection) => ({
+            id: projection.id,
+            perspective: projection.settings.perspective,
+            resolution: projection.settings.resolution,
+            sigma: projection.settings.sigma,
+            kernelSize: projection.settings.kernelSize,
+            bottomUp: projection.settings.bottomUp,
+            scale: projection.settings.scale,
+          })),
+          segmentations: currentProject.segmentations.map((segmentation) => ({
+            id: segmentation.id,
+            label: segmentation.label,
+            color: segmentation.color,
+            maskBase64: segmentation.mask,
+            bbox: segmentation.bbox,
+            area: segmentation.area,
+            visible: segmentation.visible,
+            source: segmentation.source,
+          })),
+          selectedProjectionId: currentProject.selectedProjectionId,
+        });
+
+        if (!response.success) {
+          throw new Error(response.error || "Failed to save project");
+        }
+
         set((state) => ({
           currentProject: state.currentProject
             ? { ...state.currentProject, updatedAt: new Date() }
             : null,
+          error: null,
         }));
       },
 
@@ -471,6 +572,10 @@ export const useProjectStore = create<ProjectStore>()(
               ...state.currentProject,
               currentStep: step,
               steps: newSteps,
+              stepData: {
+                ...state.currentProject.stepData,
+                [step]: data || {},
+              },
             },
           };
         });
@@ -508,6 +613,28 @@ export const useProjectStore = create<ProjectStore>()(
             ? {
                 ...state.currentProject,
                 projections: [...state.currentProject.projections, projection],
+              }
+            : null,
+        }));
+      },
+
+      updateProjection: (id, updates) => {
+        set((state) => ({
+          currentProject: state.currentProject
+            ? {
+                ...state.currentProject,
+                projections: state.currentProject.projections.map((projection) =>
+                  projection.id === id
+                    ? {
+                        ...projection,
+                        ...updates,
+                        images: {
+                          ...projection.images,
+                          ...updates.images,
+                        },
+                      }
+                    : projection
+                ),
               }
             : null,
         }));
@@ -619,4 +746,3 @@ export const useProjectStore = create<ProjectStore>()(
     }
   )
 );
-

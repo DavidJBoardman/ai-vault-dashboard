@@ -1,68 +1,7 @@
 // API client for Python backend communication
+import { apiRequest, getBaseUrl, type ApiResponse } from "@/lib/api/base";
 
-const getBaseUrl = async (): Promise<string> => {
-  if (typeof window !== "undefined" && window.electronAPI) {
-    const port = await window.electronAPI.getPythonPort();
-    return `http://127.0.0.1:${port}`;
-  }
-  return "http://127.0.0.1:8765";
-};
-
-interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
-
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<ApiResponse<T>> {
-  try {
-    const baseUrl = await getBaseUrl();
-    const response = await fetch(`${baseUrl}${endpoint}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: "Unknown error" }));
-      return { success: false, error: error.detail || `HTTP ${response.status}` };
-    }
-
-    const data = await response.json();
-
-    // Many backend endpoints return { success: boolean, ... } without nesting under `data`.
-    // Preserve that success flag so callers don't treat failures as success.
-    if (data && typeof data === "object" && "success" in data) {
-      const anyData = data as any;
-      // If backend uses { success, data, error }, unwrap as before.
-      if ("data" in anyData) {
-        return {
-          success: !!anyData.success,
-          data: anyData.data as T,
-          error: anyData.error,
-        };
-      }
-      // Otherwise, treat the whole payload as the data.
-      return {
-        success: !!anyData.success,
-        data: data as T,
-        error: anyData.error,
-      };
-    }
-
-    return { success: true, data };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Network error",
-    };
-  }
-}
+export * from "@/lib/api/geometry2d";
 
 // Health check
 export async function checkBackendHealth(): Promise<boolean> {
@@ -81,10 +20,20 @@ export interface E57Info {
   hasIntensity: boolean;
 }
 
-export async function uploadE57(filePath: string): Promise<ApiResponse<E57Info>> {
+export async function uploadE57(file: string | File): Promise<ApiResponse<E57Info>> {
+  if (typeof file === "string") {
+    return apiRequest<E57Info>("/api/upload/e57", {
+      method: "POST",
+      body: JSON.stringify({ file_path: file }),
+    });
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
   return apiRequest<E57Info>("/api/upload/e57", {
     method: "POST",
-    body: JSON.stringify({ file_path: filePath }),
+    body: formData,
   });
 }
 
@@ -188,6 +137,14 @@ export async function getProjectionImage(
   } catch {
     return null;
   }
+}
+
+export async function getProjectionImageUrl(
+  projectionId: string,
+  imageType: "colour" | "depth_grayscale" | "depth_plasma" = "colour"
+): Promise<string> {
+  const baseUrl = await getBaseUrl();
+  return `${baseUrl}/api/projection/${projectionId}/file/${imageType}`;
 }
 
 export async function createProjection(
@@ -353,6 +310,7 @@ export interface MeasurementParams {
   traceId: string;
   segmentStart: number;
   segmentEnd: number;
+  tracePoints: Array<number[]>; // [[x, y, z], ...]
 }
 
 export interface MeasurementResult {
@@ -361,12 +319,80 @@ export interface MeasurementResult {
   apexPoint: { x: number; y: number; z: number };
   springingPoints: Array<{ x: number; y: number; z: number }>;
   fitError: number;
+  pointDistances: number[];
+  segmentPoints: Array<{ x: number; y: number; z: number }>;
+  arcCenter: { x: number; y: number; z: number };
 }
 
 export async function calculateMeasurements(
   params: MeasurementParams
 ): Promise<ApiResponse<MeasurementResult>> {
-  return apiRequest<MeasurementResult>("/api/measurements/calculate", {
+  return apiRequest<MeasurementResult>("/api/geometry/measurements/calculate", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// Impost Line Calculation
+export interface RibImpostData {
+  springing_z: number;
+  springing_point: { x: number; y: number; z: number };
+  impost_distance: number;
+}
+
+export interface ImpostLineResult {
+  impost_height: number;
+  num_ribs_used: number;
+  ribs: Record<string, RibImpostData>;
+}
+
+export interface ImpostLineRequest {
+  ribs: Array<{
+    id: string;
+    points: Array<[number, number, number]>;
+  }>;
+  impostHeight?: number;
+}
+
+export async function calculateImpostLine(
+  params: ImpostLineRequest,
+): Promise<ApiResponse<ImpostLineResult>> {
+  return apiRequest<ImpostLineResult>("/api/geometry/measurements/impost-line", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// Rib Group Detection
+export interface RibGroupCombinedMeasurements {
+  arc_radius: number;
+  rib_length: number;
+  apex_point: { x: number; y: number; z: number };
+  arc_center: { x: number; y: number; z: number };
+  arc_center_z: number;
+  fit_error: number;
+}
+
+export interface RibGroup {
+  groupId: string;
+  ribIds: string[];
+  isGrouped: boolean;
+  combinedMeasurements: RibGroupCombinedMeasurements;
+}
+
+export interface DetectRibGroupsRequest {
+  ribs: Array<{
+    id: string;
+    points: Array<[number, number, number]>;
+  }>;
+  maxGap?: number;
+  radiusTolerance?: number;
+}
+
+export async function detectRibGroups(
+  params: DetectRibGroupsRequest,
+): Promise<ApiResponse<RibGroup[]>> {
+  return apiRequest<RibGroup[]>("/api/geometry/measurements/rib-groups", {
     method: "POST",
     body: JSON.stringify(params),
   });
@@ -458,6 +484,9 @@ export interface ProjectData {
   name: string;
   e57Path?: string;
   selectedProjectionId?: string;
+  currentStep?: number;
+  steps?: Record<string, StepState>;
+  roi?: { x: number; y: number; width: number; height: number; rotation?: number; corners?: number[][] };
   projections: Array<{
     id: string;
     perspective: string;
@@ -466,8 +495,22 @@ export interface ProjectData {
     kernelSize: number;
     bottomUp: boolean;
     scale: number;
+    images?: {
+      colour?: string;
+      depthGrayscale?: string;
+      depthPlasma?: string;
+    };
+    metadata?: Record<string, unknown>;
   }>;
   segmentations: SavedSegmentation[];
+  segmentationGroups?: Array<{
+    groupId: string;
+    label: string;
+    color?: string;
+    count?: number;
+    insideRoiCount?: number;
+    outsideRoiCount?: number;
+  }>;
   segmentationCount: number;
   updatedAt: string;
 }
@@ -741,4 +784,3 @@ export async function get3dmFileInfo(
     method: "GET",
   });
 }
-
