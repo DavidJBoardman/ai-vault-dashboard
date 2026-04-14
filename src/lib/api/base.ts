@@ -36,11 +36,17 @@ export async function apiRequest<T>(
 
     const data = await response.json();
 
-    if (data && typeof data === "object" && "success" in data && "data" in data) {
+    if (data && typeof data === "object" && "success" in data) {
+      const envelope = data as Record<string, unknown>;
+      const { success, error, data: nestedData, ...rest } = envelope;
+      const payload = "data" in envelope
+        ? nestedData
+        : (Object.keys(rest).length > 0 ? rest : undefined);
+
       return {
-        success: data.success,
-        data: data.data as T,
-        error: data.error,
+        success: Boolean(success),
+        data: payload as T | undefined,
+        error: typeof error === "string" ? error : undefined,
       };
     }
 

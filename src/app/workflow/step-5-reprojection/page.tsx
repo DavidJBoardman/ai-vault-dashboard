@@ -55,17 +55,17 @@ export default function Step5ReprojectionPage() {
   const [intradosError, setIntradosError] = useState<string | null>(null);
   
   // Exclusion controls state
-  const savedStepData = currentProject?.stepData?.[5] as { floorPlaneZ?: number; showFloorPlane?: boolean } | undefined;
-  const [floorPlaneZ, setFloorPlaneZ] = useState<number | undefined>(
-    () => savedStepData?.floorPlaneZ
+  const savedStepData = currentProject?.stepData?.[5] as { impostLineZ?: number; showImpostLine?: boolean } | undefined;
+  const [impostLineZ, setImpostLineZ] = useState<number | undefined>(
+    () => savedStepData?.impostLineZ
   );
-  // Restore checkbox state explicitly — do NOT infer from floorPlaneZ value
-  const [showFloorPlane, setShowFloorPlane] = useState(
-    () => savedStepData?.showFloorPlane ?? false
+  // Restore checkbox state explicitly — do NOT infer from impostLineZ value
+  const [showImpostLine, setShowImpostLine] = useState(
+    () => savedStepData?.showImpostLine ?? false
   );
-  // Track what floor plane Z was used when intrados were last traced
-  const [tracedFloorPlaneZ, setTracedFloorPlaneZ] = useState<number | null>(
-    () => (savedStepData?.showFloorPlane ? (savedStepData?.floorPlaneZ ?? null) : null)
+  // Track what impost line Z was used when intrados were last traced
+  const [tracedImpostLineZ, setTracedImpostLineZ] = useState<number | null>(
+    () => (savedStepData?.showImpostLine ? (savedStepData?.impostLineZ ?? null) : null)
   );
   const [showMismatchDialog, setShowMismatchDialog] = useState(false);
   const [mismatchType, setMismatchType] = useState<"changed" | "removed" | "added">("changed");
@@ -198,13 +198,13 @@ export default function Step5ReprojectionPage() {
     
     try {
       const response = await traceIntradosLines(currentProject.id, {
-        floorPlaneZ: showFloorPlane ? floorPlaneZ : undefined,
+        floorPlaneZ: showImpostLine ? impostLineZ : undefined,
         exclusionBox: showExclusionBox ? exclusionBox : undefined,
       });
       
       if (response.success && response.data) {
         setIntradosLines(response.data.lines || []);
-        setTracedFloorPlaneZ(showFloorPlane ? (floorPlaneZ ?? null) : null);
+        setTracedImpostLineZ(showImpostLine ? (impostLineZ ?? null) : null);
         console.log(`Traced ${response.data.lines?.length || 0} intrados lines`);
         
         if (response.data.lines?.length === 0) {
@@ -239,10 +239,10 @@ export default function Step5ReprojectionPage() {
       if (p.y > maxY) maxY = p.y;
     });
     
-    // Set floor plane slightly above minimum
+    // Set impost line slightly above minimum
     const zRange = maxZ - minZ;
-    if (floorPlaneZ === undefined) {
-      setFloorPlaneZ(minZ + zRange * 0.1);
+    if (impostLineZ === undefined) {
+      setImpostLineZ(minZ + zRange * 0.1);
     }
     
     // Set exclusion box to a default position (can be adjusted)
@@ -261,7 +261,7 @@ export default function Step5ReprojectionPage() {
         enabled: true,
       });
     }
-  }, [exclusionBox, floorPlaneZ, pointCloudData]);
+  }, [exclusionBox, impostLineZ, pointCloudData]);
   
   // Initialize exclusion controls when point cloud is loaded
   useEffect(() => {
@@ -370,33 +370,33 @@ export default function Step5ReprojectionPage() {
   };
   
   const handleContinue = () => {
-    // Warn if floor plane was disabled but intrados were traced with one active
+    // Warn if impost line was disabled but intrados were traced with one active
     if (
       intradosLines.length > 0 &&
-      !showFloorPlane &&
-      tracedFloorPlaneZ !== null
+      !showImpostLine &&
+      tracedImpostLineZ !== null
     ) {
       setMismatchType("removed");
       setShowMismatchDialog(true);
       return;
     }
-    // Warn if floor plane was added but intrados were traced without one
+    // Warn if impost line was added but intrados were traced without one
     if (
       intradosLines.length > 0 &&
-      showFloorPlane &&
-      tracedFloorPlaneZ === null
+      showImpostLine &&
+      tracedImpostLineZ === null
     ) {
       setMismatchType("added");
       setShowMismatchDialog(true);
       return;
     }
-    // Warn if the floor plane Z value was changed after the last intrados trace
+    // Warn if the impost line Z value was changed after the last intrados trace
     if (
       intradosLines.length > 0 &&
-      showFloorPlane &&
-      tracedFloorPlaneZ !== null &&
-      floorPlaneZ !== undefined &&
-      Math.abs(floorPlaneZ - tracedFloorPlaneZ) > 0.001
+      showImpostLine &&
+      tracedImpostLineZ !== null &&
+      impostLineZ !== undefined &&
+      Math.abs(impostLineZ - tracedImpostLineZ) > 0.001
     ) {
       setMismatchType("changed");
       setShowMismatchDialog(true);
@@ -406,38 +406,38 @@ export default function Step5ReprojectionPage() {
     completeStep(5, {
       selectedGroups,
       showUnmaskedPoints,
-      showFloorPlane,
-      floorPlaneZ: showFloorPlane ? floorPlaneZ : undefined,
+      showImpostLine,
+      impostLineZ: showImpostLine ? impostLineZ : undefined,
     });
     router.push("/workflow/step-6-traces");
   };
 
   const handleRevertAndContinue = () => {
-    const revertedZ = tracedFloorPlaneZ!;
-    setFloorPlaneZ(revertedZ);
+    const revertedZ = tracedImpostLineZ!;
+    setImpostLineZ(revertedZ);
     setShowMismatchDialog(false);
     setReprojectionSelections(selectedGroups);
     completeStep(5, {
       selectedGroups,
       showUnmaskedPoints,
-      showFloorPlane: true,
-      floorPlaneZ: revertedZ,
+      showImpostLine: true,
+      impostLineZ: revertedZ,
     });
     router.push("/workflow/step-6-traces");
   };
 
   const handleRestoreFloorPlaneAndContinue = () => {
-    // Re-enable the floor plane with the traced value and save
-    const restoredZ = tracedFloorPlaneZ!;
-    setFloorPlaneZ(restoredZ);
-    setShowFloorPlane(true);
+    // Re-enable the impost line with the traced value and save
+    const restoredZ = tracedImpostLineZ!;
+    setImpostLineZ(restoredZ);
+    setShowImpostLine(true);
     setShowMismatchDialog(false);
     setReprojectionSelections(selectedGroups);
     completeStep(5, {
       selectedGroups,
       showUnmaskedPoints,
-      showFloorPlane: true,
-      floorPlaneZ: restoredZ,
+      showImpostLine: true,
+      impostLineZ: restoredZ,
     });
     router.push("/workflow/step-6-traces");
   };
@@ -679,30 +679,30 @@ export default function Step5ReprojectionPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Floor Plane Control */}
+                {/* Impost Line Control */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <Checkbox
-                        id="show-floor-plane"
-                        checked={showFloorPlane}
-                        onCheckedChange={(checked) => setShowFloorPlane(checked === true)}
+                        id="show-impost-line"
+                        checked={showImpostLine}
+                        onCheckedChange={(checked) => setShowImpostLine(checked === true)}
                       />
-                      <Label htmlFor="show-floor-plane" className="text-sm cursor-pointer">
-                        Floor Plane (exclude below)
+                      <Label htmlFor="show-impost-line" className="text-sm cursor-pointer">
+                        Impost Line (exclude below)
                       </Label>
                     </div>
-                    {floorPlaneZ !== undefined && (
+                    {impostLineZ !== undefined && (
                       <span className="text-xs font-mono text-muted-foreground">
-                        Z: {floorPlaneZ.toFixed(2)}
+                        Z: {impostLineZ.toFixed(2)}
                       </span>
                     )}
                   </div>
-                  {showFloorPlane && floorPlaneZ !== undefined && pointCloudData && (
+                  {showImpostLine && impostLineZ !== undefined && pointCloudData && (
                     <div className="pl-6">
                       <Slider
-                        value={[floorPlaneZ]}
-                        onValueChange={([v]) => setFloorPlaneZ(v)}
+                        value={[impostLineZ]}
+                        onValueChange={([v]) => setImpostLineZ(v)}
                         min={pointCloudData.reduce((min, p) => Math.min(min, p.z), Infinity)}
                         max={pointCloudData.reduce((max, p) => Math.max(max, p.z), -Infinity)}
                         step={0.1}
@@ -921,8 +921,8 @@ export default function Step5ReprojectionPage() {
                     colorMode="rgb"
                     showGrid={true}
                     showBoundingBox={true}
-                    floorPlaneZ={floorPlaneZ}
-                    showFloorPlane={showFloorPlane}
+                    floorPlaneZ={impostLineZ}
+                    showFloorPlane={showImpostLine}
                     exclusionBox={exclusionBox}
                     showExclusionBox={showExclusionBox}
                   />
@@ -966,18 +966,18 @@ export default function Step5ReprojectionPage() {
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-500" />
               {mismatchType === "removed"
-                ? "Floor Plane Disabled"
+                ? "Impost Line Disabled"
                 : mismatchType === "added"
-                ? "Floor Plane Added"
-                : "Floor Plane Value Changed"}
+                ? "Impost Line Added"
+                : "Impost Line Value Changed"}
             </DialogTitle>
             <DialogDescription className="space-y-2 pt-1">
               {mismatchType === "removed" ? (
                 <>
                   <p>
-                    The intrados lines were traced with a floor plane of{" "}
-                    <strong>Z = {tracedFloorPlaneZ?.toFixed(2)}</strong>, but
-                    the floor plane is now <strong>disabled</strong>.
+                    The intrados lines were traced with an impost line of{" "}
+                    <strong>Z = {tracedImpostLineZ?.toFixed(2)}</strong>, but
+                    the impost line is now <strong>disabled</strong>.
                   </p>
                   <p>
                     Continuing without re-tracing means Step 7 measurements
@@ -987,25 +987,25 @@ export default function Step5ReprojectionPage() {
               ) : mismatchType === "added" ? (
                 <>
                   <p>
-                    The intrados lines were traced <strong>without</strong> a
-                    floor plane, but the floor plane is now{" "}
-                    <strong>enabled</strong> at Z = {floorPlaneZ?.toFixed(2)}.
+                    The intrados lines were traced <strong>without</strong> an
+                    impost line, but the impost line is now{" "}
+                    <strong>enabled</strong> at Z = {impostLineZ?.toFixed(2)}.
                   </p>
                   <p>
-                    Continuing without re-tracing means the floor plane in
+                    Continuing without re-tracing means the impost line in
                     Step 7 will not match your traced intrados lines.
                   </p>
                 </>
               ) : (
                 <>
                   <p>
-                    The intrados lines were traced with a floor plane of{" "}
-                    <strong>Z = {tracedFloorPlaneZ?.toFixed(2)}</strong>, but
+                    The intrados lines were traced with an impost line of{" "}
+                    <strong>Z = {tracedImpostLineZ?.toFixed(2)}</strong>, but
                     the current value is{" "}
-                    <strong>Z = {floorPlaneZ?.toFixed(2)}</strong>.
+                    <strong>Z = {impostLineZ?.toFixed(2)}</strong>.
                   </p>
                   <p>
-                    Saving without re-tracing means the floor plane in Step 7
+                    Saving without re-tracing means the impost line in Step 7
                     will not match your traced intrados lines.
                   </p>
                 </>
@@ -1018,32 +1018,32 @@ export default function Step5ReprojectionPage() {
                 variant="outline"
                 onClick={handleRestoreFloorPlaneAndContinue}
               >
-                Restore Z = {tracedFloorPlaneZ?.toFixed(2)} &amp; Continue
+                Restore Z = {tracedImpostLineZ?.toFixed(2)} &amp; Continue
               </Button>
             ) : mismatchType === "added" ? (
               <Button
                 variant="outline"
                 onClick={() => {
-                  setShowFloorPlane(false);
+                  setShowImpostLine(false);
                   setShowMismatchDialog(false);
                   setReprojectionSelections(selectedGroups);
                   completeStep(5, {
                     selectedGroups,
                     showUnmaskedPoints,
-                    showFloorPlane: false,
-                    floorPlaneZ: undefined,
+                    showImpostLine: false,
+                    impostLineZ: undefined,
                   });
                   router.push("/workflow/step-6-traces");
                 }}
               >
-                Disable Floor Plane &amp; Continue
+                Disable Impost Line &amp; Continue
               </Button>
             ) : (
               <Button
                 variant="outline"
                 onClick={handleRevertAndContinue}
               >
-                Revert to Z = {tracedFloorPlaneZ?.toFixed(2)} &amp; Continue
+                Revert to Z = {tracedImpostLineZ?.toFixed(2)} &amp; Continue
               </Button>
             )}
             <Button

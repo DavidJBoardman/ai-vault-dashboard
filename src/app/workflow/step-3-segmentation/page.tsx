@@ -27,6 +27,7 @@ import {
   saveProject,
   saveROI,
   ROIData,
+  getProjectSegmentations,
   saveProgress
 } from "@/lib/api";
 import { 
@@ -162,6 +163,8 @@ export default function Step3SegmentationPage() {
   const [roiDragStart, setRoiDragStart] = useState<{ x: number; y: number; roi: ROIState } | null>(null);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [isApplyingROI, setIsApplyingROI] = useState(false);
+  // Corner boss stone markers placed at ROI corners after ROI is applied
+  const [roiAppliedCorners, setRoiAppliedCorners] = useState<Array<{ x: number; y: number; label: string }>>([]);
   
   // Box naming dialog state
   const [boxNamingDialog, setBoxNamingDialog] = useState<{
@@ -218,7 +221,7 @@ export default function Step3SegmentationPage() {
         area: seg.area || 0,
         predictedIou: 0,
         stabilityScore: 0,
-        source: seg.source,
+        source: seg.source || "auto",
       }));
       setMasks(loadedMasks);
     }
@@ -630,53 +633,18 @@ export default function Step3SegmentationPage() {
     setResizeHandle(null);
   };
   
-  // Apply ROI - delete masks outside
+  // Apply ROI - delete rib masks outside ROI using backend pixel-overlap classification
   const handleApplyROI = async () => {
     if (!currentProject?.id) return;
     
     setIsApplyingROI(true);
     
     try {
-      // Filter masks - keep only those inside ROI
-      const masksInside = masks.filter(isMaskInsideROI);
-      const masksOutside = masks.filter(m => !isMaskInsideROI(m));
-      
-      console.log(`Applying ROI: ${masksInside.length} inside, ${masksOutside.length} outside`);
-      
-      // Update local state
-      setMasks(masksInside);
-      
-      // Save ROI to backend
       const resolution = selectedProjection?.settings?.resolution || 2048;
       const corners = getROICorners(roi);
-      
-      const roiData: ROIData = {
-        x: roi.x * resolution,
-        y: roi.y * resolution,
-        width: roi.width * resolution,
-        height: roi.height * resolution,
-        rotation: roi.rotation,
-        corners: corners.map(([cx, cy]) => [cx * resolution, cy * resolution]),
-      };
-      
-      await saveROI(currentProject.id, roiData);
-      
-      // Save the filtered masks to backend
-      const storeSegmentations = masksInside.map((m: SegmentationMask) => ({
-        id: m.id,
-        label: m.label,
-        color: m.color,
-        mask: m.maskBase64,
-        visible: m.visible,
-        source: m.source as "auto" | "manual",
-        bbox: m.bbox,
-        area: m.area,
-        insideRoi: true,
-      }));
-      
-      setSegmentations(storeSegmentations);
-      
-      // Save project with updated segmentations
+
+      // Step 1: Save ALL current masks to disk so the backend has up-to-date mask
+      //         image files for its pixel-overlap ROI classification.
       await saveProject({
         projectId: currentProject.id,
         projectName: currentProject.name,
@@ -690,27 +658,100 @@ export default function Step3SegmentationPage() {
           bottomUp: p.settings.bottomUp,
           scale: p.settings.scale,
         })),
-        segmentations: storeSegmentations.map(s => ({
-          id: s.id,
-          label: s.label,
-          color: s.color,
-          maskBase64: s.mask,
-          visible: s.visible,
-          source: s.source,
-          bbox: s.bbox,
-          area: s.area,
+        segmentations: masks.map(m => ({
+          id: m.id,
+          label: m.label,
+          color: m.color,
+          maskBase64: m.maskBase64,
+          visible: m.visible,
+          source: m.source,
+          bbox: m.bbox,
+          area: m.area,
         })),
         selectedProjectionId: selectedProjectionId || undefined,
       });
-      
-      // Save ROI to step 3 data for carrying over to step 4
-      completeStep(3, { 
-        roi: { x: roi.x, y: roi.y, width: roi.width, height: roi.height, rotation: roi.rotation },
-        masksDeleted: masksOutside.length,
-        masksRemaining: masksInside.length,
-      });
-      
-      alert(`ROI applied! Kept ${masksInside.length} masks, removed ${masksOutside.length} masks outside ROI.`);
+
+      // Step 2: Save ROI — the backend uses pixel-level overlap to classify every
+      //         mask as inside/outside, then permanently removes rib masks that fall
+      //         outside the ROI.  This is authoritative; do NOT overwrite it with a
+      //         subsequent saveProject call.
+      const roiData: ROIData = {
+        x: roi.x * resolution,
+        y: roi.y * resolution,
+        width: roi.width * resolution,
+        height: roi.height * resolution,
+        rotation: roi.rotation,
+        corners: corners.map(([cx, cy]) => [cx * resolution, cy * resolution]),
+      };
+      await saveROI(currentProject.id, roiData);
+
+      // Step 3: Reload segmentations from the backend so the frontend reflects the
+      //         true post-ROI state (avoids stale / placeholder bbox values causing
+      //         incorrect frontend-side filtering).
+      const reloadResult = await getProjectSegmentations(currentProject.id);
+      const previousMaskIds = new Set(masks.map(m => m.id));
+
+      if (reloadResult.success && reloadResult.data?.segmentations) {
+        const loadedSegs = reloadResult.data.segmentations;
+
+        // Update store segmentations
+        setSegmentations(loadedSegs.map(s => ({
+          id: s.id,
+          label: s.label,
+          color: s.color,
+          mask: s.maskBase64 || "",
+          visible: s.visible !== false,
+          source: (s.source as "auto" | "manual") || "auto",
+          bbox: s.bbox,
+          area: s.area,
+        })));
+
+        // Update local masks state
+        setMasks(loadedSegs.map(s => ({
+          id: s.id,
+          label: s.label,
+          color: s.color,
+          maskBase64: s.maskBase64 || "",
+          visible: s.visible !== false,
+          source: (s.source as "auto" | "manual") || "auto",
+          bbox: (s.bbox || [0, 0, 100, 100]) as [number, number, number, number],
+          area: s.area || 0,
+          predictedIou: 0,
+          stabilityScore: 0,
+        })));
+
+        const keptIds = new Set(loadedSegs.map(s => s.id));
+        const removedCount = Array.from(previousMaskIds).filter(id => !keptIds.has(id)).length;
+        const ribsRemoved = masks
+          .filter(m => !keptIds.has(m.id))
+          .filter(m => m.label.replace(/\s*#?\d+$/, "").trim().toLowerCase() === "rib")
+          .length;
+
+        // Compute corner boss stone reference points in pixel coordinates (TL, TR, BR, BL)
+        const cornerLabels = ["Corner TL", "Corner TR", "Corner BR", "Corner BL"];
+        const roiCornerBossStones = corners.map(([cx, cy], i) => ({
+          id: `roi-corner-${i}`,
+          label: cornerLabels[i],
+          x: Math.round(cx * resolution),
+          y: Math.round(cy * resolution),
+          pointType: "corner" as const,
+          source: "auto" as const,
+        }));
+
+        // Store corners for visual display on canvas (normalized 0-1 coords)
+        setRoiAppliedCorners(corners.map(([cx, cy], i) => ({ x: cx, y: cy, label: cornerLabels[i] })));
+
+        // Save ROI to step 3 data for carrying over to step 4
+        completeStep(3, { 
+          roi: { x: roi.x, y: roi.y, width: roi.width, height: roi.height, rotation: roi.rotation },
+          masksDeleted: removedCount,
+          masksRemaining: loadedSegs.length,
+          roiCornerBossStones,
+        });
+
+        const ribMsg = ribsRemoved > 0 ? ` (${ribsRemoved} rib${ribsRemoved > 1 ? "s" : ""} permanently deleted)` : "";
+        alert(`ROI applied! Kept ${loadedSegs.length} masks, removed ${removedCount} outside ROI${ribMsg}. 4 corner reference points added for Step 4.`);
+      }
       
     } catch (error) {
       console.error("Error applying ROI:", error);
@@ -1431,7 +1472,8 @@ export default function Step3SegmentationPage() {
       source: m.source as "auto" | "manual",
     }));
     setSegmentations(storeSegmentations);
-    completeStep(3, { segmentations: storeSegmentations, intradosLines: currentProject?.intradosLines });
+    const existingStep3Data = currentProject?.steps?.[3]?.data || {};
+    completeStep(3, { ...existingStep3Data, segmentations: storeSegmentations, intradosLines: currentProject?.intradosLines });
     
     // Save project data to backend for persistence
     if (currentProject) {
@@ -1706,21 +1748,17 @@ export default function Step3SegmentationPage() {
                   {textPrompts.length > 0 ? "Run SAM Segmentation" : "Run SAM Segmentation"}
                 </Button>
                 
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-2 gap-1">
                   {[
                     { tool: "polygon", icon: Hexagon, label: "Polygon", needsMasks: false },
                     { tool: "box", icon: Scan, label: "Box", needsMasks: false },
-                    { tool: "roi", icon: Square, label: "ROI", needsMasks: false },
                   ].map(({ tool, icon: Icon, label, needsMasks }) => (
                     <Button
                       key={tool}
                       variant={activeTool === tool ? "default" : "outline"}
                       size="sm"
                       className="gap-1.5 h-7 text-xs"
-                      onClick={() => {
-                        setActiveTool(tool as Tool);
-                        if (tool === "roi") setShowROI(true);
-                      }}
+                      onClick={() => setActiveTool(tool as Tool)}
                       disabled={!selectedProjection || (needsMasks && masks.length === 0)}
                     >
                       <Icon className="w-3 h-3" />
@@ -1928,66 +1966,117 @@ export default function Step3SegmentationPage() {
                   </div>
                 )}
                 
-                {/* ROI Section */}
-                {activeTool === "roi" && (
-                  <div className="space-y-2 pt-2 border-t">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                        <Square className="w-3 h-3" />
-                        Region of Interest
-                      </span>
-                      {showROI && (
-                        <button
-                          onClick={() => setShowROI(false)}
-                          className="text-xs text-muted-foreground hover:text-destructive"
-                        >
-                          Hide
-                        </button>
+              </CardContent>
+            </Card>
+
+            {/* Region of Interest — dedicated card */}
+            <Card className={cn(activeTool === "roi" && "ring-1 ring-green-500/40")}>
+              <CardHeader className="py-2 px-3">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+                    <Square className="w-3.5 h-3.5 text-green-500" />
+                    Region of Interest
+                  </CardTitle>
+                  <Button
+                    variant={activeTool === "roi" ? "default" : "outline"}
+                    size="sm"
+                    className={cn(
+                      "h-7 text-xs gap-1.5",
+                      activeTool === "roi" && "bg-green-600 hover:bg-green-700 border-green-600"
+                    )}
+                    onClick={() => {
+                      if (activeTool === "roi") {
+                        setActiveTool("polygon");
+                      } else {
+                        setActiveTool("roi" as Tool);
+                        setShowROI(true);
+                      }
+                    }}
+                    disabled={!selectedProjection}
+                  >
+                    <Square className="w-3 h-3" />
+                    {activeTool === "roi" ? "Stop Drawing" : "Draw ROI"}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="px-3 pb-3 pt-0 space-y-2">
+                <p className="text-xs text-muted-foreground/70">
+                  Define the vault bay boundary. Ribs outside will be permanently deleted and 4 corner boss stone reference points will be created for Step 4.
+                </p>
+
+                {/* Active drawing hint */}
+                {activeTool === "roi" && (!showROI || roi.width <= 0.02) && (
+                  <p className="text-xs text-green-500 italic">
+                    Click and drag on the image to draw the ROI rectangle.
+                  </p>
+                )}
+
+                {/* ROI stats — once a rectangle is drawn */}
+                {showROI && roi.width > 0.02 && (
+                  <>
+                    <div className="space-y-1 p-2 bg-muted/30 rounded text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Size:</span>
+                        <span>{Math.round(roi.width * 100)}% × {Math.round(roi.height * 100)}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Rotation:</span>
+                        <span>{Math.round(roi.rotation)}°</span>
+                      </div>
+                      {masks.length > 0 && (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Inside ROI:</span>
+                            <span className="text-green-600">{masks.filter(isMaskInsideROI).length} masks</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Ribs to delete:</span>
+                            <span className="text-red-600">
+                              {masks.filter(m => {
+                                const base = m.label.replace(/\s*#?\d+$/, "").trim().toLowerCase();
+                                return base === "rib" && !isMaskInsideROI(m);
+                              }).length} ribs
+                            </span>
+                          </div>
+                        </>
                       )}
                     </div>
-                    
-                    <p className="text-xs text-muted-foreground/70">
-                      Draw a box to define the region. Masks outside will be deleted when applied.
-                    </p>
-                    
-                    {showROI && roi.width > 0.02 && (
-                      <>
-                        <div className="space-y-1 text-xs">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Size:</span>
-                            <span>{Math.round(roi.width * 100)}% x {Math.round(roi.height * 100)}%</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Rotation:</span>
-                            <span>{Math.round(roi.rotation)}°</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Masks inside:</span>
-                            <span className="text-green-600">{masks.filter(isMaskInsideROI).length}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Masks outside:</span>
-                            <span className="text-red-600">{masks.filter(m => !isMaskInsideROI(m)).length}</span>
-                          </div>
-                        </div>
-                        
-                        <Button 
-                          size="sm"
-                          variant="destructive"
-                          className="w-full gap-1.5"
-                          onClick={handleApplyROI}
-                          disabled={isApplyingROI || masks.filter(m => !isMaskInsideROI(m)).length === 0}
-                        >
-                          {isApplyingROI ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Scissors className="w-3 h-3" />
-                          )}
-                          Apply ROI & Delete Outside
-                        </Button>
-                      </>
+
+                    {/* Corner boss stones already applied */}
+                    {roiAppliedCorners.length > 0 && (
+                      <div className="flex items-center gap-2 text-xs text-purple-400 bg-purple-500/10 px-2 py-1.5 rounded">
+                        <div className="w-2.5 h-2.5 rounded-full bg-purple-500 flex-shrink-0" />
+                        4 corner boss stones applied
+                      </div>
                     )}
-                  </div>
+
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="w-full gap-1.5"
+                      onClick={handleApplyROI}
+                      disabled={isApplyingROI}
+                    >
+                      {isApplyingROI ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Scissors className="w-3 h-3" />
+                      )}
+                      Apply ROI
+                    </Button>
+
+                    {activeTool !== "roi" && (
+                      <button
+                        onClick={() => {
+                          setActiveTool("roi" as Tool);
+                          setShowROI(true);
+                        }}
+                        className="text-xs text-muted-foreground hover:text-foreground w-full text-center"
+                      >
+                        Edit ROI
+                      </button>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -2515,6 +2604,31 @@ export default function Step3SegmentationPage() {
                                   strokeWidth="0.2"
                                 />
                               ))}
+                              
+                              {/* Boss stone markers at ROI corners (after ROI is applied) */}
+                              {roiAppliedCorners.map((c, i) => {
+                                const px = c.x * 100;
+                                const py = c.y * 100;
+                                const shortLabels = ["TL", "TR", "BR", "BL"];
+                                return (
+                                  <g key={`boss-corner-${i}`}>
+                                    <circle cx={px} cy={py} r="1.4" fill="#7C3AED" stroke="#ffffff" strokeWidth="0.35" />
+                                    <text
+                                      x={px}
+                                      y={py - 1.9}
+                                      textAnchor="middle"
+                                      fontSize="1.6"
+                                      fill="#ffffff"
+                                      stroke="#7C3AED"
+                                      strokeWidth="0.4"
+                                      paintOrder="stroke"
+                                      style={{ fontFamily: "monospace", fontWeight: "bold" }}
+                                    >
+                                      {shortLabels[i]}
+                                    </text>
+                                  </g>
+                                );
+                              })}
                               
                               {/* Rotation handle (only when ROI tool active) */}
                               {activeTool === "roi" && (() => {

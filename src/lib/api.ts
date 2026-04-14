@@ -322,6 +322,10 @@ export interface MeasurementResult {
   pointDistances: number[];
   segmentPoints: Array<{ x: number; y: number; z: number }>;
   arcCenter: { x: number; y: number; z: number };
+  arcBasisU: { x: number; y: number; z: number };
+  arcBasisV: { x: number; y: number; z: number };
+  arcStartAngle: number;
+  arcEndAngle: number;
 }
 
 export async function calculateMeasurements(
@@ -338,6 +342,8 @@ export interface RibImpostData {
   springing_z: number;
   springing_point: { x: number; y: number; z: number };
   impost_distance: number;
+  arc_center_z: number;
+  arc_center: { x: number; y: number; z: number };
 }
 
 export interface ImpostLineResult {
@@ -375,6 +381,7 @@ export interface RibGroupCombinedMeasurements {
 
 export interface RibGroup {
   groupId: string;
+  groupName?: string;
   ribIds: string[];
   isGrouped: boolean;
   combinedMeasurements: RibGroupCombinedMeasurements;
@@ -395,6 +402,147 @@ export async function detectRibGroups(
   return apiRequest<RibGroup[]>("/api/geometry/measurements/rib-groups", {
     method: "POST",
     body: JSON.stringify(params),
+  });
+}
+
+export interface CustomRibGroupRequest {
+  groupId: string;
+  groupName?: string;
+  ribIds: string[];
+}
+
+export interface CalculateCustomRibGroupsRequest {
+  ribs: Array<{
+    id: string;
+    points: Array<[number, number, number]>;
+  }>;
+  groups: CustomRibGroupRequest[];
+}
+
+export async function calculateCustomRibGroups(
+  params: CalculateCustomRibGroupsRequest,
+): Promise<ApiResponse<RibGroup[]>> {
+  return apiRequest<RibGroup[]>("/api/geometry/measurements/custom-rib-groups", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// Apex & Span Calculation
+export interface BossPositionInput {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  label: string;
+}
+
+export interface ApexSpanRequest {
+  ribs: Array<{ id: string; points: Array<[number, number, number]> }>;
+  bosses: BossPositionInput[];
+  maxBossDistance?: number;
+  symmetryAngleTolerance?: number;
+  impostHeight?: number;
+  pairings?: PairingApexInput[];
+}
+
+export interface PairingApexSideInput {
+  sideId: string;
+  sideLabel: string;
+  ribIds: string[];
+}
+
+export interface PairingApexInput {
+  pairingId: string;
+  pairingName: string;
+  sides: PairingApexSideInput[];
+}
+
+export interface RibPairIntersection {
+  ribA: string;
+  ribB: string;
+  intersection: { x: number; y: number; z: number };
+}
+
+export interface BossApexResult {
+  bossId: string;
+  bossLabel: string;
+  bossPosition: { x: number; y: number; z: number };
+  apex: { x: number; y: number; z: number };
+  ribPairs: RibPairIntersection[];
+  assignedRibs: string[];
+}
+
+export interface RibSpanResult {
+  ribId: string;
+  bossId: string;
+  span: number;
+  springingPoint: { x: number; y: number; z: number };
+  projectedApex: { x: number; y: number; z: number };
+}
+
+export interface ApexSpanResult {
+  bosses: BossApexResult[];
+  ribs: Record<string, RibSpanResult>;
+  pairingApex: PairingApexResult[];
+}
+
+export interface PairingApexResult {
+  pairingId: string;
+  pairingName: string;
+  sideLabels: string[];
+  apex?: { x: number; y: number; z: number };
+  apexHeight?: number;
+  status: "ok" | "no-intersection" | "insufficient-data";
+  warning?: string;
+}
+
+export async function calculateApexSpan(
+  params: ApexSpanRequest,
+): Promise<ApiResponse<ApexSpanResult>> {
+  return apiRequest<ApexSpanResult>("/api/geometry/measurements/apex-span", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export interface MeasurementCustomGroup {
+  id: string;
+  name: string;
+  ribIds: string[];
+}
+
+export interface RibPairing {
+  id: string;
+  name: string;
+  /** Two entries — each is either a rib ID or a group ID */
+  sides: [string, string];
+}
+
+export interface MeasurementConfig {
+  ribNameById: Record<string, string>;
+  customGroups: MeasurementCustomGroup[];
+  disabledAutoGroupIds: string[];
+  groupNameById: Record<string, string>;
+  bossStoneNameById: Record<string, string>;
+  ribPairings: RibPairing[];
+}
+
+export async function getMeasurementConfig(
+  projectId: string,
+): Promise<ApiResponse<MeasurementConfig>> {
+  return apiRequest<MeasurementConfig>(`/api/project/${projectId}/measurement-config`, {
+    method: "GET",
+  });
+}
+
+export async function saveMeasurementConfig(
+  projectId: string,
+  config: MeasurementConfig,
+): Promise<ApiResponse<MeasurementConfig>> {
+  return apiRequest<MeasurementConfig>(`/api/project/${projectId}/measurement-config`, {
+    method: "POST",
+    body: JSON.stringify(config),
   });
 }
 
@@ -677,6 +825,28 @@ export async function getIntradosLines(
 }
 
 // =====================================================
+// Boss Stone / Keystone Marker Functions
+// =====================================================
+
+export interface BossStoneMarker {
+  id: string;
+  label: string;
+  groupId: string;
+  color: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export async function getBossStoneMarkers(
+  projectId: string
+): Promise<ApiResponse<{ markers: BossStoneMarker[] }>> {
+  return apiRequest(`/api/project/${projectId}/boss-stone-markers`, {
+    method: "GET",
+  });
+}
+
+// =====================================================
 // 3DM Export/Import Functions
 // =====================================================
 
@@ -701,6 +871,8 @@ export interface Import3dmResponse {
   curveCount: number;
   layers: string[];
   message: string;
+  source?: string;
+  importedAt?: string;
 }
 
 export interface File3dmInfo {
@@ -732,14 +904,12 @@ export async function exportIntrados3dm(
 
 export async function import3dmTraces(
   projectId: string,
-  filePath: string,
-  layerFilter?: string
+  filePath: string
 ): Promise<ApiResponse<Import3dmResponse>> {
   return apiRequest(`/api/project/${projectId}/import-3dm`, {
     method: "POST",
     body: JSON.stringify({ 
-      filePath,
-      layerFilter
+      filePath
     }),
   });
 }
