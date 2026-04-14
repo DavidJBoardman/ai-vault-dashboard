@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { RefreshCw, RotateCw, Save, Square } from "lucide-react";
+import { Info, RefreshCw, RotateCw, Save, Square } from "lucide-react";
 
 interface ROIState {
   x: number;
@@ -24,6 +24,7 @@ interface RoiControlsProps {
   isSavingROI: boolean;
   hasSegmentations: boolean;
   roiSaveResult: { inside: number; outside: number } | null;
+  isRoiImportedFromStep3?: boolean;
 }
 
 export function RoiControls({
@@ -35,6 +36,7 @@ export function RoiControls({
   isSavingROI,
   hasSegmentations,
   roiSaveResult,
+  isRoiImportedFromStep3,
 }: RoiControlsProps) {
   return (
     <Card>
@@ -48,6 +50,14 @@ export function RoiControls({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {isRoiImportedFromStep3 && (
+          <div className="flex items-start gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 p-2">
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-400" />
+            <p className="text-xs text-blue-300 leading-snug">
+              Starting point imported from Step 3. Adjust as needed, then save.
+            </p>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <Label className="text-sm">Edit ROI</Label>
           <Checkbox checked={showROI} onCheckedChange={(checked) => onShowROIChange(!!checked)} />
