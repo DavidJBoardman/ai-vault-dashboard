@@ -30,8 +30,8 @@ import {
   saveProgress
 } from "@/lib/api";
 import { 
-  ChevronLeft, 
-  ChevronRight, 
+  ChevronLeft,
+  ChevronRight,
   Wand2,
   Eye,
   EyeOff,
@@ -52,13 +52,40 @@ import {
   Move,
   Maximize2,
   RotateCw,
-  Scissors
+  Scissors,
+  Eraser,
+  Tag,
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
 // Image type for viewing projections
 type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
-type Tool = "polygon" | "box" | "roi";
+type Tool = "polygon" | "box" | "roi" | "eraser";
+
+// ── Labelling helpers ────────────────────────────────────────────────────────
+
+/** Strip trailing alphabetical or numeric suffix to get the group base label */
+function getBaseLabel(label: string): string {
+  return (
+    label
+      .replace(/\s+[A-Z][a-z]?$/, "") // " A", " B", " Aa", " Ab", …
+      .replace(/\s*#?\d+$/, "")        // " #1", " 1", …
+      .trim() || label
+  );
+}
+
+/**
+ * Convert a 0-based index to an alphabetical identifier.
+ * 0→A, 1→B, … 25→Z, 26→Aa, 27→Ab, … 51→Az, 52→Ba, …
+ */
+function getAlphabeticalLabel(index: number): string {
+  if (index < 26) return String.fromCharCode(65 + index);
+  const i = index - 26;
+  return (
+    String.fromCharCode(65 + Math.floor(i / 26)) +
+    String.fromCharCode(97 + (i % 26))
+  );
+}
 
 // ROI state interface
 interface ROIState {
@@ -177,6 +204,16 @@ export default function Step3SegmentationPage() {
   // Drag and drop state
   const [draggingMaskId, setDraggingMaskId] = useState<string | null>(null);
   const [dropTargetGroup, setDropTargetGroup] = useState<string | null>(null);
+
+  // Eraser tool state
+  const [eraserSize, setEraserSize] = useState(30); // radius in screen pixels
+  const [activeMaskId, setActiveMaskId] = useState<string | null>(null);
+  const [isEraserDown, setIsEraserDown] = useState(false);
+  const [eraserPos, setEraserPos] = useState<{ x: number; y: number } | null>(null);
+  const eraserStrokesRef = useRef<Array<{ x: number; y: number }>>([]);
+
+  // Mask label overlay toggle
+  const [showMaskLabels, setShowMaskLabels] = useState(false);
   
   // Get selected projection
   const selectedProjection = useMemo(() => {
@@ -314,13 +351,24 @@ export default function Step3SegmentationPage() {
       handlePolygonClick(e);
       return;
     }
-    
+
     // Handle ROI tool
     if (activeTool === "roi") {
       handleROIMouseDown(e);
       return;
     }
-    
+
+    // Handle eraser tool
+    if (activeTool === "eraser") {
+      if (!activeMaskId) return;
+      e.preventDefault();
+      setIsEraserDown(true);
+      eraserStrokesRef.current = [];
+      const coords = getImageCoordinates(e);
+      if (coords) eraserStrokesRef.current.push(coords);
+      return;
+    }
+
     // Box tool
     if (activeTool !== "box" || !selectedProjection) {
       return;
@@ -349,12 +397,25 @@ export default function Step3SegmentationPage() {
   };
   
   const handleMouseMove = (e: MouseEvent<HTMLDivElement>) => {
+    // Eraser: track cursor position + accumulate strokes
+    if (activeTool === "eraser") {
+      if (imageContainerRef.current) {
+        const rect = imageContainerRef.current.getBoundingClientRect();
+        setEraserPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }
+      if (isEraserDown && activeMaskId) {
+        const coords = getImageCoordinates(e);
+        if (coords) eraserStrokesRef.current.push(coords);
+      }
+      return;
+    }
+
     // Handle ROI tool
     if (activeTool === "roi" && roiInteractionMode !== "none") {
       handleROIMouseMove(e);
       return;
     }
-    
+
     const coords = getImageCoordinates(e);
     if (!coords) return;
     
@@ -396,10 +457,24 @@ export default function Step3SegmentationPage() {
   const handleMouseUp = (e: MouseEvent<HTMLDivElement>) => {
     // Polygon tool doesn't use mouse up for drawing
     if (activeTool === "polygon") return;
-    
+
     // Handle ROI tool
     if (activeTool === "roi") {
       handleROIMouseUp();
+      return;
+    }
+
+    // Handle eraser tool
+    if (activeTool === "eraser") {
+      if (isEraserDown && activeMaskId && eraserStrokesRef.current.length > 0) {
+        const rect = imageContainerRef.current?.getBoundingClientRect();
+        const containerWidth = rect?.width || 600;
+        const imgWidth = imageSize?.width || selectedProjection?.settings?.resolution || 2048;
+        const radiusInImgPx = eraserSize * (imgWidth / containerWidth);
+        applyEraserStrokes(activeMaskId, [...eraserStrokesRef.current], radiusInImgPx);
+      }
+      setIsEraserDown(false);
+      eraserStrokesRef.current = [];
       return;
     }
     
@@ -524,6 +599,167 @@ export default function Step3SegmentationPage() {
     return isPointInROI(centerX, centerY, roi);
   };
   
+  // ── Shared mask-update helper ────────────────────────────────────────────
+  /**
+   * Merge `newMasks` (from SAM) into `existingMasks`, handling:
+   *  - Duplicate removal (IoU > 0.5)
+   *  - Alphabetical labels for "corner" (A, B, C, D) and "boss stone" (E, F, …)
+   *  - Sequential #N labels for all other groups
+   *  - Consistent colours per group
+   */
+  const computeUpdatedMasks = useCallback(
+    (existingMasks: SegmentationMask[], newMasks: SegmentationMask[]): SegmentationMask[] => {
+      const labelCounts: Record<string, number> = {};
+      const groupColors: Record<string, string> = {};
+
+      existingMasks.forEach((m) => {
+        const bl = getBaseLabel(m.label).toLowerCase();
+        labelCounts[bl] = (labelCounts[bl] || 0) + 1;
+        if (!groupColors[bl]) groupColors[bl] = m.color;
+      });
+
+      // Pre-compute alphabetical offsets
+      const existingCornerCount = existingMasks.filter(
+        (m) => getBaseLabel(m.label).toLowerCase() === "corner"
+      ).length;
+      const existingBossStoneCount = existingMasks.filter(
+        (m) => getBaseLabel(m.label).toLowerCase() === "boss stone"
+      ).length;
+      const newCornerCount = newMasks.filter(
+        (m) => m.label.replace(/\s*#?\d+$/, "").trim().toLowerCase() === "corner"
+      ).length;
+      const totalCornerCount = existingCornerCount + newCornerCount;
+
+      let newCornersSoFar = 0;
+      let newBossStonesSoFar = 0;
+
+      const calculateBboxIoU = (b1: number[], b2: number[]): number => {
+        const [x1, y1, w1, h1] = b1;
+        const [x2, y2, w2, h2] = b2;
+        const xA = Math.max(x1, x2), yA = Math.max(y1, y2);
+        const xB = Math.min(x1 + w1, x2 + w2), yB = Math.min(y1 + h1, y2 + h2);
+        const inter = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+        const union = w1 * h1 + w2 * h2 - inter;
+        return union > 0 ? inter / union : 0;
+      };
+
+      const isDuplicate = (nm: SegmentationMask) =>
+        existingMasks.some(
+          (em) => em.bbox && nm.bbox && calculateBboxIoU(em.bbox, nm.bbox) > 0.5
+        );
+
+      const colorPalette = [
+        "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
+        "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
+      ];
+      let colorIndex = Object.keys(groupColors).length;
+
+      const renumbered = newMasks
+        .filter((m) => !isDuplicate(m))
+        .map((m) => {
+          const baseLabel = m.label.replace(/\s*#?\d+$/, "").trim();
+          const baseLabelLower = baseLabel.toLowerCase();
+
+          let newLabel: string;
+          if (baseLabelLower === "corner") {
+            const idx = existingCornerCount + newCornersSoFar++;
+            newLabel = `corner ${getAlphabeticalLabel(idx)}`;
+          } else if (baseLabelLower === "boss stone") {
+            const idx = totalCornerCount + existingBossStoneCount + newBossStonesSoFar++;
+            newLabel = `boss stone ${getAlphabeticalLabel(idx)}`;
+          } else {
+            labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
+            newLabel = `${baseLabel} #${labelCounts[baseLabelLower]}`;
+          }
+
+          let maskColor = groupColors[baseLabelLower];
+          if (!maskColor) {
+            maskColor = colorPalette[colorIndex % colorPalette.length];
+            groupColors[baseLabelLower] = maskColor;
+            colorIndex++;
+          }
+
+          return {
+            ...m,
+            id: `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            label: newLabel,
+            color: maskColor,
+          };
+        });
+
+      return [...existingMasks, ...renumbered];
+    },
+    []
+  );
+
+  // ── Eraser: apply accumulated strokes to a mask's base64 PNG ─────────────
+  const applyEraserStrokes = useCallback(
+    async (
+      maskId: string,
+      strokes: Array<{ x: number; y: number }>,
+      radiusInImagePixels: number
+    ) => {
+      if (strokes.length === 0) return;
+
+      setMasks((prev) => {
+        const mask = prev.find((m) => m.id === maskId);
+        if (!mask) return prev;
+
+        const imgW = imageSize?.width || selectedProjection?.settings?.resolution || 2048;
+        const imgH = imageSize?.height || selectedProjection?.settings?.resolution || 2048;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = imgW;
+        canvas.height = imgH;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return prev;
+
+        const img = new Image();
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, imgW, imgH);
+          ctx.globalCompositeOperation = "destination-out";
+          for (const s of strokes) {
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, radiusInImagePixels, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(0,0,0,1)";
+            ctx.fill();
+          }
+          const newBase64 = canvas.toDataURL("image/png").split(",")[1];
+          setMasks((current) => {
+            const updated = current.map((m) =>
+              m.id === maskId ? { ...m, maskBase64: newBase64 } : m
+            );
+            setTimeout(() => {
+              setSegmentations(
+                updated.map((m) => ({
+                  id: m.id,
+                  label: m.label,
+                  color: m.color,
+                  mask: m.maskBase64,
+                  visible: m.visible,
+                  source: m.source as "auto" | "manual",
+                }))
+              );
+            }, 0);
+            return updated;
+          });
+        };
+        img.src = toImageSrc(mask.maskBase64);
+        return prev; // actual update happens inside img.onload
+      });
+    },
+    [imageSize, selectedProjection, setSegmentations]
+  );
+
+  // Clear eraser state when switching away from eraser tool
+  useEffect(() => {
+    if (activeTool !== "eraser") {
+      setEraserPos(null);
+      setIsEraserDown(false);
+      eraserStrokesRef.current = [];
+    }
+  }, [activeTool]);
+
   // ROI mouse handlers
   const handleROIMouseDown = (e: MouseEvent<HTMLDivElement>) => {
     if (activeTool !== "roi" || !imageContainerRef.current) return;
@@ -778,10 +1014,9 @@ export default function Step3SegmentationPage() {
   // Remove all masks in a group
   const removeGroup = (groupLabel: string) => {
     setMasks(prev => {
-      const filtered = prev.filter(mask => {
-        const baseLabel = mask.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
-        return baseLabel !== groupLabel.toLowerCase();
-      });
+      const filtered = prev.filter(
+        (mask) => getBaseLabel(mask.label).toLowerCase() !== groupLabel.toLowerCase()
+      );
       return [...filtered];
     });
   };
@@ -851,33 +1086,36 @@ export default function Step3SegmentationPage() {
   const handleDrop = (e: DragEvent<HTMLDivElement>, targetGroupLabel: string) => {
     e.preventDefault();
     setDropTargetGroup(null);
-    
+
     if (draggingMaskId) {
-      // Rename the mask to the target group's label + number
       setMasks(prev => {
-        // Count how many masks are already in the target group (excluding the one being dragged)
+        const targetLower = targetGroupLabel.toLowerCase();
         const existingInGroup = prev.filter(m => {
           if (m.id === draggingMaskId) return false;
-          const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim();
-          return baseLabel.toLowerCase() === targetGroupLabel.toLowerCase();
+          return getBaseLabel(m.label).toLowerCase() === targetLower;
         }).length;
-        
+
+        const groupMask = prev.find(m => {
+          if (m.id === draggingMaskId) return false;
+          return getBaseLabel(m.label).toLowerCase() === targetLower;
+        });
+
         const updated = prev.map(mask => {
-          if (mask.id === draggingMaskId) {
-            const newNumber = existingInGroup + 1;
-            // Find group color
-            const groupMask = prev.find(m => {
-              if (m.id === draggingMaskId) return false;
-              const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim();
-              return baseLabel.toLowerCase() === targetGroupLabel.toLowerCase();
-            });
-            return { 
-              ...mask, 
-              label: `${targetGroupLabel} #${newNumber}`,
-              color: groupMask?.color || mask.color
-            };
+          if (mask.id !== draggingMaskId) return mask;
+
+          let newLabel: string;
+          if (targetLower === "corner") {
+            newLabel = `corner ${getAlphabeticalLabel(existingInGroup)}`;
+          } else if (targetLower === "boss stone") {
+            const totalCorners = prev.filter(
+              m => getBaseLabel(m.label).toLowerCase() === "corner"
+            ).length;
+            newLabel = `boss stone ${getAlphabeticalLabel(totalCorners + existingInGroup)}`;
+          } else {
+            newLabel = `${targetGroupLabel} #${existingInGroup + 1}`;
           }
-          return mask;
+
+          return { ...mask, label: newLabel, color: groupMask?.color || mask.color };
         });
         return [...updated];
       });
@@ -937,134 +1175,18 @@ export default function Step3SegmentationPage() {
       
       if (isSuccess) {
         setSamStatus(prev => ({ ...prev, loaded: true }));
-        
+
         if (newMasks.length > 0) {
-          // Append to existing masks with proper renumbering, color consistency, and duplicate detection
-          // We need to compute the updated masks outside setState to avoid calling store actions during render
-          const computeUpdatedMasks = (existingMasks: SegmentationMask[]) => {
-            // Track label counts as we renumber
-            const labelCounts: Record<string, number> = {};
-            // Track colors for each group (for consistency)
-            const groupColors: Record<string, string> = {};
-            
-            // First, count existing masks by base label and collect their colors
-            existingMasks.forEach(m => {
-              const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
-              labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
-              // Store the first color found for this group
-              if (!groupColors[baseLabel]) {
-                groupColors[baseLabel] = m.color;
-              }
-            });
-            
-            // Helper to calculate bounding box IoU (Intersection over Union)
-            const calculateBboxIoU = (bbox1: number[], bbox2: number[]): number => {
-              // Both bboxes in [x, y, w, h] format
-              const [x1, y1, w1, h1] = bbox1;
-              const [x2, y2, w2, h2] = bbox2;
-              
-              const xA = Math.max(x1, x2);
-              const yA = Math.max(y1, y2);
-              const xB = Math.min(x1 + w1, x2 + w2);
-              const yB = Math.min(y1 + h1, y2 + h2);
-              
-              const interWidth = Math.max(0, xB - xA);
-              const interHeight = Math.max(0, yB - yA);
-              const interArea = interWidth * interHeight;
-              
-              const area1 = w1 * h1;
-              const area2 = w2 * h2;
-              const unionArea = area1 + area2 - interArea;
-              
-              return unionArea > 0 ? interArea / unionArea : 0;
-            };
-            
-            // Check if a new mask overlaps significantly with existing masks
-            const isDuplicateMask = (newMask: SegmentationMask): boolean => {
-              const IOU_THRESHOLD = 0.5; // Consider duplicate if >50% overlap
-              
-              for (const existingMask of existingMasks) {
-                if (existingMask.bbox && newMask.bbox) {
-                  const iou = calculateBboxIoU(existingMask.bbox, newMask.bbox);
-                  if (iou > IOU_THRESHOLD) {
-                    console.log(`Skipping duplicate mask (IoU=${iou.toFixed(2)}): ${newMask.label}`);
-                    return true;
-                  }
-                }
-              }
-              return false;
-            };
-            
-            // Default color palette for new groups
-            const colorPalette = [
-              "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
-              "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
-            ];
-            let colorIndex = Object.keys(groupColors).length;
-            
-            // Filter out duplicates and renumber new masks
-            const renumberedMasks = newMasks
-              .filter((newMask: SegmentationMask) => !isDuplicateMask(newMask))
-              .map((newMask: SegmentationMask) => {
-                // Extract base label (e.g., "boss stone" from "boss stone #1")
-                const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
-                const baseLabelLower = baseLabel.toLowerCase();
-                
-                // Increment count for this label
-                labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
-                const newNumber = labelCounts[baseLabelLower];
-                
-                // Create new label with proper numbering
-                const newLabel = `${baseLabel} #${newNumber}`;
-                
-                // Get consistent color for this group
-                let maskColor = groupColors[baseLabelLower];
-                if (!maskColor) {
-                  // New group - assign a color from palette
-                  maskColor = colorPalette[colorIndex % colorPalette.length];
-                  groupColors[baseLabelLower] = maskColor;
-                  colorIndex++;
-                }
-                
-                // Generate unique ID to avoid conflicts
-                const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                
-                return {
-                  ...newMask,
-                  id: newId,
-                  label: newLabel,
-                  color: maskColor, // Use consistent group color
-                };
-              });
-            
-            if (renumberedMasks.length < newMasks.length) {
-              console.log(`Filtered ${newMasks.length - renumberedMasks.length} duplicate masks`);
-            }
-            
-            return [...existingMasks, ...renumberedMasks];
-          };
-          
-          // Get current masks and compute updated list
           setMasks(prev => {
-            const allMasks = computeUpdatedMasks(prev);
-            
-            // Schedule store update after this render cycle
+            const allMasks = computeUpdatedMasks(prev, newMasks);
             setTimeout(() => {
-              const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
-                id: m.id,
-                label: m.label,
-                color: m.color,
-                mask: m.maskBase64,
-                visible: m.visible,
-                source: m.source as "auto" | "manual",
-              }));
-              setSegmentations(storeSegmentations);
+              setSegmentations(allMasks.map((m: SegmentationMask) => ({
+                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
+                visible: m.visible, source: m.source as "auto" | "manual",
+              })));
             }, 0);
-            
             return allMasks;
           });
-          
-          // Clear boxes after successful segmentation
           setDrawnBoxes([]);
         } else {
           alert("No similar objects found for the selected region(s). Try drawing a box around a more distinct feature.");
@@ -1122,94 +1244,18 @@ export default function Step3SegmentationPage() {
       
       if (isSuccess) {
         setSamStatus(prev => ({ ...prev, loaded: true }));
-        
+
         if (newMasks.length > 0) {
-          // Same mask processing as box segment
-          const computeUpdatedMasks = (existingMasks: SegmentationMask[]) => {
-            const labelCounts: Record<string, number> = {};
-            const groupColors: Record<string, string> = {};
-            
-            existingMasks.forEach(m => {
-              const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
-              labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
-              if (!groupColors[baseLabel]) {
-                groupColors[baseLabel] = m.color;
-              }
-            });
-            
-            const calculateBboxIoU = (bbox1: number[], bbox2: number[]): number => {
-              const [x1, y1, w1, h1] = bbox1;
-              const [x2, y2, w2, h2] = bbox2;
-              const xA = Math.max(x1, x2);
-              const yA = Math.max(y1, y2);
-              const xB = Math.min(x1 + w1, x2 + w2);
-              const yB = Math.min(y1 + h1, y2 + h2);
-              const interWidth = Math.max(0, xB - xA);
-              const interHeight = Math.max(0, yB - yA);
-              const interArea = interWidth * interHeight;
-              const area1 = w1 * h1;
-              const area2 = w2 * h2;
-              const unionArea = area1 + area2 - interArea;
-              return unionArea > 0 ? interArea / unionArea : 0;
-            };
-            
-            const isDuplicateMask = (newMask: SegmentationMask): boolean => {
-              const IOU_THRESHOLD = 0.5;
-              for (const existingMask of existingMasks) {
-                if (existingMask.bbox && newMask.bbox) {
-                  const iou = calculateBboxIoU(existingMask.bbox, newMask.bbox);
-                  if (iou > IOU_THRESHOLD) return true;
-                }
-              }
-              return false;
-            };
-            
-            const colorPalette = [
-              "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
-              "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
-            ];
-            let colorIndex = Object.keys(groupColors).length;
-            
-            const renumberedMasks = newMasks
-              .filter((newMask: SegmentationMask) => !isDuplicateMask(newMask))
-              .map((newMask: SegmentationMask) => {
-                const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
-                const baseLabelLower = baseLabel.toLowerCase();
-                labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
-                const newNumber = labelCounts[baseLabelLower];
-                const newLabel = `${baseLabel} #${newNumber}`;
-                
-                let maskColor = groupColors[baseLabelLower];
-                if (!maskColor) {
-                  maskColor = colorPalette[colorIndex % colorPalette.length];
-                  groupColors[baseLabelLower] = maskColor;
-                  colorIndex++;
-                }
-                
-                const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                return { ...newMask, id: newId, label: newLabel, color: maskColor };
-              });
-            
-            return [...existingMasks, ...renumberedMasks];
-          };
-          
           setMasks(prev => {
-            const allMasks = computeUpdatedMasks(prev);
+            const allMasks = computeUpdatedMasks(prev, newMasks);
             setTimeout(() => {
-              const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
-                id: m.id,
-                label: m.label,
-                color: m.color,
-                mask: m.maskBase64,
-                visible: m.visible,
-                source: m.source as "auto" | "manual",
-              }));
-              setSegmentations(storeSegmentations);
+              setSegmentations(allMasks.map((m: SegmentationMask) => ({
+                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
+                visible: m.visible, source: m.source as "auto" | "manual",
+              })));
             }, 0);
             return allMasks;
           });
-          
-          // Clear polygons after successful segmentation
           setDrawnPolygons([]);
         } else {
           alert("No objects found in the selected polygon region(s).");
@@ -1251,140 +1297,24 @@ export default function Step3SegmentationPage() {
       // Handle the response - check both wrapper success and inner success
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
-      const masks = data?.masks || [];
+      const autoMasks = data?.masks || [];
       const errorMsg = response.error || data?.error;
-      
+
       if (isSuccess) {
-        // Update SAM status
         setSamStatus(prev => ({ ...prev, loaded: true }));
-        
-        if (masks.length > 0) {
-          // Append to existing masks with proper renumbering, color consistency, and duplicate detection
-          // Compute updated masks outside setState to avoid calling store actions during render
-          const computeUpdatedMasks = (existingMasks: SegmentationMask[]) => {
-            // Track label counts as we renumber
-            const labelCounts: Record<string, number> = {};
-            // Track colors for each group (for consistency)
-            const groupColors: Record<string, string> = {};
-            
-            // First, count existing masks by base label and collect their colors
-            existingMasks.forEach(m => {
-              const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim().toLowerCase();
-              labelCounts[baseLabel] = (labelCounts[baseLabel] || 0) + 1;
-              // Store the first color found for this group
-              if (!groupColors[baseLabel]) {
-                groupColors[baseLabel] = m.color;
-              }
-            });
-            
-            // Helper to calculate bounding box IoU (Intersection over Union)
-            const calculateBboxIoU = (bbox1: number[], bbox2: number[]): number => {
-              // Both bboxes in [x, y, w, h] format
-              const [x1, y1, w1, h1] = bbox1;
-              const [x2, y2, w2, h2] = bbox2;
-              
-              const xA = Math.max(x1, x2);
-              const yA = Math.max(y1, y2);
-              const xB = Math.min(x1 + w1, x2 + w2);
-              const yB = Math.min(y1 + h1, y2 + h2);
-              
-              const interWidth = Math.max(0, xB - xA);
-              const interHeight = Math.max(0, yB - yA);
-              const interArea = interWidth * interHeight;
-              
-              const area1 = w1 * h1;
-              const area2 = w2 * h2;
-              const unionArea = area1 + area2 - interArea;
-              
-              return unionArea > 0 ? interArea / unionArea : 0;
-            };
-            
-            // Check if a new mask overlaps significantly with existing masks
-            const isDuplicateMask = (newMask: SegmentationMask): boolean => {
-              const IOU_THRESHOLD = 0.5; // Consider duplicate if >50% overlap
-              
-              for (const existingMask of existingMasks) {
-                if (existingMask.bbox && newMask.bbox) {
-                  const iou = calculateBboxIoU(existingMask.bbox, newMask.bbox);
-                  if (iou > IOU_THRESHOLD) {
-                    console.log(`Skipping duplicate mask (IoU=${iou.toFixed(2)}): ${newMask.label}`);
-                    return true;
-                  }
-                }
-              }
-              return false;
-            };
-            
-            // Default color palette for new groups
-            const colorPalette = [
-              "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
-              "#00FFFF", "#FF6600", "#9900FF", "#00FF99", "#FF0099",
-            ];
-            let colorIndex = Object.keys(groupColors).length;
-            
-            // Filter out duplicates and renumber new masks
-            const renumberedMasks = masks
-              .filter((newMask: SegmentationMask) => !isDuplicateMask(newMask))
-              .map((newMask: SegmentationMask) => {
-                // Extract base label
-                const baseLabel = newMask.label.replace(/\s*#?\d+$/, '').trim();
-                const baseLabelLower = baseLabel.toLowerCase();
-                
-                // Increment count for this label
-                labelCounts[baseLabelLower] = (labelCounts[baseLabelLower] || 0) + 1;
-                const newNumber = labelCounts[baseLabelLower];
-                
-                // Create new label with proper numbering
-                const newLabel = `${baseLabel} #${newNumber}`;
-                
-                // Get consistent color for this group
-                let maskColor = groupColors[baseLabelLower];
-                if (!maskColor) {
-                  // New group - assign a color from palette
-                  maskColor = colorPalette[colorIndex % colorPalette.length];
-                  groupColors[baseLabelLower] = maskColor;
-                  colorIndex++;
-                }
-                
-                // Generate unique ID
-                const newId = `mask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                
-                return {
-                  ...newMask,
-                  id: newId,
-                  label: newLabel,
-                  color: maskColor, // Use consistent group color
-                };
-              });
-            
-            if (renumberedMasks.length < masks.length) {
-              console.log(`Filtered ${masks.length - renumberedMasks.length} duplicate masks`);
-            }
-            
-            return [...existingMasks, ...renumberedMasks];
-          };
-          
-          // Update masks and schedule store update after render
+
+        if (autoMasks.length > 0) {
           setMasks(prev => {
-            const allMasks = computeUpdatedMasks(prev);
-            
-            // Schedule store update after this render cycle
+            const allMasks = computeUpdatedMasks(prev, autoMasks);
             setTimeout(() => {
-              const storeSegmentations = allMasks.map((m: SegmentationMask) => ({
-                id: m.id,
-                label: m.label,
-                color: m.color,
-                mask: m.maskBase64,
-                visible: m.visible,
-                source: m.source as "auto" | "manual",
-              }));
-              setSegmentations(storeSegmentations);
+              setSegmentations(allMasks.map((m: SegmentationMask) => ({
+                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
+                visible: m.visible, source: m.source as "auto" | "manual",
+              })));
             }, 0);
-            
             return allMasks;
           });
         } else {
-          // No masks found - don't clear existing, just show message
           alert(`No objects found matching your prompts. Try different terms like:\n• "rib" - vault ribs\n• "arch" - arched sections\n• "stone" - stone surfaces\n• "boss" - decorative bosses`);
         }
       } else {
@@ -1480,49 +1410,27 @@ export default function Step3SegmentationPage() {
   const hasProjections = (currentProject?.projections?.length || 0) > 0;
   const visibleMasks = masks.filter(m => m.visible);
   
-  // Group masks by label (extract base label without number)
+  // Group masks by base label (handles both #N and alphabetical suffixes)
   const groupedMasks = useMemo(() => {
     const groups: Record<string, SegmentationMask[]> = {};
-    
     masks.forEach(mask => {
-      // Extract base label (remove trailing numbers like "rib #1" -> "rib")
-      const baseLabel = mask.label.replace(/\s*#?\d+$/, '').trim() || mask.label;
-      
-      if (!groups[baseLabel]) {
-        groups[baseLabel] = [];
-      }
+      const baseLabel = getBaseLabel(mask.label);
+      if (!groups[baseLabel]) groups[baseLabel] = [];
       groups[baseLabel].push(mask);
     });
-    
-    // Debug: log grouping
-    if (masks.length > 0) {
-      console.log("Mask grouping:", Object.entries(groups).map(([label, items]) => ({
-        label,
-        count: items.length,
-        colors: Array.from(new Set(items.map(m => m.color))),
-        items: items.map(m => ({ id: m.id, label: m.label, color: m.color }))
-      })));
-    }
-    
     return groups;
   }, [masks]);
-  
+
   const toggleGroupVisibility = (groupLabel: string, visible: boolean) => {
     setMasks(prev => {
       const updated = prev.map(m => {
-        const baseLabel = m.label.replace(/\s*#?\d+$/, '').trim() || m.label;
-        if (baseLabel.toLowerCase() === groupLabel.toLowerCase()) {
+        if (getBaseLabel(m.label).toLowerCase() === groupLabel.toLowerCase()) {
           return { ...m, visible };
         }
         return m;
       });
       return [...updated];
     });
-  };
-  
-  const isGroupVisible = (groupLabel: string): boolean => {
-    const group = groupedMasks[groupLabel];
-    return group?.some(m => m.visible) || false;
   };
   
   const isGroupFullyVisible = (groupLabel: string): boolean => {
@@ -1628,7 +1536,7 @@ export default function Step3SegmentationPage() {
                   
                   {/* Quick Presets */}
                   <div className="flex flex-wrap gap-1">
-                    {["rib", "boss stone", "keystone", "intrados", "tiercerons", "lierne", "vault cell"].map((preset) => (
+                    {["rib", "boss stone", "corner", "keystone", "intrados", "tiercerons", "lierne", "vault cell"].map((preset) => (
                       <button
                         key={preset}
                         onClick={() => {
@@ -1706,17 +1614,21 @@ export default function Step3SegmentationPage() {
                   {textPrompts.length > 0 ? "Run SAM Segmentation" : "Run SAM Segmentation"}
                 </Button>
                 
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-4 gap-1">
                   {[
                     { tool: "polygon", icon: Hexagon, label: "Polygon", needsMasks: false },
                     { tool: "box", icon: Scan, label: "Box", needsMasks: false },
                     { tool: "roi", icon: Square, label: "ROI", needsMasks: false },
+                    { tool: "eraser", icon: Eraser, label: "Eraser", needsMasks: true },
                   ].map(({ tool, icon: Icon, label, needsMasks }) => (
                     <Button
                       key={tool}
                       variant={activeTool === tool ? "default" : "outline"}
                       size="sm"
-                      className="gap-1.5 h-7 text-xs"
+                      className={cn(
+                        "gap-1 h-7 text-xs",
+                        tool === "eraser" && activeTool === "eraser" && "bg-red-600 hover:bg-red-700 border-red-600"
+                      )}
                       onClick={() => {
                         setActiveTool(tool as Tool);
                         if (tool === "roi") setShowROI(true);
@@ -1928,6 +1840,74 @@ export default function Step3SegmentationPage() {
                   </div>
                 )}
                 
+                {/* Eraser Section */}
+                {activeTool === "eraser" && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Eraser className="w-3 h-3" />
+                      Eraser
+                    </span>
+
+                    {/* Size slider */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Brush size</span>
+                        <span>{eraserSize}px</span>
+                      </div>
+                      <Slider
+                        value={[eraserSize]}
+                        onValueChange={([v]) => setEraserSize(v)}
+                        min={5}
+                        max={100}
+                        step={1}
+                      />
+                    </div>
+
+                    {/* Mask selector */}
+                    {masks.length > 0 ? (
+                      <div className="space-y-1">
+                        <span className="text-xs text-muted-foreground">Select mask to erase:</span>
+                        <div className="max-h-32 overflow-y-auto space-y-0.5">
+                          {masks.filter(m => m.visible).map(mask => (
+                            <button
+                              key={mask.id}
+                              className={cn(
+                                "w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-left transition-colors",
+                                activeMaskId === mask.id
+                                  ? "bg-red-500/20 border border-red-500/50 text-red-400"
+                                  : "hover:bg-muted/50"
+                              )}
+                              onClick={() =>
+                                setActiveMaskId(mask.id === activeMaskId ? null : mask.id)
+                              }
+                            >
+                              <div
+                                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: mask.color }}
+                              />
+                              <span className="truncate">{mask.label}</span>
+                              {activeMaskId === mask.id && (
+                                <Eraser className="w-3 h-3 ml-auto text-red-400 flex-shrink-0" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground/70 italic">
+                        Run segmentation first to create masks to erase.
+                      </p>
+                    )}
+
+                    {activeMaskId && (
+                      <p className="text-xs text-red-400 flex items-center gap-1">
+                        <Eraser className="w-3 h-3" />
+                        Paint over the canvas to erase
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* ROI Section */}
                 {activeTool === "roi" && (
                   <div className="space-y-2 pt-2 border-t">
@@ -2179,7 +2159,7 @@ export default function Step3SegmentationPage() {
                 <div className="space-y-4">
                   {/* Display Controls */}
                   {masks.length > 0 && (
-                    <div className="flex items-center gap-3 p-2 bg-muted/50 rounded-lg">
+                    <div className="flex items-center gap-3 p-2 bg-muted/50 rounded-lg flex-wrap">
                       <Label className="text-sm whitespace-nowrap">Overlay</Label>
                       <Slider
                         value={[overlayOpacity * 100]}
@@ -2192,15 +2172,27 @@ export default function Step3SegmentationPage() {
                       <span className="text-sm text-muted-foreground w-10">
                         {Math.round(overlayOpacity * 100)}%
                       </span>
+                      {/* Label toggle */}
+                      <Button
+                        variant={showMaskLabels ? "default" : "outline"}
+                        size="sm"
+                        className="gap-1.5 h-8 ml-auto"
+                        onClick={() => setShowMaskLabels(v => !v)}
+                        title="Toggle mask labels"
+                      >
+                        <Tag className="w-3 h-3" />
+                        Labels
+                      </Button>
                     </div>
                   )}
                   
                   {/* Image Preview */}
-                  <div 
+                  <div
                     ref={imageContainerRef}
                     className={cn(
                       "relative aspect-square max-w-2xl mx-auto bg-[#0a0f1a] rounded-lg overflow-hidden",
-                      (activeTool === "box" || activeTool === "polygon" || activeTool === "roi") && "cursor-crosshair"
+                      (activeTool === "box" || activeTool === "polygon" || activeTool === "roi") && "cursor-crosshair",
+                      activeTool === "eraser" && "cursor-none"
                     )}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
@@ -2210,6 +2202,11 @@ export default function Step3SegmentationPage() {
                         setIsDrawing(false);
                         setDrawStart(null);
                         setCurrentBox(null);
+                      }
+                      if (activeTool === "eraser") {
+                        setEraserPos(null);
+                        setIsEraserDown(false);
+                        eraserStrokesRef.current = [];
                       }
                     }}
                   >
@@ -2274,6 +2271,52 @@ export default function Step3SegmentationPage() {
                           </div>
                         ))}
                         
+                        {/* Mask label overlays */}
+                        {showMaskLabels && visibleMasks.map(mask => {
+                          if (!mask.bbox) return null;
+                          const imgW = imageSize?.width || selectedProjection?.settings?.resolution || 2048;
+                          const imgH = imageSize?.height || selectedProjection?.settings?.resolution || 2048;
+                          const cx = ((mask.bbox[0] + mask.bbox[2] / 2) / imgW) * 100;
+                          const cy = ((mask.bbox[1] + mask.bbox[3] / 2) / imgH) * 100;
+                          const isActive = mask.id === activeMaskId;
+                          return (
+                            <div
+                              key={`lbl-${mask.id}`}
+                              className="absolute pointer-events-none z-10"
+                              style={{
+                                left: `${cx}%`,
+                                top: `${cy}%`,
+                                transform: "translate(-50%, -50%)",
+                              }}
+                            >
+                              <div
+                                className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-lg"
+                                style={{
+                                  backgroundColor: mask.color + "cc",
+                                  outline: isActive ? "2px solid rgba(248,113,113,0.8)" : undefined,
+                                }}
+                              >
+                                {mask.label}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Eraser cursor */}
+                        {activeTool === "eraser" && eraserPos && (
+                          <div
+                            className="absolute pointer-events-none z-20 rounded-full border-2"
+                            style={{
+                              left: eraserPos.x - eraserSize,
+                              top: eraserPos.y - eraserSize,
+                              width: eraserSize * 2,
+                              height: eraserSize * 2,
+                              borderColor: activeMaskId ? "rgba(248,113,113,0.9)" : "rgba(156,163,175,0.7)",
+                              boxShadow: activeMaskId ? "0 0 6px rgba(248,113,113,0.5)" : undefined,
+                            }}
+                          />
+                        )}
+
                         {/* Info overlays - combined top bar */}
                         <div className="absolute top-2 left-2 right-2 flex justify-between items-center pointer-events-none">
                           <div className="bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] capitalize">
@@ -2583,6 +2626,17 @@ export default function Step3SegmentationPage() {
                           </div>
                         )}
                         
+                        {/* Eraser mode indicator */}
+                        {activeTool === "eraser" && (
+                          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
+                            <Eraser className="w-3.5 h-3.5" />
+                            {activeMaskId
+                              ? `Erasing: ${masks.find(m => m.id === activeMaskId)?.label ?? "selected mask"}`
+                              : "Select a mask from the left panel to erase"
+                            }
+                          </div>
+                        )}
+
                         {/* ROI mode indicator */}
                         {activeTool === "roi" && (
                           <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-green-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
@@ -2686,7 +2740,7 @@ export default function Step3SegmentationPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <p className="text-xs text-muted-foreground w-full mb-1">Quick select:</p>
-              {["rib", "boss stone", "keystone", "intrados", "tiercerons", "lierne"].map((name) => (
+              {["rib", "boss stone", "corner", "keystone", "intrados", "tiercerons", "lierne"].map((name) => (
                 <Badge
                   key={name}
                   variant="outline"
