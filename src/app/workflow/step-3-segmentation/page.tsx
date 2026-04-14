@@ -200,6 +200,7 @@ export default function Step3SegmentationPage() {
   const [roiDragStart, setRoiDragStart] = useState<{ x: number; y: number; roi: ROIState } | null>(null);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [isApplyingROI, setIsApplyingROI] = useState(false);
+  const [roiConfirmed, setRoiConfirmed] = useState(false);
   
   // Box naming dialog state
   const [boxNamingDialog, setBoxNamingDialog] = useState<{
@@ -604,10 +605,17 @@ export default function Step3SegmentationPage() {
   const isMaskInsideROI = (mask: SegmentationMask): boolean => {
     if (!mask.bbox) return false;
     const resolution = selectedProjection?.settings?.resolution || 2048;
-    // bbox is [x, y, w, h] in pixels
-    const centerX = (mask.bbox[0] + mask.bbox[2] / 2) / resolution;
-    const centerY = (mask.bbox[1] + mask.bbox[3] / 2) / resolution;
-    return isPointInROI(centerX, centerY, roi);
+    const [bx, by, bw, bh] = mask.bbox;
+    // Keep mask if its center OR any bbox corner touches the ROI boundary.
+    // This prevents ribs that straddle the edge from being incorrectly removed.
+    const pts: [number, number][] = [
+      [(bx + bw / 2) / resolution, (by + bh / 2) / resolution], // center
+      [bx / resolution,            by / resolution],              // top-left
+      [(bx + bw) / resolution,     by / resolution],              // top-right
+      [(bx + bw) / resolution,     (by + bh) / resolution],       // bottom-right
+      [bx / resolution,            (by + bh) / resolution],       // bottom-left
+    ];
+    return pts.some(([cx, cy]) => isPointInROI(cx, cy, roi));
   };
 
   /** True once the user has drawn and confirmed a non-trivial ROI */
@@ -621,11 +629,18 @@ export default function Step3SegmentationPage() {
     (masks: SegmentationMask[]): SegmentationMask[] => {
       if (!isROISet) return masks;
       return masks.filter((m) => {
-        if (!m.bbox) return true; // no bbox → keep (can't check)
+        if (!m.bbox) return true; // no bbox → keep
         const resolution = selectedProjection?.settings?.resolution || 2048;
-        const centerX = (m.bbox[0] + m.bbox[2] / 2) / resolution;
-        const centerY = (m.bbox[1] + m.bbox[3] / 2) / resolution;
-        return isPointInROI(centerX, centerY, roi);
+        const [bx, by, bw, bh] = m.bbox;
+        // Keep if center OR any bbox corner is inside the ROI
+        const pts: [number, number][] = [
+          [(bx + bw / 2) / resolution, (by + bh / 2) / resolution],
+          [bx / resolution,            by / resolution],
+          [(bx + bw) / resolution,     by / resolution],
+          [(bx + bw) / resolution,     (by + bh) / resolution],
+          [bx / resolution,            (by + bh) / resolution],
+        ];
+        return pts.some(([cx, cy]) => isPointInROI(cx, cy, roi));
       });
     },
     [isROISet, roi, selectedProjection]
@@ -915,11 +930,104 @@ export default function Step3SegmentationPage() {
     if (roiInteractionMode === "drawing" && roi.width > 0.02 && roi.height > 0.02) {
       setShowROI(true);
     }
+    // Any change to the ROI shape invalidates the previous confirmation
+    if (roiInteractionMode !== "none") {
+      setRoiConfirmed(false);
+    }
     setRoiInteractionMode("none");
     setRoiDragStart(null);
     setResizeHandle(null);
   };
   
+  // Confirm ROI — place labeled corner point masks A-D, save ROI, unlock segmentation
+  const handleConfirmROI = async () => {
+    if (!isROISet) return;
+
+    const resolution = selectedProjection?.settings?.resolution || 2048;
+    const corners = getROICorners(roi);
+
+    // Create a small circular dot mask for each corner on a 256×256 canvas
+    // (mask-image: contain scales it correctly to the display image)
+    const createDotMask = (nx: number, ny: number): string => {
+      const size = 256;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return "";
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(nx * size, ny * size, 8, 0, Math.PI * 2);
+      ctx.fill();
+      return canvas.toDataURL("image/png").split(",")[1];
+    };
+
+    const CORNER_COLOR = "#FFD700"; // gold
+    const dotBboxR = Math.round(resolution * 0.006); // ~12px on 2048
+
+    const cornerMasks: SegmentationMask[] = corners.map(([cx, cy], i) => {
+      const px = cx * resolution;
+      const py = cy * resolution;
+      return {
+        id: `roi-corner-${i}-${Date.now()}`,
+        label: `corner ${getAlphabeticalLabel(i)}`, // "corner A" … "corner D"
+        color: CORNER_COLOR,
+        maskBase64: createDotMask(cx, cy),
+        bbox: [
+          Math.max(0, Math.round(px - dotBboxR)),
+          Math.max(0, Math.round(py - dotBboxR)),
+          dotBboxR * 2,
+          dotBboxR * 2,
+        ] as [number, number, number, number],
+        area: Math.round(Math.PI * dotBboxR * dotBboxR),
+        predictedIou: 1.0,
+        stabilityScore: 1.0,
+        visible: true,
+        source: "manual",
+      };
+    });
+
+    // Replace any existing corner-A/B/C/D masks and add the new ones
+    setMasks((prev) => {
+      const withoutOldCorners = prev.filter(
+        (m) => getBaseLabel(m.label).toLowerCase() !== "corner"
+      );
+      const updated = [...withoutOldCorners, ...cornerMasks];
+      setTimeout(() => {
+        setSegmentations(
+          updated.map((m) => ({
+            id: m.id,
+            label: m.label,
+            color: m.color,
+            mask: m.maskBase64,
+            visible: m.visible,
+            source: m.source as "auto" | "manual",
+          }))
+        );
+      }, 0);
+      return updated;
+    });
+
+    // Save ROI with corner labels to backend
+    if (currentProject?.id) {
+      const roiData: ROIData = {
+        x: roi.x * resolution,
+        y: roi.y * resolution,
+        width: roi.width * resolution,
+        height: roi.height * resolution,
+        rotation: roi.rotation,
+        corners: corners.map(([cx, cy]) => [cx * resolution, cy * resolution]),
+        cornerLabels: ["A", "B", "C", "D"],
+      };
+      await saveROI(currentProject.id, roiData).catch(console.error);
+    }
+
+    setRoiConfirmed(true);
+    setShowMaskLabels(true); // make the A-D labels immediately visible
+    setActiveTool("box");    // nudge user toward segmentation
+  };
+
   // Apply ROI - delete masks outside
   const handleApplyROI = async () => {
     if (!currentProject?.id) return;
@@ -1583,14 +1691,16 @@ export default function Step3SegmentationPage() {
                   <div className="flex items-center gap-1 text-[10px]">
                     <span className={cn(
                       "px-1.5 py-0.5 rounded-full font-medium",
-                      !isROISet ? "bg-amber-500/20 text-amber-400" : "bg-green-500/20 text-green-400"
+                      roiConfirmed ? "bg-green-500/20 text-green-400"
+                        : isROISet ? "bg-amber-500/20 text-amber-400"
+                        : "bg-muted/30 text-muted-foreground/40"
                     )}>
-                      {isROISet ? "✓" : "1"} ROI
+                      {roiConfirmed ? "✓" : "1"} ROI
                     </span>
                     <span className="text-muted-foreground/40">→</span>
                     <span className={cn(
                       "px-1.5 py-0.5 rounded-full font-medium",
-                      !isROISet ? "bg-muted/30 text-muted-foreground/40" : "bg-primary/20 text-primary"
+                      !roiConfirmed ? "bg-muted/30 text-muted-foreground/40" : "bg-primary/20 text-primary"
                     )}>
                       2 Segment
                     </span>
@@ -1599,16 +1709,18 @@ export default function Step3SegmentationPage() {
               </CardHeader>
               <CardContent className="px-3 pb-3 pt-0 space-y-3">
                 {/* ROI required notice */}
-                {!isROISet && (
+                {!roiConfirmed && (
                   <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <Square className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
                     <p className="text-xs text-amber-300/90">
-                      Draw the vault ROI first. Click &amp; drag on the image to define the boundary, then proceed to segment.
+                      {!isROISet
+                        ? "Draw the vault boundary first. Click & drag on the image, then confirm to label corners A–D."
+                        : "Confirm the ROI to place corner markers A–D before segmenting."}
                     </p>
                   </div>
                 )}
                 {/* Text Prompts Input */}
-                <div className={cn("space-y-1.5", !isROISet && "opacity-40 pointer-events-none")}>
+                <div className={cn("space-y-1.5", !roiConfirmed && "opacity-40 pointer-events-none")}>
                   <Label className="text-xs text-muted-foreground flex items-center gap-1">
                     <Type className="w-3 h-3" />
                     Text Prompts
@@ -1684,7 +1796,7 @@ export default function Step3SegmentationPage() {
                   size="sm"
                   className="w-full gap-1.5"
                   onClick={handleAutoSegment}
-                  disabled={isProcessing || !selectedProjection || !isROISet}
+                  disabled={isProcessing || !selectedProjection || !roiConfirmed}
                 >
                   {isProcessing ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -1717,7 +1829,7 @@ export default function Step3SegmentationPage() {
                       disabled={
                         !selectedProjection ||
                         (needsMasks && masks.length === 0) ||
-                        (needsRoi && !isROISet)
+                        (needsRoi && !roiConfirmed)
                       }
                     >
                       <Icon className="w-3 h-3" />
@@ -1804,7 +1916,7 @@ export default function Step3SegmentationPage() {
                       size="sm"
                       className="w-full gap-1.5 bg-blue-600 hover:bg-blue-700"
                       onClick={handleBoxSegment}
-                      disabled={isProcessing || drawnBoxes.length === 0 || !isROISet}
+                      disabled={isProcessing || drawnBoxes.length === 0 || !roiConfirmed}
                     >
                       {isProcessing ? (
                         <Loader2 className="w-3 h-3 animate-spin" />
@@ -1912,7 +2024,7 @@ export default function Step3SegmentationPage() {
                         size="sm"
                         className="w-full gap-1.5 bg-purple-600 hover:bg-purple-700"
                         onClick={handlePolygonSegment}
-                        disabled={isProcessing || !isROISet}
+                        disabled={isProcessing || !roiConfirmed}
                       >
                         {isProcessing ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -2013,13 +2125,17 @@ export default function Step3SegmentationPage() {
                     
                     {!isROISet ? (
                       <p className="text-xs text-muted-foreground/70">
-                        Click and drag on the image to outline the vault boundary (4 corners labelled A–D).
+                        Click and drag on the image to outline the vault boundary. Corners will be labelled A–D.
                       </p>
-                    ) : (
+                    ) : roiConfirmed ? (
                       <div className="flex items-center gap-1.5 py-1 text-xs text-green-400">
                         <Check className="w-3 h-3" />
-                        ROI set — switch to Box or Polygon to segment
+                        Corners A–D set — use Box or Polygon to segment
                       </div>
+                    ) : (
+                      <p className="text-xs text-amber-300/80">
+                        Happy with the boundary? Confirm to place corner markers A–D.
+                      </p>
                     )}
 
                     {isROISet && (
@@ -2047,7 +2163,19 @@ export default function Step3SegmentationPage() {
                           )}
                         </div>
 
-                        {masks.filter(m => !isMaskInsideROI(m)).length > 0 && (
+                        {/* Confirm ROI — place A-D corner markers */}
+                        {!roiConfirmed && (
+                          <Button
+                            size="sm"
+                            className="w-full gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+                            onClick={handleConfirmROI}
+                          >
+                            <Check className="w-3 h-3" />
+                            Confirm ROI &amp; Set Corners A–D
+                          </Button>
+                        )}
+
+                        {roiConfirmed && masks.filter(m => !isMaskInsideROI(m)).length > 0 && (
                           <Button
                             size="sm"
                             variant="destructive"
