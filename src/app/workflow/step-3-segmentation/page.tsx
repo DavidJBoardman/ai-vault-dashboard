@@ -87,6 +87,17 @@ function getAlphabeticalLabel(index: number): string {
   );
 }
 
+/**
+ * Get the short display label for a mask.
+ * For alphabetically-suffixed groups (e.g. "boss stone E", "corner A"),
+ * return just the suffix letter(s) so the canvas/sidebar stays uncluttered.
+ * For numeric groups (e.g. "rib #1") return the full label.
+ */
+function getMaskDisplayLabel(label: string): string {
+  const m = label.match(/^.+\s+([A-Z][a-z]?)$/);
+  return m ? m[1] : label;
+}
+
 // ROI state interface
 interface ROIState {
   x: number;      // Center X (0-1 normalized)
@@ -146,7 +157,7 @@ export default function Step3SegmentationPage() {
   const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   
   // Tools
-  const [activeTool, setActiveTool] = useState<Tool>("polygon");
+  const [activeTool, setActiveTool] = useState<Tool>("roi");
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState("");
   
@@ -184,7 +195,7 @@ export default function Step3SegmentationPage() {
     height: 0.6,
     rotation: 0,
   });
-  const [showROI, setShowROI] = useState(false);
+  const [showROI, setShowROI] = useState(true);
   const [roiInteractionMode, setRoiInteractionMode] = useState<ROIInteractionMode>("none");
   const [roiDragStart, setRoiDragStart] = useState<{ x: number; y: number; roi: ROIState } | null>(null);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
@@ -598,7 +609,28 @@ export default function Step3SegmentationPage() {
     const centerY = (mask.bbox[1] + mask.bbox[3] / 2) / resolution;
     return isPointInROI(centerX, centerY, roi);
   };
-  
+
+  /** True once the user has drawn and confirmed a non-trivial ROI */
+  const isROISet = showROI && roi.width > 0.02 && roi.height > 0.02;
+
+  /**
+   * If an ROI is set, filter `masks` to only those inside the boundary.
+   * Returns the original array unchanged when no ROI has been defined.
+   */
+  const filterMasksByROI = useCallback(
+    (masks: SegmentationMask[]): SegmentationMask[] => {
+      if (!isROISet) return masks;
+      return masks.filter((m) => {
+        if (!m.bbox) return true; // no bbox → keep (can't check)
+        const resolution = selectedProjection?.settings?.resolution || 2048;
+        const centerX = (m.bbox[0] + m.bbox[2] / 2) / resolution;
+        const centerY = (m.bbox[1] + m.bbox[3] / 2) / resolution;
+        return isPointInROI(centerX, centerY, roi);
+      });
+    },
+    [isROISet, roi, selectedProjection]
+  );
+
   // ── Shared mask-update helper ────────────────────────────────────────────
   /**
    * Merge `newMasks` (from SAM) into `existingMasks`, handling:
@@ -609,30 +641,7 @@ export default function Step3SegmentationPage() {
    */
   const computeUpdatedMasks = useCallback(
     (existingMasks: SegmentationMask[], newMasks: SegmentationMask[]): SegmentationMask[] => {
-      const labelCounts: Record<string, number> = {};
-      const groupColors: Record<string, string> = {};
-
-      existingMasks.forEach((m) => {
-        const bl = getBaseLabel(m.label).toLowerCase();
-        labelCounts[bl] = (labelCounts[bl] || 0) + 1;
-        if (!groupColors[bl]) groupColors[bl] = m.color;
-      });
-
-      // Pre-compute alphabetical offsets
-      const existingCornerCount = existingMasks.filter(
-        (m) => getBaseLabel(m.label).toLowerCase() === "corner"
-      ).length;
-      const existingBossStoneCount = existingMasks.filter(
-        (m) => getBaseLabel(m.label).toLowerCase() === "boss stone"
-      ).length;
-      const newCornerCount = newMasks.filter(
-        (m) => m.label.replace(/\s*#?\d+$/, "").trim().toLowerCase() === "corner"
-      ).length;
-      const totalCornerCount = existingCornerCount + newCornerCount;
-
-      let newCornersSoFar = 0;
-      let newBossStonesSoFar = 0;
-
+      // ── IoU helper ──
       const calculateBboxIoU = (b1: number[], b2: number[]): number => {
         const [x1, y1, w1, h1] = b1;
         const [x2, y2, w2, h2] = b2;
@@ -643,9 +652,54 @@ export default function Step3SegmentationPage() {
         return union > 0 ? inter / union : 0;
       };
 
+      // IoU threshold: 0.35 catches rib overlaps better than 0.5.
+      // Quality-based: if the new mask has higher predictedIou, replace the old one.
+      const IOU_THRESHOLD = 0.35;
+
+      const replacedExistingIds = new Set<string>();
+      for (const nm of newMasks) {
+        if (!nm.bbox) continue;
+        for (const em of existingMasks) {
+          if (!em.bbox) continue;
+          if (calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD &&
+              (nm.predictedIou ?? 0) > (em.predictedIou ?? 0)) {
+            replacedExistingIds.add(em.id);
+          }
+        }
+      }
+
+      // Work only with the masks that survive (not replaced by better ones)
+      const survivingExisting = existingMasks.filter(m => !replacedExistingIds.has(m.id));
+
+      // Build counts and color map from survivors
+      const labelCounts: Record<string, number> = {};
+      const groupColors: Record<string, string> = {};
+      survivingExisting.forEach((m) => {
+        const bl = getBaseLabel(m.label).toLowerCase();
+        labelCounts[bl] = (labelCounts[bl] || 0) + 1;
+        if (!groupColors[bl]) groupColors[bl] = m.color;
+      });
+
+      // Pre-compute alphabetical offsets from survivors
+      const existingCornerCount = survivingExisting.filter(
+        (m) => getBaseLabel(m.label).toLowerCase() === "corner"
+      ).length;
+      const existingBossStoneCount = survivingExisting.filter(
+        (m) => getBaseLabel(m.label).toLowerCase() === "boss stone"
+      ).length;
+      const newCornerCount = newMasks.filter(
+        (m) => m.label.replace(/\s*#?\d+$/, "").trim().toLowerCase() === "corner"
+      ).length;
+      const totalCornerCount = existingCornerCount + newCornerCount;
+
+      let newCornersSoFar = 0;
+      let newBossStonesSoFar = 0;
+
+      // A new mask is a plain duplicate only when it overlaps a surviving existing mask
+      // (and the existing mask was at least as good, so it wasn't replaced above).
       const isDuplicate = (nm: SegmentationMask) =>
-        existingMasks.some(
-          (em) => em.bbox && nm.bbox && calculateBboxIoU(em.bbox, nm.bbox) > 0.5
+        survivingExisting.some(
+          (em) => em.bbox && nm.bbox && calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD
         );
 
       const colorPalette = [
@@ -687,7 +741,7 @@ export default function Step3SegmentationPage() {
           };
         });
 
-      return [...existingMasks, ...renumbered];
+      return [...survivingExisting, ...renumbered];
     },
     []
   );
@@ -893,6 +947,7 @@ export default function Step3SegmentationPage() {
         height: roi.height * resolution,
         rotation: roi.rotation,
         corners: corners.map(([cx, cy]) => [cx * resolution, cy * resolution]),
+        cornerLabels: ["A", "B", "C", "D"],
       };
       
       await saveROI(currentProject.id, roiData);
@@ -940,13 +995,11 @@ export default function Step3SegmentationPage() {
       });
       
       // Save ROI to step 3 data for carrying over to step 4
-      completeStep(3, { 
+      completeStep(3, {
         roi: { x: roi.x, y: roi.y, width: roi.width, height: roi.height, rotation: roi.rotation },
         masksDeleted: masksOutside.length,
         masksRemaining: masksInside.length,
       });
-      
-      alert(`ROI applied! Kept ${masksInside.length} masks, removed ${masksOutside.length} masks outside ROI.`);
       
     } catch (error) {
       console.error("Error applying ROI:", error);
@@ -1178,7 +1231,7 @@ export default function Step3SegmentationPage() {
 
         if (newMasks.length > 0) {
           setMasks(prev => {
-            const allMasks = computeUpdatedMasks(prev, newMasks);
+            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
             setTimeout(() => {
               setSegmentations(allMasks.map((m: SegmentationMask) => ({
                 id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
@@ -1247,7 +1300,7 @@ export default function Step3SegmentationPage() {
 
         if (newMasks.length > 0) {
           setMasks(prev => {
-            const allMasks = computeUpdatedMasks(prev, newMasks);
+            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
             setTimeout(() => {
               setSegmentations(allMasks.map((m: SegmentationMask) => ({
                 id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
@@ -1305,7 +1358,7 @@ export default function Step3SegmentationPage() {
 
         if (autoMasks.length > 0) {
           setMasks(prev => {
-            const allMasks = computeUpdatedMasks(prev, autoMasks);
+            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, autoMasks));
             setTimeout(() => {
               setSegmentations(allMasks.map((m: SegmentationMask) => ({
                 id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
@@ -1524,11 +1577,38 @@ export default function Step3SegmentationPage() {
             {/* Segmentation Tools */}
             <Card>
               <CardHeader className="py-2 px-3">
-                <CardTitle className="text-sm font-medium">Segmentation</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Segmentation</CardTitle>
+                  {/* Workflow step pills */}
+                  <div className="flex items-center gap-1 text-[10px]">
+                    <span className={cn(
+                      "px-1.5 py-0.5 rounded-full font-medium",
+                      !isROISet ? "bg-amber-500/20 text-amber-400" : "bg-green-500/20 text-green-400"
+                    )}>
+                      {isROISet ? "✓" : "1"} ROI
+                    </span>
+                    <span className="text-muted-foreground/40">→</span>
+                    <span className={cn(
+                      "px-1.5 py-0.5 rounded-full font-medium",
+                      !isROISet ? "bg-muted/30 text-muted-foreground/40" : "bg-primary/20 text-primary"
+                    )}>
+                      2 Segment
+                    </span>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="px-3 pb-3 pt-0 space-y-3">
+                {/* ROI required notice */}
+                {!isROISet && (
+                  <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <Square className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-300/90">
+                      Draw the vault ROI first. Click &amp; drag on the image to define the boundary, then proceed to segment.
+                    </p>
+                  </div>
+                )}
                 {/* Text Prompts Input */}
-                <div className="space-y-1.5">
+                <div className={cn("space-y-1.5", !isROISet && "opacity-40 pointer-events-none")}>
                   <Label className="text-xs text-muted-foreground flex items-center gap-1">
                     <Type className="w-3 h-3" />
                     Text Prompts
@@ -1600,11 +1680,11 @@ export default function Step3SegmentationPage() {
                   )}
                 </div>
                 
-                <Button 
+                <Button
                   size="sm"
                   className="w-full gap-1.5"
                   onClick={handleAutoSegment}
-                  disabled={isProcessing || !selectedProjection}
+                  disabled={isProcessing || !selectedProjection || !isROISet}
                 >
                   {isProcessing ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -1616,24 +1696,29 @@ export default function Step3SegmentationPage() {
                 
                 <div className="grid grid-cols-4 gap-1">
                   {[
-                    { tool: "polygon", icon: Hexagon, label: "Polygon", needsMasks: false },
-                    { tool: "box", icon: Scan, label: "Box", needsMasks: false },
-                    { tool: "roi", icon: Square, label: "ROI", needsMasks: false },
-                    { tool: "eraser", icon: Eraser, label: "Eraser", needsMasks: true },
-                  ].map(({ tool, icon: Icon, label, needsMasks }) => (
+                    { tool: "polygon", icon: Hexagon, label: "Polygon", needsMasks: false, needsRoi: true },
+                    { tool: "box", icon: Scan, label: "Box", needsMasks: false, needsRoi: true },
+                    { tool: "roi", icon: Square, label: "ROI", needsMasks: false, needsRoi: false },
+                    { tool: "eraser", icon: Eraser, label: "Eraser", needsMasks: true, needsRoi: true },
+                  ].map(({ tool, icon: Icon, label, needsMasks, needsRoi }) => (
                     <Button
                       key={tool}
                       variant={activeTool === tool ? "default" : "outline"}
                       size="sm"
                       className={cn(
                         "gap-1 h-7 text-xs",
-                        tool === "eraser" && activeTool === "eraser" && "bg-red-600 hover:bg-red-700 border-red-600"
+                        tool === "eraser" && activeTool === "eraser" && "bg-red-600 hover:bg-red-700 border-red-600",
+                        tool === "roi" && !isROISet && activeTool !== "roi" && "ring-1 ring-amber-500/50"
                       )}
                       onClick={() => {
                         setActiveTool(tool as Tool);
                         if (tool === "roi") setShowROI(true);
                       }}
-                      disabled={!selectedProjection || (needsMasks && masks.length === 0)}
+                      disabled={
+                        !selectedProjection ||
+                        (needsMasks && masks.length === 0) ||
+                        (needsRoi && !isROISet)
+                      }
                     >
                       <Icon className="w-3 h-3" />
                       {label}
@@ -1715,11 +1800,11 @@ export default function Step3SegmentationPage() {
                       </div>
                     )}
                     
-                    <Button 
+                    <Button
                       size="sm"
                       className="w-full gap-1.5 bg-blue-600 hover:bg-blue-700"
                       onClick={handleBoxSegment}
-                      disabled={isProcessing || drawnBoxes.length === 0}
+                      disabled={isProcessing || drawnBoxes.length === 0 || !isROISet}
                     >
                       {isProcessing ? (
                         <Loader2 className="w-3 h-3 animate-spin" />
@@ -1823,11 +1908,11 @@ export default function Step3SegmentationPage() {
                     
                     {/* Run SAM on polygons */}
                     {drawnPolygons.length > 0 && (
-                      <Button 
+                      <Button
                         size="sm"
                         className="w-full gap-1.5 bg-purple-600 hover:bg-purple-700"
                         onClick={handlePolygonSegment}
-                        disabled={isProcessing}
+                        disabled={isProcessing || !isROISet}
                       >
                         {isProcessing ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -1885,7 +1970,7 @@ export default function Step3SegmentationPage() {
                                 className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                                 style={{ backgroundColor: mask.color }}
                               />
-                              <span className="truncate">{mask.label}</span>
+                              <span className="truncate" title={mask.label}>{getMaskDisplayLabel(mask.label)}</span>
                               {activeMaskId === mask.id && (
                                 <Eraser className="w-3 h-3 ml-auto text-red-400 flex-shrink-0" />
                               )}
@@ -1926,45 +2011,58 @@ export default function Step3SegmentationPage() {
                       )}
                     </div>
                     
-                    <p className="text-xs text-muted-foreground/70">
-                      Draw a box to define the region. Masks outside will be deleted when applied.
-                    </p>
-                    
-                    {showROI && roi.width > 0.02 && (
+                    {!isROISet ? (
+                      <p className="text-xs text-muted-foreground/70">
+                        Click and drag on the image to outline the vault boundary (4 corners labelled A–D).
+                      </p>
+                    ) : (
+                      <div className="flex items-center gap-1.5 py-1 text-xs text-green-400">
+                        <Check className="w-3 h-3" />
+                        ROI set — switch to Box or Polygon to segment
+                      </div>
+                    )}
+
+                    {isROISet && (
                       <>
                         <div className="space-y-1 text-xs">
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Size:</span>
-                            <span>{Math.round(roi.width * 100)}% x {Math.round(roi.height * 100)}%</span>
+                            <span>{Math.round(roi.width * 100)}% × {Math.round(roi.height * 100)}%</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Rotation:</span>
                             <span>{Math.round(roi.rotation)}°</span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Masks inside:</span>
-                            <span className="text-green-600">{masks.filter(isMaskInsideROI).length}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Masks outside:</span>
-                            <span className="text-red-600">{masks.filter(m => !isMaskInsideROI(m)).length}</span>
-                          </div>
-                        </div>
-                        
-                        <Button 
-                          size="sm"
-                          variant="destructive"
-                          className="w-full gap-1.5"
-                          onClick={handleApplyROI}
-                          disabled={isApplyingROI || masks.filter(m => !isMaskInsideROI(m)).length === 0}
-                        >
-                          {isApplyingROI ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Scissors className="w-3 h-3" />
+                          {masks.length > 0 && (
+                            <>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Masks inside:</span>
+                                <span className="text-green-600">{masks.filter(isMaskInsideROI).length}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Masks outside:</span>
+                                <span className="text-red-600">{masks.filter(m => !isMaskInsideROI(m)).length}</span>
+                              </div>
+                            </>
                           )}
-                          Apply ROI & Delete Outside
-                        </Button>
+                        </div>
+
+                        {masks.filter(m => !isMaskInsideROI(m)).length > 0 && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="w-full gap-1.5"
+                            onClick={handleApplyROI}
+                            disabled={isApplyingROI}
+                          >
+                            {isApplyingROI ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Scissors className="w-3 h-3" />
+                            )}
+                            Remove {masks.filter(m => !isMaskInsideROI(m)).length} Outside ROI
+                          </Button>
+                        )}
                       </>
                     )}
                   </div>
@@ -2084,12 +2182,12 @@ export default function Step3SegmentationPage() {
                                   className="h-5 text-xs px-1 flex-1"
                                 />
                               ) : (
-                                <span 
+                                <span
                                   className="flex-1 truncate text-xs"
                                   onDoubleClick={() => startEditingMask(mask.id, mask.label)}
-                                  title="Double-click to rename"
+                                  title={mask.label}
                                 >
-                                  {mask.label}
+                                  {getMaskDisplayLabel(mask.label)}
                                 </span>
                               )}
                               {/* Actions - visible on hover */}
@@ -2296,7 +2394,7 @@ export default function Step3SegmentationPage() {
                                   outline: isActive ? "2px solid rgba(248,113,113,0.8)" : undefined,
                                 }}
                               >
-                                {mask.label}
+                                {getMaskDisplayLabel(mask.label)}
                               </div>
                             </div>
                           );
@@ -2649,9 +2747,9 @@ export default function Step3SegmentationPage() {
                               ? "Resizing ROI..."
                               : roiInteractionMode === "rotating"
                               ? "Rotating ROI..."
-                              : showROI && roi.width > 0.02
-                              ? "Drag to move • Corners to resize • Top handle to rotate"
-                              : "Click and drag to draw ROI"
+                              : isROISet
+                              ? "ROI set ✓ — Drag to move • Corners to resize • Top handle to rotate"
+                              : "Step 1: Click and drag to outline the vault boundary"
                             }
                           </div>
                         )}
