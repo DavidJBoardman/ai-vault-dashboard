@@ -1664,28 +1664,29 @@ export default function Step7MeasurementsPage() {
       }));
   }, [bossStoneMarkers, measurementConfig.bossStoneNameById, impostLineData, hiddenBossStones]);
 
-  // Assign each rib to its nearest boss stone by endpoint proximity (no distance cutoff).
-  // This is more robust than relying on the backend proximity threshold.
+  // Assign each rib to two boss stones (one per endpoint), labelled low/high by Z.
+  // "high" is the crown (culminating) end, "low" is the springing end.
   const ribToBossMap = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, { low: string; high: string }>();
     if (!bossStoneMarkers.length || !intradosLines.length) return map;
     for (const line of intradosLines) {
       const pts = line.points3d;
       if (pts.length < 2) continue;
       const first = pts[0];
       const last = pts[pts.length - 1];
-      let bestBossId: string | null = null;
-      let bestDist = Infinity;
+      // Determine which endpoint is higher (crown) vs lower (springing)
+      const firstIsHigh = first[2] >= last[2];
+      const highPt = firstIsHigh ? first : last;
+      const lowPt = firstIsHigh ? last : first;
+      let bestHigh = { id: "", dist: Infinity };
+      let bestLow = { id: "", dist: Infinity };
       for (const boss of bossStoneMarkers) {
-        const d0 = Math.hypot(first[0] - boss.x, first[1] - boss.y, first[2] - boss.z);
-        const d1 = Math.hypot(last[0] - boss.x, last[1] - boss.y, last[2] - boss.z);
-        const d = Math.min(d0, d1);
-        if (d < bestDist) {
-          bestDist = d;
-          bestBossId = boss.id;
-        }
+        const dHigh = Math.hypot(highPt[0] - boss.x, highPt[1] - boss.y, highPt[2] - boss.z);
+        const dLow = Math.hypot(lowPt[0] - boss.x, lowPt[1] - boss.y, lowPt[2] - boss.z);
+        if (dHigh < bestHigh.dist) bestHigh = { id: boss.id, dist: dHigh };
+        if (dLow < bestLow.dist) bestLow = { id: boss.id, dist: dLow };
       }
-      if (bestBossId) map.set(line.id, bestBossId);
+      if (bestHigh.id && bestLow.id) map.set(line.id, { low: bestLow.id, high: bestHigh.id });
     }
     return map;
   }, [bossStoneMarkers, intradosLines]);
@@ -3088,13 +3089,13 @@ export default function Step7MeasurementsPage() {
                             const bossApex = apexSpanResult?.bosses.find(b => b.bossId === marker.id);
                             const impostH = impostLineData?.impost_height ?? 0;
 
-                            // Find pairings where at least one rib's nearest endpoint is this boss
+                            // Find pairings where at least one rib culminates (high/crown end) at this boss
                             const bossParingResults = (measurementConfig.ribPairings ?? [])
                               .filter(pairing =>
                                 pairingApexInputs
                                   .find(p => p.pairingId === pairing.id)
                                   ?.sides.flatMap(s => s.ribIds)
-                                  .some(rid => ribToBossMap.get(rid) === marker.id)
+                                  .some(rid => ribToBossMap.get(rid)?.high === marker.id)
                               )
                               .map(pairing => apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id))
                               .filter((r): r is NonNullable<typeof r> => r?.status === "ok" && typeof r.apexHeight === "number");
