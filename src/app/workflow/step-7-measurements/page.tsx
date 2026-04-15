@@ -267,6 +267,13 @@ function composeRibGroupName(names: string[]): string | undefined {
 
 
 
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 /**
  * Ratio of radius-to-rib-length above which the arc is considered a straight line.
  * R > 10 * L means the sagitta is ~1.25% of L — visually imperceptible curvature.
@@ -1656,6 +1663,32 @@ export default function Step7MeasurementsPage() {
         z: (impostZ != null && m.groupId === "roi_corner") ? impostZ : m.z,
       }));
   }, [bossStoneMarkers, measurementConfig.bossStoneNameById, impostLineData, hiddenBossStones]);
+
+  // Assign each rib to its nearest boss stone by endpoint proximity (no distance cutoff).
+  // This is more robust than relying on the backend proximity threshold.
+  const ribToBossMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!bossStoneMarkers.length || !intradosLines.length) return map;
+    for (const line of intradosLines) {
+      const pts = line.points3d;
+      if (pts.length < 2) continue;
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      let bestBossId: string | null = null;
+      let bestDist = Infinity;
+      for (const boss of bossStoneMarkers) {
+        const d0 = Math.hypot(first[0] - boss.x, first[1] - boss.y, first[2] - boss.z);
+        const d1 = Math.hypot(last[0] - boss.x, last[1] - boss.y, last[2] - boss.z);
+        const d = Math.min(d0, d1);
+        if (d < bestDist) {
+          bestDist = d;
+          bestBossId = boss.id;
+        }
+      }
+      if (bestBossId) map.set(line.id, bestBossId);
+    }
+    return map;
+  }, [bossStoneMarkers, intradosLines]);
   
   // Update measurements when loaded data changes
   useEffect(() => {
@@ -3053,6 +3086,22 @@ export default function Step7MeasurementsPage() {
                             const displayName = measurementConfig.bossStoneNameById[marker.id] ?? marker.label;
                             const isSelected = selectedBossStone === marker.id;
                             const bossApex = apexSpanResult?.bosses.find(b => b.bossId === marker.id);
+                            const impostH = impostLineData?.impost_height ?? 0;
+
+                            // Find pairings where at least one rib's nearest endpoint is this boss
+                            const bossParingResults = (measurementConfig.ribPairings ?? [])
+                              .filter(pairing =>
+                                pairingApexInputs
+                                  .find(p => p.pairingId === pairing.id)
+                                  ?.sides.flatMap(s => s.ribIds)
+                                  .some(rid => ribToBossMap.get(rid) === marker.id)
+                              )
+                              .map(pairing => apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id))
+                              .filter((r): r is NonNullable<typeof r> => r?.status === "ok" && typeof r.apexHeight === "number");
+                            const pairingApexHeights = bossParingResults.map(r => r.apexHeight as number);
+                            const medianApexZ =
+                              pairingApexHeights.length > 0 ? median(pairingApexHeights) : bossApex?.apex.z;
+
                             return (
                               <div
                                 key={marker.id}
@@ -3062,7 +3111,26 @@ export default function Step7MeasurementsPage() {
                                     ? "border-blue-400/70 bg-blue-400/10"
                                     : "border-border hover:border-blue-400/50"
                                 )}
-                                onClick={() => setSelectedBossStone(isSelected ? null : marker.id)}
+                                onClick={() => {
+                                  setSelectedBossStone(isSelected ? null : marker.id);
+                                  if (!isSelected) {
+                                    console.group(`[Boss Stone] "${displayName}" (id: ${marker.id})`);
+                                    console.log(`Pairing apex heights used (${bossParingResults.length}):`);
+                                    bossParingResults.forEach(r => {
+                                      console.log(
+                                        `  "${r.pairingName}"`,
+                                        `→ apexHeight = ${(r.apexHeight as number).toFixed(4)} (relative: ${((r.apexHeight as number) - impostH).toFixed(4)}m)`,
+                                      );
+                                    });
+                                    if (pairingApexHeights.length > 0) {
+                                      console.log(`Median apex Z (raw): ${median(pairingApexHeights).toFixed(4)}`);
+                                      console.log(`Median apex Z (relative to impost): ${(median(pairingApexHeights) - impostH).toFixed(4)}m`);
+                                    } else {
+                                      console.log("No pairing apex heights found — falling back to boss.apex.z:", bossApex?.apex.z?.toFixed(4));
+                                    }
+                                    console.groupEnd();
+                                  }
+                                }}
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2 min-w-0">
@@ -3072,9 +3140,9 @@ export default function Step7MeasurementsPage() {
                                     />
                                     <span className="text-sm font-medium truncate">{displayName}</span>
                                   </div>
-                                  {bossApex && (
+                                  {medianApexZ != null && (
                                     <span className="text-xs font-mono text-muted-foreground shrink-0">
-                                      Z: {(bossApex.apex.z - (impostLineData?.impost_height ?? 0)).toFixed(2)}m
+                                      Z: {(medianApexZ - impostH).toFixed(2)}m
                                     </span>
                                   )}
                                 </div>
