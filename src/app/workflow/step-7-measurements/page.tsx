@@ -3030,46 +3030,7 @@ export default function Step7MeasurementsPage() {
                             })()}
                           </div>
 
-                          <div className="space-y-1.5">
-                            <Label className="text-xs text-muted-foreground">Apex Point</Label>
-                            <div className="grid grid-cols-3 gap-1.5 text-xs">
-                              <div className="p-1.5 rounded bg-muted/30 text-center">
-                                <p className="text-muted-foreground font-medium">X</p>
-                                <p className="font-mono">{selectedMeasurement!.apexPoint?.x.toFixed(2)}</p>
-                              </div>
-                              <div className="p-1.5 rounded bg-muted/30 text-center">
-                                <p className="text-muted-foreground font-medium">Y</p>
-                                <p className="font-mono">{selectedMeasurement!.apexPoint?.y.toFixed(2)}</p>
-                              </div>
-                              <div className="p-1.5 rounded bg-muted/30 text-center">
-                                <p className="text-muted-foreground font-medium">Z</p>
-                                <p className="font-mono">{((selectedMeasurement!.apexPoint?.z ?? 0) - (impostLineData?.impost_height ?? 0)).toFixed(2)}</p>
-                              </div>
-                            </div>
-                          </div>
 
-                          {selectedMeasurement!.springingPoints && selectedMeasurement!.springingPoints.length > 0 && (() => {
-                            const point = selectedMeasurement!.springingPoints[0];
-                            return (
-                              <div className="space-y-1.5">
-                                <Label className="text-xs text-muted-foreground">Springing Point</Label>
-                                <div className="grid grid-cols-3 gap-1.5 text-xs">
-                                  <div className="p-1.5 rounded bg-muted/30 text-center">
-                                    <p className="text-muted-foreground font-medium">X</p>
-                                    <p className="font-mono">{point.x.toFixed(2)}</p>
-                                  </div>
-                                  <div className="p-1.5 rounded bg-muted/30 text-center">
-                                    <p className="text-muted-foreground font-medium">Y</p>
-                                    <p className="font-mono">{point.y.toFixed(2)}</p>
-                                  </div>
-                                  <div className="p-1.5 rounded bg-muted/30 text-center">
-                                    <p className="text-muted-foreground font-medium">Z</p>
-                                    <p className="font-mono">{(point.z - (impostLineData?.impost_height ?? 0)).toFixed(2)}</p>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })()}
                         </>
                       )}
                     </CardContent>
