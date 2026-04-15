@@ -560,8 +560,10 @@ export default function Step7MeasurementsPage() {
   // Impost line data
   const [impostLineData, setImpostLineData] = useState<ImpostLineResult | null>(null);
   const [isLoadingImpost, setIsLoadingImpost] = useState(false);
-  const [impostMode, setImpostMode] = useState<"auto" | "floorPlane">("floorPlane");
   const step5ImpostLineZ = currentProject?.stepData?.[5]?.impostLineZ as number | undefined;
+  const [impostMode, setImpostMode] = useState<"auto" | "floorPlane">(
+    () => step5ImpostLineZ !== undefined ? "floorPlane" : "auto"
+  );
 
   // Rib grouping state
   const [ribGroups, setRibGroups] = useState<RibGroup[] | null>(null);
