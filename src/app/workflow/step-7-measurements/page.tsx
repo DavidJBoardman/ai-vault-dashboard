@@ -582,7 +582,6 @@ export default function Step7MeasurementsPage() {
   const [renamePairingValue, setRenamePairingValue] = useState("");
   const [configLoaded, setConfigLoaded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const [proximityThreshold, setProximityThreshold] = useState(2.0);
   const [isDetectingGroups, setIsDetectingGroups] = useState(false);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -817,7 +816,8 @@ export default function Step7MeasurementsPage() {
       try {
         const response = await detectRibGroups({
           ribs: intradosLines.map(line => ({ id: line.id, points: line.points3d })),
-          maxGap: proximityThreshold,
+          maxGap: 0.5,
+          bosses: bossStoneMarkers.map(m => ({ x: m.x, y: m.y, z: m.z })),
         });
         if (response.success && response.data) {
           setRibGroups(response.data);
@@ -829,7 +829,7 @@ export default function Step7MeasurementsPage() {
       }
     };
     detectGroups();
-  }, [intradosLines, proximityThreshold]);
+  }, [intradosLines, bossStoneMarkers]);
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -1347,7 +1347,7 @@ export default function Step7MeasurementsPage() {
         const response = await calculateApexSpan({
           ribs,
           bosses,
-          maxBossDistance: proximityThreshold,
+          maxBossDistance: 0.5,
           impostHeight: impostHeight ?? undefined,
           pairings: pairingApexInputs.length > 0 ? pairingApexInputs : undefined,
         });
@@ -1364,7 +1364,7 @@ export default function Step7MeasurementsPage() {
       }
     };
     loadApexSpan();
-  }, [intradosLines, bossStoneMarkers, impostLineData, proximityThreshold, pairingApexInputs]);
+  }, [intradosLines, bossStoneMarkers, impostLineData, pairingApexInputs]);
 
   const selectedGroup = useMemo(
     () => (selectedGroupId ? displayGroups.find(g => g.groupId === selectedGroupId) ?? null : null),
@@ -2248,25 +2248,11 @@ export default function Step7MeasurementsPage() {
                       </div>
                     </ScrollArea>
 
-                    {/* Keystone gap slider */}
-                    <div className="shrink-0 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <label>Max keystone gap</label>
-                        <span className="font-mono">{proximityThreshold.toFixed(1)} m</span>
-                      </div>
-                      <Slider
-                        min={0.1}
-                        max={5.0}
-                        step={0.1}
-                        value={[proximityThreshold]}
-                        onValueChange={([v]) => setProximityThreshold(v)}
-                      />
-                      {isDetectingGroups && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Loader2 className="w-3 h-3 animate-spin" /> Detecting groupsâ€¦
-                        </p>
-                      )}
-                    </div>
+                    {isDetectingGroups && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Detecting groupsâ€¦
+                      </p>
+                    )}
                     </>
                     )}
                   </CardContent>

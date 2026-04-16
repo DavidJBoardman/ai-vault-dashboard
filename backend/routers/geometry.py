@@ -286,10 +286,16 @@ class RibGroupResult(BaseModel):
     combinedMeasurements: RibGroupCombinedMeasurements
 
 
+class BossPosition(BaseModel):
+    x: float
+    y: float
+    z: float
+
 class DetectRibGroupsRequest(BaseModel):
     ribs: List[RibForGrouping]
-    maxGap: float = 2.0
+    maxGap: float = 0.5
     radiusTolerance: float = 0.15
+    bosses: Optional[List[BossPosition]] = None
 
 
 class DetectRibGroupsResponse(BaseModel):
@@ -311,14 +317,19 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
         if not service.traces:
             return DetectRibGroupsResponse(success=False, error="No valid rib traces provided")
 
+        boss_positions = None
+        if request.bosses:
+            boss_positions = np.array([[b.x, b.y, b.z] for b in request.bosses])
+
         import asyncio as _asyncio
         loop = _asyncio.get_event_loop()
         groups = await loop.run_in_executor(
             None,
             service.detect_rib_groups,
             request.maxGap,
-            25.0,  # angle_threshold_deg - internal constant
+            10.0,  # angle_threshold_deg - internal constant
             request.radiusTolerance,
+            boss_positions,
         )
 
         results = []

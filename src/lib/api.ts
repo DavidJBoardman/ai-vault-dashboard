@@ -394,6 +394,7 @@ export interface DetectRibGroupsRequest {
   }>;
   maxGap?: number;
   radiusTolerance?: number;
+  bosses?: Array<{ x: number; y: number; z: number }>;
 }
 
 export async function detectRibGroups(

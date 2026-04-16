@@ -439,36 +439,52 @@ class MeasurementService:
         self,
         points: np.ndarray,
         at_end: bool,
-        n_pts: int = 5,
+        n_pts: int = 8,
     ) -> np.ndarray:
         """
         Return the unit tangent vector at one end of a rib, pointing *outward*
         - i.e. in the direction the rib is heading away from its body toward
         the keystone gap.
 
+        Uses SVD on the last ``n_pts`` points to find the principal direction,
+        then orients it outward.  This is more robust than a simple two-point
+        difference when the trace is noisy.
+
         Args:
             points:  Ordered (N, 3) point array for the rib.
             at_end:  True  -> tangent at points[-1] (last point, forward direction)
                      False -> tangent at points[0]  (first point, reversed direction)
-            n_pts:   How many points back from the tip to use for the local tangent.
+            n_pts:   How many points at the tip to use for the local tangent.
                      Clamped to len(points)//4 so we don't overshoot the midpoint.
         """
-        k = max(1, min(n_pts, len(points) // 4))
+        k = max(2, min(n_pts, len(points) // 4))
         if at_end:
-            tip = points[-1]
-            base = points[-(k + 1)]
+            segment = points[-k:]
         else:
-            tip = points[0]
-            base = points[k]
-        vec = tip - base
-        length = np.linalg.norm(vec)
-        return vec / (length + 1e-12)
+            segment = points[:k]
+
+        # SVD: first principal component = best-fit direction through the segment
+        centroid = segment.mean(axis=0)
+        _, _, Vt = np.linalg.svd(segment - centroid)
+        direction = Vt[0]  # dominant direction
+
+        # Orient outward: should point from the body toward the tip
+        if at_end:
+            outward = points[-1] - points[-k]
+        else:
+            outward = points[0] - points[k - 1]
+        if np.dot(direction, outward) < 0:
+            direction = -direction
+
+        length = np.linalg.norm(direction)
+        return direction / (length + 1e-12)
 
     def detect_rib_groups(
         self,
-        max_gap: float = 2.0,
+        max_gap: float = 0.5,
         angle_threshold_deg: float = 25.0,
         radius_tolerance: float = 0.15,
+        bosses: Optional[np.ndarray] = None,
     ) -> List[List[str]]:
         """
         Detect groups of ribs that are continuations of the same structural rib,
@@ -477,8 +493,10 @@ class MeasurementService:
         Two ribs belong to the same group when ALL of the following hold:
 
           1. Their fitted arc radii agree within ``radius_tolerance`` (relative).
-          2. The nearest endpoint pair is within ``max_gap`` metres - the gap
-             across the keystone.
+             Skipped when either trace has fewer than 15 points (unreliable fit).
+          2. The nearest endpoint pair is within ``max_gap`` metres.
+             When a boss stone sits near the gap midpoint the threshold is
+             relaxed to ``max_boss_gap`` (2 * max_gap, capped at 1.0 m).
           3. Handshake direction: the tangent of rib A at its junction end
              points toward rib B *and* the tangent of rib B at its junction end
              points back toward rib A, both within ``angle_threshold_deg``.
@@ -491,12 +509,7 @@ class MeasurementService:
             return []
 
         cos_tol = np.cos(np.deg2rad(angle_threshold_deg))
-
-        # Pre-compute arc radius for the radius gate
-        arc_radii: Dict[str, float] = {}
-        for rib_id, points in self.traces.items():
-            if len(points) >= 3:
-                arc_radii[rib_id] = self._fit_arc(points)["radius"]
+        max_boss_gap = min(max_gap * 2.0, 1.0)  # relaxed threshold when boss stone in gap
 
         # Build undirected adjacency graph
         adj: Dict[str, set] = {rid: set() for rid in rib_ids}
@@ -511,14 +524,7 @@ class MeasurementService:
                 if len(pts_a) < 3 or len(pts_b) < 3:
                     continue
 
-                # Gate 1 - radius similarity
-                ra = arc_radii.get(a, 0.0)
-                rb = arc_radii.get(b, 0.0)
-                if ra > 0 and rb > 0:
-                    if abs(ra - rb) / max(ra, rb) > radius_tolerance:
-                        continue
-
-                # Gate 2 - nearest endpoint pair and gap cap
+                # Gate 1 - nearest endpoint pair and gap cap
                 # Endpoints: (first, last) for each rib
                 a0, a1 = pts_a[0], pts_a[-1]
                 b0, b1 = pts_b[0], pts_b[-1]
@@ -529,7 +535,21 @@ class MeasurementService:
                     (True,  True):  float(np.linalg.norm(a1 - b1)),
                 }
                 (a_end, b_end), min_dist = min(dists.items(), key=lambda x: x[1])
-                if min_dist > max_gap:
+
+                # Determine effective gap threshold: larger if a boss stone
+                # sits near the midpoint of the gap between the two endpoints
+                effective_gap = max_gap
+                if bosses is not None and len(bosses) > 0 and min_dist > max_gap:
+                    a_near = pts_a[-1] if a_end else pts_a[0]
+                    b_near = pts_b[-1] if b_end else pts_b[0]
+                    midpoint = (a_near + b_near) / 2.0
+                    boss_dists = np.linalg.norm(bosses - midpoint, axis=1)
+                    nearest_boss_dist = float(np.min(boss_dists))
+                    # Boss must be roughly between the two endpoints
+                    if nearest_boss_dist < min_dist * 0.6:
+                        effective_gap = max_boss_gap
+
+                if min_dist > effective_gap:
                     continue
 
                 # gap_vec: unit vector from A's junction point toward B's
@@ -537,14 +557,21 @@ class MeasurementService:
                 b_near = pts_b[-1] if b_end else pts_b[0]
                 gap_vec = b_near - a_near
                 gap_len = np.linalg.norm(gap_vec)
-                if gap_len < 1e-9:
-                    # Endpoints coincide - treat as connected without direction check
+                if gap_len < 0.05:
+                    # Endpoints practically coincident — gap vector is noise,
+                    # but still check that the tangents are anti-parallel
+                    # (continuations go "through" the junction; ribs springing
+                    # from the same point diverge outward).
+                    tan_a = self._tangent_at_endpoint(pts_a, at_end=a_end)
+                    tan_b = self._tangent_at_endpoint(pts_b, at_end=b_end)
+                    if float(np.dot(tan_a, tan_b)) > -cos_tol:
+                        continue  # tangents not anti-parallel — different ribs
                     adj[a].add(b)
                     adj[b].add(a)
                     continue
                 gap_vec = gap_vec / gap_len
 
-                # Gate 3 - handshake direction
+                # Gate 2 - handshake direction
                 # A's outward tangent at its junction end should point toward B
                 tan_a = self._tangent_at_endpoint(pts_a, at_end=a_end)
                 if float(np.dot(tan_a, gap_vec)) < cos_tol:
