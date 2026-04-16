@@ -572,13 +572,19 @@ class MeasurementService:
                 gap_vec = gap_vec / gap_len
 
                 # Gate 2 - handshake direction
-                # A's outward tangent at its junction end should point toward B
                 tan_a = self._tangent_at_endpoint(pts_a, at_end=a_end)
-                if float(np.dot(tan_a, gap_vec)) < cos_tol:
-                    continue
-                # B's outward tangent at its junction end should point toward A
                 tan_b = self._tangent_at_endpoint(pts_b, at_end=b_end)
-                if float(np.dot(tan_b, -gap_vec)) < cos_tol:
+
+                # Primary: each tangent should point toward the other endpoint
+                handshake_ok = (
+                    float(np.dot(tan_a, gap_vec)) >= cos_tol
+                    and float(np.dot(tan_b, -gap_vec)) >= cos_tol
+                )
+                # Fallback: tangents are anti-parallel (continuations through a
+                # curved gap where the chord direction diverges from the arc tangent)
+                antiparallel_ok = float(np.dot(tan_a, tan_b)) < -cos_tol
+
+                if not handshake_ok and not antiparallel_ok:
                     continue
 
                 adj[a].add(b)
@@ -1024,6 +1030,195 @@ class MeasurementService:
             return None
         return self._fit_arc(merged_points)
 
+        merged_points = np.vstack([self.traces[rib_id] for rib_id in valid_ids])
+        if len(merged_points) < 3:
+            return None
+        return self._fit_arc(merged_points)
+
+    def _compute_semicircular_apex(
+        self,
+        group_id: str,
+        group_name: str,
+        rib_ids: List[str],
+        arc_cache: Dict[str, Dict[str, Any]],
+        bosses_raw: List[Dict[str, Any]],
+        impost_height: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Compute apex and span for a semicircular group.
+
+        A semicircular group is its own pair — it doesn't need an opposing
+        rib.  The span is the horizontal distance between the two outermost
+        springing points.  The apex is:
+        - **Single rib**: the max-Z point on the fitted mathematical arc.
+        - **Multi-rib**: the arc-arc intersection of adjacent ribs (meeting
+          at a boss stone), taking the highest Z intersection.
+        """
+        base = {
+            "groupId": group_id,
+            "groupName": group_name,
+            "apex": None,
+            "apexHeight": None,
+            "span": None,
+            "springingPoints": [],
+            "status": "insufficient-data",
+        }
+
+        # Filter to ribs we actually have traces for
+        valid_ids = [rid for rid in rib_ids if rid in self.traces and len(self.traces[rid]) >= 3]
+        if not valid_ids:
+            return base
+
+        # ── Springing points (outermost endpoints of the group) ─────────
+        # For each rib, the springing point is the endpoint with the lower Z.
+        # For the whole group, we want the two outermost springing points.
+        all_endpoints: List[np.ndarray] = []
+        for rid in valid_ids:
+            pts = self.traces[rid]
+            first, last = pts[0], pts[-1]
+            all_endpoints.append(first)
+            all_endpoints.append(last)
+
+        if len(all_endpoints) < 2:
+            return base
+
+        # The two outermost springing points are the two endpoints with the
+        # lowest Z (the base of the semicircular arch).
+        sorted_by_z = sorted(all_endpoints, key=lambda p: p[2])
+        spring_a = sorted_by_z[0]
+        spring_b = sorted_by_z[1]
+
+        # If there are boss stones, exclude endpoints that are near a boss
+        # (those are inner junctions, not springing points).
+        if len(valid_ids) > 1 and bosses_raw:
+            boss_pts = np.array([[b["x"], b["y"], b["z"]] for b in bosses_raw])
+            outer_endpoints: List[np.ndarray] = []
+            for ep in all_endpoints:
+                dists = np.linalg.norm(boss_pts - ep, axis=1)
+                if np.min(dists) > 0.5:  # not near any boss → outer
+                    outer_endpoints.append(ep)
+            if len(outer_endpoints) >= 2:
+                outer_sorted = sorted(outer_endpoints, key=lambda p: p[2])
+                spring_a = outer_sorted[0]
+                spring_b = outer_sorted[1]
+
+        # Use impost_height if available for consistent Z
+        spring_z = impost_height if impost_height is not None else min(spring_a[2], spring_b[2])
+
+        spring_a_dict = {"x": float(spring_a[0]), "y": float(spring_a[1]), "z": float(spring_z)}
+        spring_b_dict = {"x": float(spring_b[0]), "y": float(spring_b[1]), "z": float(spring_z)}
+        base["springingPoints"] = [spring_a_dict, spring_b_dict]
+
+        # ── Span: horizontal distance between the two springing points ──
+        dx = spring_a[0] - spring_b[0]
+        dy = spring_a[1] - spring_b[1]
+        span = float(np.sqrt(dx * dx + dy * dy))
+        base["span"] = span
+
+        # ── Apex ────────────────────────────────────────────────────────
+        if len(valid_ids) == 1:
+            # Single rib: find max-Z on the fitted arc analytically.
+            # P(θ) = center + R*(cosθ * u + sinθ * v)
+            # P_z(θ) = c_z + R*(cosθ * u_z + sinθ * v_z)
+            # dP_z/dθ = R*(-sinθ * u_z + cosθ * v_z) = 0
+            # → tanθ = v_z / u_z
+            arc = arc_cache.get(valid_ids[0])
+            if not arc:
+                return base
+
+            c = np.array([arc["center"]["x"], arc["center"]["y"], arc["center"]["z"]])
+            r = float(arc["radius"])
+            u = np.array([arc["basis_u"]["x"], arc["basis_u"]["y"], arc["basis_u"]["z"]])
+            v = np.array([arc["basis_v"]["x"], arc["basis_v"]["y"], arc["basis_v"]["z"]])
+
+            A = r * u[2]
+            B = r * v[2]
+            if abs(A) < 1e-12 and abs(B) < 1e-12:
+                # Arc lies in a horizontal plane — apex is just the center
+                apex_pt = c
+            else:
+                # Two candidate angles where dP_z/dθ = 0: θ and θ + π
+                theta = math.atan2(B, A)
+                candidates = [theta, theta + math.pi]
+                # Pick the one that gives the higher Z
+                best_pt = None
+                best_z = -np.inf
+                for t in candidates:
+                    pt = c + r * (math.cos(t) * u + math.sin(t) * v)
+                    if pt[2] > best_z:
+                        best_z = pt[2]
+                        best_pt = pt
+                apex_pt = best_pt
+
+            apex_dict = {"x": float(apex_pt[0]), "y": float(apex_pt[1]), "z": float(apex_pt[2])}
+            base["apex"] = apex_dict
+            base["apexHeight"] = float(apex_pt[2])
+            base["status"] = "ok"
+
+        else:
+            # Multi-rib: order ribs by their midpoint position along the
+            # springing-point axis, then intersect adjacent pairs.
+            # The axis direction is spring_a → spring_b.
+            axis = spring_b[:2] - spring_a[:2]
+            axis_len = np.linalg.norm(axis)
+            if axis_len < 1e-12:
+                return base
+            axis_dir = axis / axis_len
+
+            def rib_projection(rid: str) -> float:
+                pts = self.traces[rid]
+                mid = pts[len(pts) // 2]
+                return float(np.dot(mid[:2] - spring_a[:2], axis_dir))
+
+            ordered = sorted(valid_ids, key=rib_projection)
+
+            intersections: List[np.ndarray] = []
+            for i in range(len(ordered) - 1):
+                arc_a = arc_cache.get(ordered[i])
+                arc_b = arc_cache.get(ordered[i + 1])
+                if not arc_a or not arc_b:
+                    continue
+                pts = self._arc_arc_intersection(arc_a, arc_b)
+                if pts:
+                    # Take the intersection with the highest Z
+                    best = max(pts, key=lambda p: p[2])
+                    intersections.append(best)
+
+            if not intersections:
+                # Fallback: use max-Z across all individual arc apexes
+                best_apex = None
+                best_z = -np.inf
+                for rid in valid_ids:
+                    arc = arc_cache.get(rid)
+                    if not arc:
+                        continue
+                    c = np.array([arc["center"]["x"], arc["center"]["y"], arc["center"]["z"]])
+                    r_val = float(arc["radius"])
+                    u_v = np.array([arc["basis_u"]["x"], arc["basis_u"]["y"], arc["basis_u"]["z"]])
+                    v_v = np.array([arc["basis_v"]["x"], arc["basis_v"]["y"], arc["basis_v"]["z"]])
+                    A_v = r_val * u_v[2]
+                    B_v = r_val * v_v[2]
+                    theta = math.atan2(B_v, A_v)
+                    for t in [theta, theta + math.pi]:
+                        pt = c + r_val * (math.cos(t) * u_v + math.sin(t) * v_v)
+                        if pt[2] > best_z:
+                            best_z = pt[2]
+                            best_apex = pt
+                if best_apex is not None:
+                    apex_dict = {"x": float(best_apex[0]), "y": float(best_apex[1]), "z": float(best_apex[2])}
+                    base["apex"] = apex_dict
+                    base["apexHeight"] = float(best_apex[2])
+                    base["status"] = "ok"
+                return base
+
+            # Average all intersection points for the apex
+            avg = np.mean(intersections, axis=0)
+            apex_dict = {"x": float(avg[0]), "y": float(avg[1]), "z": float(avg[2])}
+            base["apex"] = apex_dict
+            base["apexHeight"] = float(avg[2])
+            base["status"] = "ok"
+
+        return base
+
     def calculate_apex_span(
         self,
         bosses: List[Dict[str, Any]],
@@ -1031,6 +1226,7 @@ class MeasurementService:
         symmetry_angle_tol_deg: float = 30.0,
         impost_height: Optional[float] = None,
         pairings: Optional[List[Dict[str, Any]]] = None,
+        semicircular_groups: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Compute architectural apex per boss and span per rib.
 
@@ -1349,7 +1545,77 @@ class MeasurementService:
                             "projectedApex": proj_apex_dict,
                         }
 
-        return {"bosses": boss_results, "ribs": rib_results, "pairingApex": pairing_results}
+        # ── Phase: Semicircular groups ──────────────────────────────
+        semicircular_results: List[Dict[str, Any]] = []
+        if semicircular_groups:
+            for sg in semicircular_groups:
+                sc_result = self._compute_semicircular_apex(
+                    group_id=sg["groupId"],
+                    group_name=sg["groupName"],
+                    rib_ids=sg["ribIds"],
+                    arc_cache=arc_cache,
+                    bosses_raw=bosses,
+                    impost_height=impost_height,
+                )
+                semicircular_results.append(sc_result)
+
+                # Write per-rib half-span into rib_results so export picks it up.
+                # Each rib gets its own half-span = horizontal distance from
+                # that rib's springing point to the semicircular apex.
+                if sc_result.get("status") == "ok" and sc_result.get("apex") is not None:
+                    apex_dict = sc_result["apex"]
+                    apex_xy = np.array([apex_dict["x"], apex_dict["y"]])
+                    spring_z = impost_height if impost_height is not None else 0.0
+
+                    for rid in sg["ribIds"]:
+                        pts = self.traces.get(rid)
+                        if pts is None or len(pts) < 2:
+                            continue
+
+                        # Identify this rib's springing point: the endpoint
+                        # farther (horizontally) from the apex.
+                        first, last = pts[0], pts[-1]
+                        d_first = float(np.linalg.norm(first[:2] - apex_xy))
+                        d_last = float(np.linalg.norm(last[:2] - apex_xy))
+                        springing = first if d_first > d_last else last
+
+                        # Project springing to impost plane if available
+                        proj_spring = springing.copy()
+                        if impost_height is not None:
+                            from_end = d_first > d_last  # springing is at first → from start
+                            hit = self._polyline_z_intersection(pts, impost_height, from_end=not from_end)
+                            if hit is not None:
+                                proj_spring = hit
+                            else:
+                                proj_spring = np.array([springing[0], springing[1], spring_z])
+
+                        proj_apex = np.array([apex_dict["x"], apex_dict["y"], proj_spring[2]])
+                        dx = proj_apex[0] - proj_spring[0]
+                        dy = proj_apex[1] - proj_spring[1]
+                        half_span = float(np.sqrt(dx * dx + dy * dy))
+
+                        rib_results[rid] = {
+                            "ribId": rid,
+                            "bossId": None,
+                            "span": half_span,
+                            "springingPoint": {
+                                "x": float(proj_spring[0]),
+                                "y": float(proj_spring[1]),
+                                "z": float(proj_spring[2]),
+                            },
+                            "projectedApex": {
+                                "x": float(proj_apex[0]),
+                                "y": float(proj_apex[1]),
+                                "z": float(proj_apex[2]),
+                            },
+                        }
+
+        return {
+            "bosses": boss_results,
+            "ribs": rib_results,
+            "pairingApex": pairing_results,
+            "semicircularApex": semicircular_results,
+        }
 
     async def save_hypothesis(
         self,

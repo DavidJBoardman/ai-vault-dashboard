@@ -437,6 +437,13 @@ class ApexSpanRequest(BaseModel):
     symmetryAngleTolerance: float = 30.0
     impostHeight: Optional[float] = None
     pairings: Optional[List[PairingApexInput]] = None
+    semicircularGroups: Optional[List["SemicircularGroupInput"]] = None
+
+
+class SemicircularGroupInput(BaseModel):
+    groupId: str
+    groupName: str
+    ribIds: List[str]
 
 
 class RibPairIntersection(BaseModel):
@@ -472,10 +479,21 @@ class PairingApexResult(BaseModel):
     warning: Optional[str] = None
 
 
+class SemicircularApexResult(BaseModel):
+    groupId: str
+    groupName: str
+    apex: Optional[Point3D] = None
+    apexHeight: Optional[float] = None
+    span: Optional[float] = None
+    springingPoints: List[Point3D] = []
+    status: Literal["ok", "no-intersection", "insufficient-data"] = "insufficient-data"
+
+
 class ApexSpanResult(BaseModel):
     bosses: List[BossApexResult]
     ribs: dict  # {rib_id: RibSpanResult}
     pairingApex: List[PairingApexResult] = []
+    semicircularApex: List[SemicircularApexResult] = []
 
 
 class ApexSpanResponse(BaseModel):
@@ -526,6 +544,17 @@ async def calculate_apex_span_endpoint(request: ApexSpanRequest):
                 for pairing in request.pairings
             ]
 
+        semicircular_raw = None
+        if request.semicircularGroups:
+            semicircular_raw = [
+                {
+                    "groupId": sg.groupId,
+                    "groupName": sg.groupName,
+                    "ribIds": sg.ribIds,
+                }
+                for sg in request.semicircularGroups
+            ]
+
         import asyncio as _asyncio
         loop = _asyncio.get_event_loop()
         result = await loop.run_in_executor(
@@ -536,6 +565,7 @@ async def calculate_apex_span_endpoint(request: ApexSpanRequest):
                 symmetry_angle_tol_deg=request.symmetryAngleTolerance,
                 impost_height=request.impostHeight,
                 pairings=pairings_raw,
+                semicircular_groups=semicircular_raw,
             ),
         )
 
@@ -572,6 +602,18 @@ async def calculate_apex_span_endpoint(request: ApexSpanRequest):
                         warning=p.get("warning"),
                     )
                     for p in result.get("pairingApex", [])
+                ],
+                semicircularApex=[
+                    SemicircularApexResult(
+                        groupId=s["groupId"],
+                        groupName=s["groupName"],
+                        apex=Point3D(**s["apex"]) if s.get("apex") else None,
+                        apexHeight=s.get("apexHeight"),
+                        span=s.get("span"),
+                        springingPoints=[Point3D(**sp) for sp in s.get("springingPoints", [])],
+                        status=s.get("status", "insufficient-data"),
+                    )
+                    for s in result.get("semicircularApex", [])
                 ],
             ),
         )

@@ -62,6 +62,7 @@ import {
   type ApexSpanResult,
   type RibPairing,
   type ImportedCurve,
+  type SemicircularGroupInput,
 } from "@/lib/api";
 import {
   coerceTraceSourceSelection,
@@ -140,6 +141,7 @@ const EMPTY_MEASUREMENT_CONFIG: MeasurementConfig = {
   groupNameById: {},
   bossStoneNameById: {},
   ribPairings: [],
+  semicircularIds: [],
 };
 
 const AUTO_GROUP_NAME_SENTINEL = "__AUTO_COMPOSED_GROUP_NAME__";
@@ -968,6 +970,17 @@ export default function Step7MeasurementsPage() {
     }
   };
 
+  const toggleSemicircular = (groupId: string) => {
+    setMeasurementConfig(prev => {
+      const ids = prev.semicircularIds ?? [];
+      const isOn = ids.includes(groupId);
+      return {
+        ...prev,
+        semicircularIds: isOn ? ids.filter(id => id !== groupId) : [...ids, groupId],
+      };
+    });
+  };
+
   const toggleRibForGrouping = (ribId: string) => {
     setSelectedForGrouping(prev => {
       const next = new Set(prev);
@@ -1321,6 +1334,20 @@ export default function Step7MeasurementsPage() {
     }));
   }, [measurementConfig.ribPairings, displayGroupById, pairingDisplayName, availableRibIdSet]);
 
+  const semicircularInputs = useMemo((): SemicircularGroupInput[] => {
+    const ids = measurementConfig.semicircularIds ?? [];
+    if (ids.length === 0) return [];
+    return ids.map(groupId => {
+      const group = displayGroupById.get(groupId);
+      const ribIds = group ? group.ribIds.filter(rid => availableRibIdSet.has(rid)) : [];
+      return {
+        groupId,
+        groupName: group?.groupName ?? groupId,
+        ribIds,
+      };
+    }).filter(sg => sg.ribIds.length > 0);
+  }, [measurementConfig.semicircularIds, displayGroupById, availableRibIdSet]);
+
   // Calculate boss apex/span and user-defined pairing apex heights.
   useEffect(() => {
     const loadApexSpan = async () => {
@@ -1328,7 +1355,7 @@ export default function Step7MeasurementsPage() {
         setApexSpanResult(null);
         return;
       }
-      if (bossStoneMarkers.length === 0 && pairingApexInputs.length === 0) {
+      if (bossStoneMarkers.length === 0 && pairingApexInputs.length === 0 && semicircularInputs.length === 0) {
         setApexSpanResult(null);
         return;
       }
@@ -1350,6 +1377,7 @@ export default function Step7MeasurementsPage() {
           maxBossDistance: 0.5,
           impostHeight: impostHeight ?? undefined,
           pairings: pairingApexInputs.length > 0 ? pairingApexInputs : undefined,
+          semicircularGroups: semicircularInputs.length > 0 ? semicircularInputs : undefined,
         });
         if (response.success && response.data) {
           setApexSpanResult(response.data);
@@ -1364,7 +1392,7 @@ export default function Step7MeasurementsPage() {
       }
     };
     loadApexSpan();
-  }, [intradosLines, bossStoneMarkers, impostLineData, pairingApexInputs]);
+  }, [intradosLines, bossStoneMarkers, impostLineData, pairingApexInputs, semicircularInputs]);
 
   const selectedGroup = useMemo(
     () => (selectedGroupId ? displayGroups.find(g => g.groupId === selectedGroupId) ?? null : null),
@@ -1762,29 +1790,43 @@ export default function Step7MeasurementsPage() {
           }
         }
 
-        // Apex height — from pairingApex result (normalized)
+        // Apex height — from semicircular or pairingApex result (normalized)
         let apexHeight = "";
-        const pairing = (measurementConfig.ribPairings ?? []).find(p =>
-          p.sides.some(sideId => {
-            const dg = displayGroupById.get(sideId);
-            const sideRibIds = dg ? dg.ribIds : [sideId];
-            return sideRibIds.some(rid => group.ribIds.includes(rid));
-          })
-        );
-        if (pairing) {
-          const pr = apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id);
-          if (pr?.status === "ok" && typeof pr.apexHeight === "number") {
-            apexHeight = (pr.apexHeight - impostH).toFixed(4);
-          }
-        }
-
-        // Span — from apexSpanResult.ribs, same value stored on every rib in the group
         let span = "";
-        const ribSpan = group.ribIds
-          .map(rid => apexSpanResult?.ribs[rid])
-          .find(r => r != null);
-        if (ribSpan) {
-          span = ribSpan.span.toFixed(4);
+        const isSemiGroup = (measurementConfig.semicircularIds ?? []).includes(group.groupId);
+        const semiResult = isSemiGroup
+          ? apexSpanResult?.semicircularApex?.find(r => r.groupId === group.groupId)
+          : undefined;
+
+        if (semiResult?.status === "ok") {
+          if (typeof semiResult.apexHeight === "number") {
+            apexHeight = (semiResult.apexHeight - impostH).toFixed(4);
+          }
+          if (typeof semiResult.span === "number") {
+            span = semiResult.span.toFixed(4);
+          }
+        } else {
+          const pairing = (measurementConfig.ribPairings ?? []).find(p =>
+            p.sides.some(sideId => {
+              const dg = displayGroupById.get(sideId);
+              const sideRibIds = dg ? dg.ribIds : [sideId];
+              return sideRibIds.some(rid => group.ribIds.includes(rid));
+            })
+          );
+          if (pairing) {
+            const pr = apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id);
+            if (pr?.status === "ok" && typeof pr.apexHeight === "number") {
+              apexHeight = (pr.apexHeight - impostH).toFixed(4);
+            }
+          }
+
+          // Span — from apexSpanResult.ribs, same value stored on every rib in the group
+          const ribSpan = group.ribIds
+            .map(rid => apexSpanResult?.ribs[rid])
+            .find(r => r != null);
+          if (ribSpan) {
+            span = ribSpan.span.toFixed(4);
+          }
         }
 
         const label = group.groupName ?? group.groupId;
@@ -2056,6 +2098,7 @@ export default function Step7MeasurementsPage() {
                           const isExpanded = expandedGroups.has(group.groupId);
                           const primaryId = group.ribIds[0];
                           const groupTitle = group.groupName ?? composeGroupName(group.ribIds) ?? `Group (${group.ribIds.length} ribs)`;
+                          const isSemicircular = (measurementConfig.semicircularIds ?? []).includes(group.groupId);
 
                           if (isMulti) {
                             return (
@@ -2077,8 +2120,21 @@ export default function Step7MeasurementsPage() {
                                       <span className="font-medium text-sm truncate">
                                         {groupTitle} ({group.ribIds.length} ribs)
                                       </span>
+                                      {isSemicircular && (
+                                        <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-violet-500/20 text-violet-400 shrink-0">Semi</span>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        className={cn("p-0.5 rounded", isSemicircular ? "bg-violet-500/20 text-violet-400" : "hover:bg-amber-500/20 text-amber-600 dark:text-amber-400")}
+                                        title={isSemicircular ? "Unmark as semicircular" : "Mark as semicircular"}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleSemicircular(group.groupId);
+                                        }}
+                                      >
+                                        <Circle className="w-3.5 h-3.5" />
+                                      </button>
                                       <button
                                         className="p-0.5 rounded hover:bg-amber-500/20 text-amber-600 dark:text-amber-400"
                                         title="Rename this group"
@@ -2199,8 +2255,21 @@ export default function Step7MeasurementsPage() {
                                       : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
                                   </button>
                                   <span className="font-medium truncate">{m?.name ?? group.groupName ?? getRibDisplayName(primaryId)}</span>
+                                  {isSemicircular && (
+                                    <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-violet-500/20 text-violet-400 shrink-0">Semi</span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    className={cn("p-0.5 rounded", isSemicircular ? "bg-violet-500/20 text-violet-400" : "hover:bg-muted text-muted-foreground")}
+                                    title={isSemicircular ? "Unmark as semicircular" : "Mark as semicircular"}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleSemicircular(group.groupId);
+                                    }}
+                                  >
+                                    <Circle className="w-3.5 h-3.5" />
+                                  </button>
                                   {!isRibInCustomGroup(primaryId) && group.source === "auto" && (
                                     <button
                                       className="p-0.5 rounded hover:bg-muted"
@@ -2420,7 +2489,7 @@ export default function Step7MeasurementsPage() {
                     <div ref={pairingSelectorScrollAreaRef}>
                     <ScrollArea className="h-40">
                       <div className="space-y-1 pr-2">
-                        {displayGroups.map((group) => {
+                        {displayGroups.filter(g => !(measurementConfig.semicircularIds ?? []).includes(g.groupId)).map((group) => {
                           const isChecked = selectedForPairing.has(group.groupId);
                           const isSelectedTarget = selectedPairingTargetId === group.groupId;
                           const alreadyPaired = (measurementConfig.ribPairings ?? []).some(
@@ -2567,7 +2636,7 @@ export default function Step7MeasurementsPage() {
                           </p>
                         ) : (
                           <p className="text-amber-600 dark:text-amber-400">
-                            Impost line height not set in Step 5. Switch to <strong>Auto</strong> mode.
+                            Impost line height not set in Step 5. Switch to <strong>Auto</strong> mode or go back to Step 5.
                           </p>
                         )}
                       </div>
@@ -2727,7 +2796,7 @@ export default function Step7MeasurementsPage() {
                     {previewLoading && displayGroups.length === 0 ? (
                       <div className="flex flex-col items-center justify-center gap-2 py-10">
                         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                        <p className="text-xs text-muted-foreground">Loading ribsâ€¦</p>
+                        <p className="text-xs text-muted-foreground">Loading ribs</p>
                       </div>
                     ) : (
                     <div ref={dataRibScrollAreaRef}>
@@ -2874,6 +2943,8 @@ export default function Step7MeasurementsPage() {
                               </div>
                             )}
                             {(() => {
+                              // Hide regular span when the group is semicircular (Semi Span shown instead)
+                              if ((measurementConfig.semicircularIds ?? []).includes(selectedGroup.groupId)) return null;
                               const groupSpan = selectedGroup.ribIds
                                 .map(rid => apexSpanResult?.ribs[rid])
                                 .find(r => r != null);
@@ -2918,6 +2989,41 @@ export default function Step7MeasurementsPage() {
                                   <p className="text-xs text-muted-foreground">Apex Height</p>
                                   <p className="text-[9px] text-muted-foreground truncate">{pairing.name}</p>
                                 </div>
+                              );
+                            })()}
+                            {(() => {
+                              const semiResult = apexSpanResult?.semicircularApex?.find(
+                                r => r.groupId === selectedGroup.groupId
+                              );
+                              if (!semiResult) return null;
+                              const impostH = impostLineData?.impost_height ?? 0;
+                              const hasApex = semiResult.status === "ok" && typeof semiResult.apexHeight === "number";
+                              const hasSpan = semiResult.status === "ok" && typeof semiResult.span === "number";
+                              return (
+                                <>
+                                  {hasSpan && (
+                                    <div className="p-2 rounded-lg bg-violet-500/10 text-center">
+                                      <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-violet-400" />
+                                      {isLoadingApexSpan ? (
+                                        <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
+                                      ) : (
+                                        <p className="text-sm font-bold">{semiResult.span!.toFixed(2)}m</p>
+                                      )}
+                                      <p className="text-xs text-muted-foreground">Semi Span</p>
+                                    </div>
+                                  )}
+                                  {hasApex && (
+                                    <div className="p-2 rounded-lg bg-violet-500/10 text-center">
+                                      <Circle className="w-3.5 h-3.5 mx-auto mb-0.5 text-violet-400" />
+                                      {isLoadingApexSpan ? (
+                                        <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
+                                      ) : (
+                                        <p className="text-sm font-bold">{(semiResult.apexHeight! - impostH).toFixed(3)}m</p>
+                                      )}
+                                      <p className="text-xs text-muted-foreground">Semi Apex</p>
+                                    </div>
+                                  )}
+                                </>
                               );
                             })()}
                           </div>

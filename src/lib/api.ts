@@ -445,6 +445,13 @@ export interface ApexSpanRequest {
   symmetryAngleTolerance?: number;
   impostHeight?: number;
   pairings?: PairingApexInput[];
+  semicircularGroups?: SemicircularGroupInput[];
+}
+
+export interface SemicircularGroupInput {
+  groupId: string;
+  groupName: string;
+  ribIds: string[];
 }
 
 export interface PairingApexSideInput {
@@ -486,6 +493,17 @@ export interface ApexSpanResult {
   bosses: BossApexResult[];
   ribs: Record<string, RibSpanResult>;
   pairingApex: PairingApexResult[];
+  semicircularApex: SemicircularApexResult[];
+}
+
+export interface SemicircularApexResult {
+  groupId: string;
+  groupName: string;
+  apex?: { x: number; y: number; z: number };
+  apexHeight?: number;
+  span?: number;
+  springingPoints: Array<{ x: number; y: number; z: number }>;
+  status: "ok" | "no-intersection" | "insufficient-data";
 }
 
 export interface PairingApexResult {
@@ -527,6 +545,7 @@ export interface MeasurementConfig {
   groupNameById: Record<string, string>;
   bossStoneNameById: Record<string, string>;
   ribPairings: RibPairing[];
+  semicircularIds: string[];
 }
 
 export async function getMeasurementConfig(

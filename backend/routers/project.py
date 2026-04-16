@@ -123,6 +123,7 @@ class MeasurementConfig(BaseModel):
     groupNameById: Dict[str, str] = {}
     bossStoneNameById: Dict[str, str] = {}
     ribPairings: List[RibPairing] = []
+    semicircularIds: List[str] = []
 
 
 class MeasurementConfigResponse(BaseModel):
