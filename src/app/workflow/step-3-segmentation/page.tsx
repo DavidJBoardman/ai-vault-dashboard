@@ -21,7 +21,6 @@ import {
 import { useProjectStore } from "@/lib/store";
 import { 
   runSegmentation, 
-  checkSamStatus, 
   SegmentationMask,
   BoxPrompt,
   saveProject,
@@ -39,7 +38,6 @@ import {
   Loader2,
   AlertCircle,
   Check,
-  Server,
   Plus,
   X,
   Type,
@@ -144,12 +142,6 @@ export default function Step3SegmentationPage() {
     completeStep 
   } = useProjectStore();
   
-  // SAM 3 status (informational only)
-  const [samStatus, setSamStatus] = useState<{
-    available: boolean;
-    loaded: boolean;
-  }>({ available: false, loaded: false });
-  
   // Selected projection
   const [selectedProjectionId, setSelectedProjectionId] = useState<string | null>(
     currentProject?.projections?.[0]?.id || null
@@ -239,20 +231,6 @@ export default function Step3SegmentationPage() {
     if (!selectedProjection?.images) return null;
     return selectedProjection.images[selectedImageType] || selectedProjection.images.colour;
   }, [selectedProjection, selectedImageType]);
-  
-  // Check SAM 3 status on mount
-  useEffect(() => {
-    const checkStatus = async () => {
-      const response = await checkSamStatus();
-      if (response.success && response.data) {
-        setSamStatus({
-          available: response.data.available,
-          loaded: response.data.loaded,
-        });
-      }
-    };
-    checkStatus();
-  }, []);
   
   // Load existing segmentations from store when project is loaded
   useEffect(() => {
@@ -1711,15 +1689,6 @@ export default function Step3SegmentationPage() {
         title="2D Segmentation"
         description="Use SAM to segment vault features and detect intrados lines"
       />
-      
-      {/* SAM 3 Status Banner - informational only */}
-      {samStatus.loaded && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-green-500/10 text-green-500">
-          <Server className="w-5 h-5" />
-          <span className="text-sm font-medium">SAM 3 Model Loaded</span>
-          <span className="text-xs opacity-70">Ready for text-guided segmentation</span>
-        </div>
-      )}
       
       {!hasProjections ? (
         <Card className="border-amber-500/30 bg-amber-500/5">
