@@ -40,6 +40,10 @@ For most rib analysis, start with the **Bottom Up** projection.
 | Generate button | Triggers the projection computation |
 | Preview panel | Displays the resulting 2D image |
 
+![Step 2 — Projection interface](../images/step-2/step2a-projections.png){ width="800" .center }
+
+The **Bottom Up** perspective is selected by default. Click **View more options** beneath the perspective selector to reveal the remaining viewpoints (Top Down, North, South, East, West). The **Display Settings** bar in the preview panel is collapsed by default; expand it to adjust how many points are loaded for the interactive 3D preview and to reload the point cloud at a different density.
+
 ## What to check before moving on
 
 - The main rib pattern is visible.

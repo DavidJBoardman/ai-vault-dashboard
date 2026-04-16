@@ -361,6 +361,8 @@ export default function Step2ProjectionPage() {
   const [totalPointCount, setTotalPointCount] = useState(0);
   const [displayPointCount, setDisplayPointCount] = useState(100000);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [showDisplaySettings, setShowDisplaySettings] = useState(false);
+  const [showMorePerspectives, setShowMorePerspectives] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isLoadingSelectedImage, setIsLoadingSelectedImage] = useState(false);
   
@@ -539,7 +541,8 @@ export default function Step2ProjectionPage() {
               <div className="space-y-3">
                 <Label>Perspective View</Label>
                 <div className="grid grid-cols-2 gap-2">
-                  {PERSPECTIVE_OPTIONS.map((option) => (
+                  {/* Always show Bottom Up (default) */}
+                  {PERSPECTIVE_OPTIONS.slice(0, 1).map((option) => (
                     <Button
                       key={option.value}
                       variant={perspective === option.value ? "default" : "outline"}
@@ -554,7 +557,54 @@ export default function Step2ProjectionPage() {
                       <span>{option.label}</span>
                     </Button>
                   ))}
+                  {/* Show selected non-default option when collapsed */}
+                  {!showMorePerspectives && perspective !== "bottom" && (() => {
+                    const selected = PERSPECTIVE_OPTIONS.find(o => o.value === perspective);
+                    return selected ? (
+                      <Button
+                        key={selected.value}
+                        variant="default"
+                        size="sm"
+                        className="justify-start gap-2 h-auto py-2 ring-2 ring-primary ring-offset-2 ring-offset-background"
+                        onClick={() => setPerspective(selected.value)}
+                      >
+                        {selected.icon}
+                        <span>{selected.label}</span>
+                      </Button>
+                    ) : null;
+                  })()}
                 </div>
+
+                {/* Accordion: remaining options */}
+                {showMorePerspectives && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {PERSPECTIVE_OPTIONS.slice(1).map((option) => (
+                      <Button
+                        key={option.value}
+                        variant={perspective === option.value ? "default" : "outline"}
+                        size="sm"
+                        className={cn(
+                          "justify-start gap-2 h-auto py-2",
+                          perspective === option.value && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                        )}
+                        onClick={() => setPerspective(option.value)}
+                      >
+                        {option.icon}
+                        <span>{option.label}</span>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowMorePerspectives(!showMorePerspectives)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronDown className={cn("w-3 h-3 transition-transform", showMorePerspectives && "rotate-180")} />
+                  {showMorePerspectives ? "View less" : "View more options"}
+                </button>
+
                 <p className="text-xs text-muted-foreground">
                   {PERSPECTIVE_OPTIONS.find(o => o.value === perspective)?.description}
                 </p>
@@ -826,79 +876,100 @@ export default function Step2ProjectionPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Point Count Controls - same as Step 1 */}
+              {/* Point Count Controls - collapsible */}
               {!selectedProjection && (
-                <div className="bg-muted/50 rounded-lg p-4 space-y-4">
-                  <div className="flex items-center justify-between">
+                <div className="border rounded-lg overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowDisplaySettings(!showDisplaySettings)}
+                    className="w-full flex items-center justify-between px-3 py-2 bg-muted/50 hover:bg-muted transition-colors"
+                  >
                     <div className="flex items-center gap-2">
                       <Eye className="w-4 h-4 text-muted-foreground" />
-                      <Label className="text-sm font-medium">Display Points</Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-mono bg-background px-2 py-1 rounded">
-                        {formatNumber(displayPointCount)}
+                      <span className="text-sm font-medium">Display Settings</span>
+                      <span className="text-xs text-muted-foreground font-mono">
+                        {formatNumber(displayPointCount)} pts
                       </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleReloadPoints}
-                        disabled={isLoading || isReloading}
-                        className="gap-1.5"
-                      >
-                        {isReloading ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <RefreshCw className="w-3 h-3" />
-                        )}
-                        Reload
-                      </Button>
                     </div>
-                  </div>
-                  
-                  {/* Slider */}
-                  <div className="space-y-2">
-                    <Slider
-                      value={[displayPointCount]}
-                      onValueChange={([v]) => setDisplayPointCount(v)}
-                      min={10000}
-                      max={Math.min(totalPointCount || 2000000, 2000000)}
-                      step={10000}
-                      className="w-full"
+                    <ChevronDown
+                      className={cn(
+                        "w-4 h-4 text-muted-foreground transition-transform",
+                        showDisplaySettings && "rotate-180"
+                      )}
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>10K</span>
-                      <span>{formatNumber(Math.min(totalPointCount || 2000000, 2000000))}</span>
+                  </button>
+
+                  {showDisplaySettings && (
+                    <div className="p-4 space-y-4 border-t bg-muted/20">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-medium">Display Points</Label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-mono bg-background px-2 py-1 rounded">
+                            {formatNumber(displayPointCount)}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleReloadPoints}
+                            disabled={isLoading || isReloading}
+                            className="gap-1.5"
+                          >
+                            {isReloading ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3 h-3" />
+                            )}
+                            Reload
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Slider */}
+                      <div className="space-y-2">
+                        <Slider
+                          value={[displayPointCount]}
+                          onValueChange={([v]) => setDisplayPointCount(v)}
+                          min={10000}
+                          max={Math.min(totalPointCount || 2000000, 2000000)}
+                          step={10000}
+                          className="w-full"
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>10K</span>
+                          <span>{formatNumber(Math.min(totalPointCount || 2000000, 2000000))}</span>
+                        </div>
+                      </div>
+
+                      {/* Quick presets */}
+                      <div className="flex flex-wrap gap-2">
+                        {POINT_COUNT_PRESETS.filter(p => p.value <= (totalPointCount || 2000000)).map((preset) => (
+                          <Button
+                            key={preset.value}
+                            variant={displayPointCount === preset.value ? "default" : "outline"}
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => setDisplayPointCount(preset.value)}
+                          >
+                            {preset.label}
+                          </Button>
+                        ))}
+                        {totalPointCount > 0 && (
+                          <Button
+                            variant={displayPointCount === totalPointCount ? "default" : "outline"}
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => setDisplayPointCount(totalPointCount)}
+                          >
+                            All ({formatNumber(totalPointCount)})
+                          </Button>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Note:</strong> The viewer shows a subset for performance. Projections will use all {formatNumber(totalPointCount)} points at full resolution.
+                      </p>
                     </div>
-                  </div>
-                  
-                  {/* Quick presets */}
-                  <div className="flex flex-wrap gap-2">
-                    {POINT_COUNT_PRESETS.filter(p => p.value <= (totalPointCount || 2000000)).map((preset) => (
-                      <Button
-                        key={preset.value}
-                        variant={displayPointCount === preset.value ? "default" : "outline"}
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setDisplayPointCount(preset.value)}
-                      >
-                        {preset.label}
-                      </Button>
-                    ))}
-                    {totalPointCount > 0 && (
-                      <Button
-                        variant={displayPointCount === totalPointCount ? "default" : "outline"}
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setDisplayPointCount(totalPointCount)}
-                      >
-                        All ({formatNumber(totalPointCount)})
-                      </Button>
-                    )}
-                  </div>
-                  
-                  <p className="text-xs text-muted-foreground">
-                    <strong>Note:</strong> The viewer shows a subset for performance. Projections will use all {formatNumber(totalPointCount)} points at full resolution.
-                  </p>
+                  )}
                 </div>
               )}
               
