@@ -187,8 +187,9 @@ export default function Step3SegmentationPage() {
   const [currentPolygon, setCurrentPolygon] = useState<PolygonPoint[]>([]);
   const [polygonName, setPolygonName] = useState<string>("");
   
-  // ROI state
-  const [roi, setRoi] = useState<ROIState>({
+  // ROI state — restore from store if coming back from step 4
+  const savedRoi = (currentProject?.steps?.[3]?.data as { roi?: ROIState } | undefined)?.roi;
+  const [roi, setRoi] = useState<ROIState>(savedRoi ?? {
     x: 0.5,
     y: 0.5,
     width: 0.6,
@@ -588,6 +589,20 @@ export default function Step3SegmentationPage() {
     return corners;
   };
   
+  const getROIEdgeMidpoints = (r: ROIState): Record<"n" | "e" | "s" | "w", [number, number]> => {
+    const rad = (r.rotation * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const hw = r.width / 2;
+    const hh = r.height / 2;
+    return {
+      n: [r.x + hh * sin, r.y - hh * cos],
+      e: [r.x + hw * cos, r.y + hw * sin],
+      s: [r.x - hh * sin, r.y + hh * cos],
+      w: [r.x - hw * cos, r.y - hw * sin],
+    };
+  };
+
   const isPointInROI = (px: number, py: number, roiState: ROIState): boolean => {
     const { x, y, width, height, rotation } = roiState;
     const rad = (-rotation * Math.PI) / 180;
@@ -837,10 +852,23 @@ export default function Step3SegmentationPage() {
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
     
-    // Check if clicking on resize handles
+    // Check if clicking on edge midpoint handles (side-only resize)
+    const edgeMids = getROIEdgeMidpoints(roi);
+    const edgeHandleSize = 0.025;
+    for (const dir of ["n", "e", "s", "w"] as const) {
+      const [mx, my] = edgeMids[dir];
+      if (Math.hypot(x - mx, y - my) < edgeHandleSize) {
+        setRoiInteractionMode("resizing");
+        setResizeHandle(`edge-${dir}`);
+        setRoiDragStart({ x, y, roi: { ...roi } });
+        return;
+      }
+    }
+
+    // Check if clicking on corner handles
     const corners = getROICorners(roi);
     const handleSize = 0.02;
-    
+
     for (let i = 0; i < corners.length; i++) {
       const [cx, cy] = corners[i];
       if (Math.abs(x - cx) < handleSize && Math.abs(y - cy) < handleSize) {
@@ -896,30 +924,56 @@ export default function Step3SegmentationPage() {
         y: Math.max(0, Math.min(1, roiDragStart.roi.y + dy)),
       });
     } else if (roiInteractionMode === "resizing" && resizeHandle) {
-      const handleIdx = parseInt(resizeHandle.split("-")[1]);
       const dx = x - roiDragStart.x;
       const dy = y - roiDragStart.y;
-      
-      // Simple resize - adjust width/height based on which corner
       const origRoi = roiDragStart.roi;
-      let newWidth = origRoi.width;
-      let newHeight = origRoi.height;
-      let newX = origRoi.x;
-      let newY = origRoi.y;
-      
-      if (handleIdx === 0 || handleIdx === 3) { // Left corners
-        newWidth = Math.max(0.05, origRoi.width - dx * 2);
+      const rad = (origRoi.rotation * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      // Convert world delta to local ROI coordinate space
+      const localDx = dx * cos + dy * sin;
+      const localDy = -dx * sin + dy * cos;
+
+      if (resizeHandle.startsWith("edge-")) {
+        // Side handle: only one edge moves, opposite edge stays fixed
+        const dir = resizeHandle.split("-")[1];
+        if (dir === "e") {
+          const newWidth = Math.max(0.05, origRoi.width + localDx);
+          setRoi({ ...origRoi, width: newWidth, x: origRoi.x + (localDx / 2) * cos, y: origRoi.y + (localDx / 2) * sin });
+        } else if (dir === "w") {
+          const newWidth = Math.max(0.05, origRoi.width - localDx);
+          setRoi({ ...origRoi, width: newWidth, x: origRoi.x + (localDx / 2) * cos, y: origRoi.y + (localDx / 2) * sin });
+        } else if (dir === "n") {
+          const newHeight = Math.max(0.05, origRoi.height - localDy);
+          setRoi({ ...origRoi, height: newHeight, x: origRoi.x - (localDy / 2) * sin, y: origRoi.y + (localDy / 2) * cos });
+        } else if (dir === "s") {
+          const newHeight = Math.max(0.05, origRoi.height + localDy);
+          setRoi({ ...origRoi, height: newHeight, x: origRoi.x - (localDy / 2) * sin, y: origRoi.y + (localDy / 2) * cos });
+        }
       } else {
-        newWidth = Math.max(0.05, origRoi.width + dx * 2);
+        // Corner handle: opposite corner stays fixed, center shifts accordingly
+        const handleIdx = parseInt(resizeHandle.split("-")[1]);
+        // 0=NW, 1=NE, 2=SE, 3=SW
+        const isLeft = handleIdx === 0 || handleIdx === 3;
+        const isTop = handleIdx === 0 || handleIdx === 1;
+
+        const newWidth = Math.max(0.05, isLeft ? origRoi.width - localDx : origRoi.width + localDx);
+        const newHeight = Math.max(0.05, isTop ? origRoi.height - localDy : origRoi.height + localDy);
+
+        // Center shifts by half the dimension change in local space
+        const widthDelta = newWidth - origRoi.width;
+        const heightDelta = newHeight - origRoi.height;
+        const localCx = isLeft ? -widthDelta / 2 : widthDelta / 2;
+        const localCy = isTop ? -heightDelta / 2 : heightDelta / 2;
+
+        setRoi({
+          ...origRoi,
+          width: newWidth,
+          height: newHeight,
+          x: origRoi.x + localCx * cos - localCy * sin,
+          y: origRoi.y + localCx * sin + localCy * cos,
+        });
       }
-      
-      if (handleIdx === 0 || handleIdx === 1) { // Top corners
-        newHeight = Math.max(0.05, origRoi.height - dy * 2);
-      } else {
-        newHeight = Math.max(0.05, origRoi.height + dy * 2);
-      }
-      
-      setRoi({ ...origRoi, width: newWidth, height: newHeight });
     } else if (roiInteractionMode === "rotating") {
       const angle = Math.atan2(x - roi.x, -(y - roi.y)) * (180 / Math.PI);
       setRoi({ ...roi, rotation: angle });
@@ -1166,24 +1220,64 @@ export default function Step3SegmentationPage() {
     setEditingMaskName("");
   };
   
-  // Remove mask - create new array reference to ensure React detects the change
-  const removeMask = (maskId: string) => {
-    setMasks(prev => {
-      const filtered = prev.filter(mask => mask.id !== maskId);
-      // Return new array to ensure React detects change
-      return [...filtered];
-    });
-  };
-  
-  // Remove all masks in a group
-  const removeGroup = (groupLabel: string) => {
-    setMasks(prev => {
-      const filtered = prev.filter(
-        (mask) => getBaseLabel(mask.label).toLowerCase() !== groupLabel.toLowerCase()
-      );
-      return [...filtered];
-    });
-  };
+  // Sync updated masks to the store and persist to the backend save file
+  const syncAndSave = useCallback(async (updatedMasks: SegmentationMask[]) => {
+    setSegmentations(updatedMasks.map(m => ({
+      id: m.id,
+      label: m.label,
+      color: m.color,
+      mask: m.maskBase64,
+      visible: m.visible,
+      source: m.source as "auto" | "manual",
+    })));
+
+    if (!currentProject) return;
+    try {
+      await saveProject({
+        projectId: currentProject.id,
+        projectName: currentProject.name,
+        e57Path: currentProject.e57Path,
+        projections: currentProject.projections.map(p => ({
+          id: p.id,
+          perspective: p.settings.perspective,
+          resolution: p.settings.resolution,
+          sigma: p.settings.sigma,
+          kernelSize: p.settings.kernelSize,
+          bottomUp: p.settings.bottomUp,
+          scale: p.settings.scale,
+        })),
+        segmentations: updatedMasks.map(m => ({
+          id: m.id,
+          label: m.label,
+          color: m.color,
+          maskBase64: m.maskBase64,
+          bbox: m.bbox,
+          area: m.area,
+          visible: m.visible,
+          source: m.source,
+        })),
+        selectedProjectionId: selectedProjectionId || undefined,
+      });
+    } catch (error) {
+      console.error("Error saving after delete:", error);
+    }
+  }, [currentProject, selectedProjectionId, setSegmentations]);
+
+  // Remove a single mask and persist
+  const removeMask = useCallback((maskId: string) => {
+    const updated = masks.filter(mask => mask.id !== maskId);
+    setMasks(updated);
+    void syncAndSave(updated);
+  }, [masks, syncAndSave]);
+
+  // Remove all masks in a group and persist
+  const removeGroup = useCallback((groupLabel: string) => {
+    const updated = masks.filter(
+      (mask) => getBaseLabel(mask.label).toLowerCase() !== groupLabel.toLowerCase()
+    );
+    setMasks(updated);
+    void syncAndSave(updated);
+  }, [masks, syncAndSave]);
   
   // Keyboard handler for box/polygon interactions
   useEffect(() => {
@@ -1740,7 +1834,7 @@ export default function Step3SegmentationPage() {
                   
                   {/* Quick Presets */}
                   <div className="flex flex-wrap gap-1">
-                    {["rib", "boss stone", "corner", "keystone", "intrados", "tiercerons", "lierne", "vault cell"].map((preset) => (
+                    {["rib", "boss stone"].map((preset) => (
                       <button
                         key={preset}
                         onClick={() => {
@@ -1818,11 +1912,11 @@ export default function Step3SegmentationPage() {
                   {textPrompts.length > 0 ? "Run SAM Segmentation" : "Run SAM Segmentation"}
                 </Button>
                 
-                <div className="grid grid-cols-4 gap-1">
+                <div className="grid grid-cols-2 gap-1.5">
                   {[
                     { tool: "polygon", icon: Hexagon, label: "Polygon", needsMasks: false, needsRoi: true },
-                    { tool: "box", icon: Scan, label: "Box", needsMasks: false, needsRoi: true },
-                    { tool: "roi", icon: Square, label: "ROI", needsMasks: false, needsRoi: false },
+                    { tool: "box", icon: Square, label: "Box", needsMasks: false, needsRoi: true },
+                    { tool: "roi", icon: Scan, label: "ROI", needsMasks: false, needsRoi: false },
                     { tool: "eraser", icon: Eraser, label: "Eraser", needsMasks: true, needsRoi: true },
                   ].map(({ tool, icon: Icon, label, needsMasks, needsRoi }) => (
                     <Button
@@ -1830,7 +1924,7 @@ export default function Step3SegmentationPage() {
                       variant={activeTool === tool ? "default" : "outline"}
                       size="sm"
                       className={cn(
-                        "gap-1 h-7 text-xs",
+                        "flex items-center justify-center gap-2 h-9 text-xs",
                         tool === "eraser" && activeTool === "eraser" && "bg-red-600 hover:bg-red-700 border-red-600",
                         tool === "roi" && !isROISet && activeTool !== "roi" && "ring-1 ring-amber-500/50"
                       )}
@@ -1844,7 +1938,7 @@ export default function Step3SegmentationPage() {
                         (needsRoi && !roiConfirmed)
                       }
                     >
-                      <Icon className="w-3 h-3" />
+                      <Icon className="w-4 h-4 shrink-0" />
                       {label}
                     </Button>
                   ))}
@@ -2752,9 +2846,16 @@ export default function Step3SegmentationPage() {
                           const corners = getROICorners(roi);
                           // Convert to percentage
                           const cornersPct = corners.map(([x, y]) => [x * 100, y * 100]);
-                          
+                          const edgeMids = getROIEdgeMidpoints(roi);
+                          const edgeMidsPct = {
+                            n: [edgeMids.n[0] * 100, edgeMids.n[1] * 100],
+                            e: [edgeMids.e[0] * 100, edgeMids.e[1] * 100],
+                            s: [edgeMids.s[0] * 100, edgeMids.s[1] * 100],
+                            w: [edgeMids.w[0] * 100, edgeMids.w[1] * 100],
+                          };
+
                           return (
-                            <svg 
+                            <svg
                               className="absolute inset-0 w-full h-full pointer-events-none z-20"
                               viewBox="0 0 100 100"
                               preserveAspectRatio="none"
@@ -2769,12 +2870,12 @@ export default function Step3SegmentationPage() {
                                   />
                                 </mask>
                               </defs>
-                              <rect 
-                                x="0" y="0" width="100" height="100" 
-                                fill="rgba(0,0,0,0.5)" 
+                              <rect
+                                x="0" y="0" width="100" height="100"
+                                fill="rgba(0,0,0,0.5)"
                                 mask="url(#roi-mask-seg)"
                               />
-                              
+
                               {/* ROI border */}
                               <polygon
                                 points={cornersPct.map(([x, y]) => `${x},${y}`).join(" ")}
@@ -2783,7 +2884,19 @@ export default function Step3SegmentationPage() {
                                 strokeWidth="0.3"
                                 strokeDasharray={activeTool === "roi" ? "none" : "1,0.5"}
                               />
-                              
+
+                              {/* Crosshair centre lines — always shown when ROI is visible */}
+                              <line
+                                x1={edgeMidsPct.w[0]} y1={edgeMidsPct.w[1]}
+                                x2={edgeMidsPct.e[0]} y2={edgeMidsPct.e[1]}
+                                stroke="#22c55e" strokeWidth="0.2" strokeDasharray="0.8,0.8" opacity="0.55"
+                              />
+                              <line
+                                x1={edgeMidsPct.n[0]} y1={edgeMidsPct.n[1]}
+                                x2={edgeMidsPct.s[0]} y2={edgeMidsPct.s[1]}
+                                stroke="#22c55e" strokeWidth="0.2" strokeDasharray="0.8,0.8" opacity="0.55"
+                              />
+
                               {/* Corner handles (only when ROI tool active) */}
                               {activeTool === "roi" && cornersPct.map(([x, y], i) => (
                                 <circle
@@ -2796,7 +2909,22 @@ export default function Step3SegmentationPage() {
                                   strokeWidth="0.2"
                                 />
                               ))}
-                              
+
+                              {/* Edge midpoint handles (only when ROI tool active) */}
+                              {activeTool === "roi" && (["n", "e", "s", "w"] as const).map((dir) => (
+                                <rect
+                                  key={dir}
+                                  x={edgeMidsPct[dir][0] - 0.9}
+                                  y={edgeMidsPct[dir][1] - 0.9}
+                                  width="1.8"
+                                  height="1.8"
+                                  rx="0.3"
+                                  fill="#22c55e"
+                                  stroke="white"
+                                  strokeWidth="0.2"
+                                />
+                              ))}
+
                               {/* Rotation handle (only when ROI tool active) */}
                               {activeTool === "roi" && (() => {
                                 const rad = (roi.rotation * Math.PI) / 180;
