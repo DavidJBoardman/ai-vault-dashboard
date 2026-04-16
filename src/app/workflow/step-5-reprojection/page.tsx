@@ -13,8 +13,9 @@ import { Slider } from "@/components/ui/slider";
 import { useProjectStore } from "@/lib/store";
 import { getReprojectionPreview, ReprojectionPoint, getIntradosLines, IntradosLine, traceIntradosLines } from "@/lib/api";
 import { 
-  ChevronLeft, 
+  ChevronLeft,
   ChevronRight,
+  ChevronDown,
   RotateCcw,
   Eye,
   Layers,
@@ -54,6 +55,9 @@ export default function Step5ReprojectionPage() {
   const [isTracingIntrados, setIsTracingIntrados] = useState(false);
   const [intradosError, setIntradosError] = useState<string | null>(null);
   
+  // Preview settings collapsed state
+  const [showPreviewSettings, setShowPreviewSettings] = useState(false);
+
   // Exclusion controls state
   const savedStepData = currentProject?.stepData?.[5] as { floorPlaneZ?: number; showFloorPlane?: boolean } | undefined;
   const [floorPlaneZ, setFloorPlaneZ] = useState<number | undefined>(
@@ -514,7 +518,8 @@ export default function Step5ReprojectionPage() {
                   </div>
                 </div>
                 
-                {/* Group list */}
+                {/* Group list — scrollable when large */}
+                <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
                 {availableGroups.map((group) => {
                   const isSelected = selectedGroups.includes(group.groupId);
                   const count = previewStats?.groupCounts?.[group.groupId] || group.count || 0;
@@ -555,15 +560,21 @@ export default function Step5ReprojectionPage() {
                     No mask groups found. Complete Step 3 to create segmentations.
                   </p>
                 )}
+                </div>
               </CardContent>
             </Card>
             
             {/* Preview Settings */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-display">Preview Settings</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+              <button
+                type="button"
+                onClick={() => setShowPreviewSettings(!showPreviewSettings)}
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors rounded-t-lg"
+              >
+                <span className="text-base font-display font-semibold">Preview Settings</span>
+                <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", showPreviewSettings && "rotate-180")} />
+              </button>
+              {showPreviewSettings && <CardContent className="space-y-4 pt-0">
                 {/* Show Unmasked Points Toggle */}
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -664,9 +675,9 @@ export default function Step5ReprojectionPage() {
                     )}
                   </div>
                 )}
-              </CardContent>
+              </CardContent>}
             </Card>
-            
+
             {/* Intrados Tracing */}
             <Card>
               <CardHeader className="pb-3">
