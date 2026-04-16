@@ -1410,8 +1410,6 @@ export default function Step3SegmentationPage() {
       const newMasks = data?.masks || [];
       
       if (isSuccess) {
-        setSamStatus(prev => ({ ...prev, loaded: true }));
-
         if (newMasks.length > 0) {
           setMasks(prev => {
             const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
@@ -1479,8 +1477,6 @@ export default function Step3SegmentationPage() {
       const newMasks = data?.masks || [];
       
       if (isSuccess) {
-        setSamStatus(prev => ({ ...prev, loaded: true }));
-
         if (newMasks.length > 0) {
           setMasks(prev => {
             const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
@@ -1537,8 +1533,6 @@ export default function Step3SegmentationPage() {
       const errorMsg = response.error || data?.error;
 
       if (isSuccess) {
-        setSamStatus(prev => ({ ...prev, loaded: true }));
-
         if (autoMasks.length > 0) {
           setMasks(prev => {
             const allMasks = filterMasksByROI(computeUpdatedMasks(prev, autoMasks));
