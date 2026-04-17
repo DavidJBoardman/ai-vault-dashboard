@@ -113,63 +113,11 @@
               
                 <h1 id="step-4d-bay-plan-reconstruction">Step 4D: Bay-Plan Reconstruction<a class="headerlink" href="#step-4d-bay-plan-reconstruction" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>This final Step 4 sub-stage reconstructs the <strong>bay plan</strong> from the ROI, reference points, matching results, and segmentation masks. The bay plan is the main 2D output that later gets reprojected into 3D.</p>
-<h2 id="what-the-application-does">What the application does<a class="headerlink" href="#what-the-application-does" title="Permanent link">¶</a></h2>
-<p>Reconstruction proceeds through a multi-phase pipeline:</p>
-<h3 id="1-load-reference-rows">1. Load reference rows<a class="headerlink" href="#1-load-reference-rows" title="Permanent link">¶</a></h3>
-<p>The backend loads the saved node points from sub-stage 4B. Where a boss was successfully matched in sub-stage 4C, its <strong>ideal</strong> template position is used in preference to the raw centroid. Corner anchors are always included.</p>
-<h3 id="2-load-the-rib-mask">2. Load the rib mask<a class="headerlink" href="#2-load-the-rib-mask" title="Permanent link">¶</a></h3>
-<p>A grouped rib-segmentation mask is loaded from the project's segmentation data. This mask acts as evidence for whether a proposed edge actually follows visible rib material.</p>
-<h3 id="3-generate-candidate-edges">3. Generate candidate edges<a class="headerlink" href="#3-generate-candidate-edges" title="Permanent link">¶</a></h3>
-<p>Two reconstruction modes are available:</p>
-<p><strong>Angular-nearest candidates</strong> (default)
-:   For each node, the algorithm looks for nearby neighbours in distinct directions. Each possible edge is then scored by how well a narrow corridor between the two nodes overlaps the rib mask.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup></p>
-<p><strong>Delaunay comparison</strong>
-:   An alternative mode that builds a constrained Delaunay-style graph from the same node set.<sup id="fnref:2"><a class="footnote-ref" href="#fn:2">2</a></sup> This is useful as a comparison view or when rib-mask evidence is weak.</p>
-<p>Both methods can contribute to the final candidate set, and the app also preserves key boundary connections.</p>
-<h3 id="4-select-the-candidate-graph">4. Select the candidate graph<a class="headerlink" href="#4-select-the-candidate-graph" title="Permanent link">¶</a></h3>
-<p>A greedy global selection resolves the candidate set into a final graph:</p>
-<ol>
-<li><strong>Boundary edges first</strong> — mandatory boundary edges are added unconditionally.</li>
-<li><strong>Greedy pass</strong> — remaining candidates are added in descending score order, subject to a configurable maximum node degree and optional planarity enforcement (no crossing edges).</li>
-<li><strong>Degree repair</strong> — any node whose degree falls below the configured minimum receives additional edges from the remaining candidates.</li>
-</ol>
-<h3 id="5-score-the-graph">5. Score the graph<a class="headerlink" href="#5-score-the-graph" title="Permanent link">¶</a></h3>
-<p>The final bay plan is scored on four weighted components:</p>
-<table>
-<thead>
-<tr>
-<th>Component</th>
-<th>Weight</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Edge evidence</td>
-<td>55 %</td>
-<td>Mean rib-mask overlap score of non-boundary edges</td>
-</tr>
-<tr>
-<td>Boundary coverage</td>
-<td>20 %</td>
-<td>Proportion of mandatory boundary edges present</td>
-</tr>
-<tr>
-<td>Degree satisfaction</td>
-<td>15 %</td>
-<td>Proportion of nodes within the degree bounds</td>
-</tr>
-<tr>
-<td>Mutual support</td>
-<td>10 %</td>
-<td>Proportion of edges confirmed in both directions</td>
-</tr>
-</tbody>
-</table>
-<h3 id="6-manual-edge-editing">6. Manual edge editing<a class="headerlink" href="#6-manual-edge-editing" title="Permanent link">¶</a></h3>
-<p>After the automatic reconstruction, you may add or remove individual edges manually. Manual edits are saved alongside the computed graph.</p>
-<h2 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">¶</a></h2>
+<p>This final Step 4 sub-stage reconstructs the <strong>bay plan</strong> from the ROI, reference points, matching results, and segmentation masks.</p>
+<h2 id="workflow">Workflow<a class="headerlink" href="#workflow" title="Permanent link">¶</a></h2>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../../images/step-4/step4d-bay-plan.png" data-title="Bay-Plan Reconstruction: workflow stepper (Bay-Plan active); left panel with reconstruction settings and score breakdown; canvas showing the reconstructed node-and-edge graph over the projection image." data-desc-position="bottom"><img alt="Bay-Plan Reconstruction: workflow stepper (Bay-Plan active); left panel with reconstruction settings and score breakdown; canvas showing the reconstructed node-and-edge graph over the projection image." class="center" src="../../../images/step-4/step4d-bay-plan.png" width="800"></a></p>
+<h3 id="1-review-the-reconstruction-settings">1. Review the reconstruction settings<a class="headerlink" href="#1-review-the-reconstruction-settings" title="Permanent link">¶</a></h3>
+<p>Start with the default settings. Tune the advanced parameters below only if the defaults do not produce satisfactory results. </p>
 <table>
 <thead>
 <tr>
@@ -212,16 +160,59 @@
 </tr>
 </tbody>
 </table>
-<h2 id="what-you-do-here">What you do here<a class="headerlink" href="#what-you-do-here" title="Permanent link">¶</a></h2>
+<h3 id="2-run-reconstruction">2. Run reconstruction<a class="headerlink" href="#2-run-reconstruction" title="Permanent link">¶</a></h3>
+<p>The backend loads the saved node points from sub-stage 4B (preferring ideal template positions from 4C where available) and the grouped rib-segmentation mask. It then:</p>
+<ol>
+<li><strong>Generates candidate edges</strong> — for each node, finds nearby neighbours in distinct directions and scores each edge by rib-mask overlap.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> An alternative Delaunay mode is available when mask evidence is weak.<sup id="fnref:2"><a class="footnote-ref" href="#fn:2">2</a></sup></li>
+<li><strong>Selects the final graph</strong> — adds boundary edges first, then greedily adds candidates in score order (subject to degree limits and optional planarity), and repairs any under-connected nodes.</li>
+<li><strong>Scores the result</strong> on four weighted components:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Weight</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Edge evidence</td>
+<td>55 %</td>
+<td>Mean rib-mask overlap score of non-boundary edges</td>
+</tr>
+<tr>
+<td>Boundary coverage</td>
+<td>20 %</td>
+<td>Proportion of mandatory boundary edges present</td>
+</tr>
+<tr>
+<td>Degree satisfaction</td>
+<td>15 %</td>
+<td>Proportion of nodes within the degree bounds</td>
+</tr>
+<tr>
+<td>Mutual support</td>
+<td>10 %</td>
+<td>Proportion of edges confirmed in both directions</td>
+</tr>
+</tbody>
+</table>
+<h3 id="3-inspect-and-edit">3. Inspect and edit<a class="headerlink" href="#3-inspect-and-edit" title="Permanent link">¶</a></h3>
 <ul>
-<li>Run the reconstruction and inspect the resulting graph on the canvas.</li>
-<li>If the graph is too dense or too sparse, adjust the settings and run again.</li>
-<li>Use the layer toggles to compare the graph against the underlying projection and masks.</li>
-<li>Add missing edges or remove wrong ones manually before you continue.</li>
+<li>Compare the graph against the underlying projection and masks using the layer toggles.</li>
+<li>Add missing edges or remove wrong ones manually. Manual edits are saved alongside the computed graph.</li>
+</ul>
+<p>If the graph has obvious errors, try the following before editing manually:</p>
+<ul>
+<li>Lower <strong>candidate min score</strong> to recover missing edges in areas with weak rib-mask evidence.</li>
+<li>Raise <strong>max node degree</strong> if key junctions are losing edges.</li>
+<li>Lower <strong>candidate max distance</strong> if the graph connects nodes across the bay that should not be linked.</li>
+<li>Switch <strong>reconstruction mode</strong> to <code>delaunay</code> for comparison — if it produces a cleaner graph, the rib-mask evidence may be too noisy for angular-nearest.</li>
 </ul>
 <h2 id="why-it-matters">Why it matters<a class="headerlink" href="#why-it-matters" title="Permanent link">¶</a></h2>
-<p>The bay plan is the most significant output of the entire 2D analysis. It encodes the vault's rib network as a computationally tractable graph that Step 5 reprojects into three-dimensional space. Errors in the bay plan — missing ribs, false connections, or misplaced nodes — will propagate into the 3D geometry and affect all subsequent measurements.</p>
-<h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
+<p>The bay plan is the main 2D output: Step 5 reprojects it into three-dimensional space. Errors here — missing ribs, false connections, misplaced nodes — propagate into all downstream 3D geometry.</p>
+<h2 id="before-moving-on">Before moving on<a class="headerlink" href="#before-moving-on" title="Permanent link">¶</a></h2>
 <p>Before leaving Step 4 you should have:</p>
 <ul>
 <li>a bay plan whose edges match the visible rib pattern</li>

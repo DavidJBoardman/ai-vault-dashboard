@@ -19,5 +19,52 @@ Others
 [?] app icon
 
 
+# David
+
+
+Add docs page to readme file - david check github for it
+
+Remove other names from box tool select menu - david
+
+Switch lettering positions to match nicks guide in segmentation - david
+
+3d reprojection - move generate preview button inside preview settings menu - david
+
+take a look at the segmentation overlaps and multiple rib selections in a single mask - david
+
+Remove Analysis page - David
+
+
+
+# Yang
+
+
+
+2d geometry - load segmentation labels for boss stone points (abc lettering) - yang
+
+remove depth and plasma from ui viewer all pages - yang
+
+Add warning when navigating to cut typology saying to make sure all boss stones are labelled because they're used in future steps - yang
+
+add logo  ukri or whatever - yang
+
+
+
+# Wiktoria
+
+
+
+Bug with auto label in measurements - Wiktoria
+
+Measurements page fix ui cutoff on groupings - wiktoria
+
+
+
+
+
+Analysis page, show a quick summary of the vault results 2d + 3d anaylsis with csv downloads (analysis completed, heres a summary etc...) - ???
+
+
+
 Build
 [?] Add NSIS installer if required.Need a vote.

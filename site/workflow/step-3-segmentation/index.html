@@ -112,102 +112,216 @@
               
                 <h1 id="step-3-segmentation">Step 3: Segmentation<a class="headerlink" href="#step-3-segmentation" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Identify and label architectural features on the projection image so later stages can work from clean masks instead of raw imagery.</p>
+<p>Identify and label the architectural features on the projection image — ribs, boss stones, corners, and any other elements you need — so that later stages work from clean, named masks rather than raw imagery.</p>
 <h2 id="how-segmentation-works">How segmentation works<a class="headerlink" href="#how-segmentation-works" title="Permanent link">¶</a></h2>
-<p>The application uses <strong>SAM 3</strong> to turn user prompts into feature masks.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> In practice, you show the model where a rib, boss, or other region is by drawing prompts on the image, then review and keep only the masks that are useful.</p>
-<h2 id="workflow">Workflow<a class="headerlink" href="#workflow" title="Permanent link">¶</a></h2>
-<h3 id="1-select-the-projection-image">1. Select the projection image<a class="headerlink" href="#1-select-the-projection-image" title="Permanent link">¶</a></h3>
-<p>Choose the projection generated in Step 2. The image is displayed on the segmentation canvas.</p>
-<h3 id="2-define-the-masks-you-need">2. Define the masks you need<a class="headerlink" href="#2-define-the-masks-you-need" title="Permanent link">¶</a></h3>
-<p>Before drawing prompts, decide which feature groups you need. For most geometry work that means ribs and bosses first.</p>
+<p>The application uses <strong>SAM 3</strong> (Segment Anything with Concepts) to turn user-drawn prompts into feature masks.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> You direct the model by drawing bounding boxes or polygons around the features you want, optionally guiding it further with text labels. The model returns one or more candidate masks per prompt; you keep what is useful and discard or refine the rest.</p>
+<hr>
+<h2 id="required-order-of-operations">Required order of operations<a class="headerlink" href="#required-order-of-operations" title="Permanent link">¶</a></h2>
+<p>Segmentation in this step follows a fixed two-stage sequence:</p>
+<div class="highlight"><pre><span></span><code>1  ROI  →  Confirm  →  2  Segment
+</code></pre></div>
+<p>The workflow progress indicator at the top of the <strong>Segmentation</strong> panel shows which stage you are on. Segmentation tools are locked until the ROI has been confirmed.</p>
+<hr>
+<h2 id="stage-1-define-the-region-of-interest">Stage 1 — Define the Region of Interest<a class="headerlink" href="#stage-1-define-the-region-of-interest" title="Permanent link">¶</a></h2>
+<p>The ROI is a rotatable rectangle that marks the boundary of the vault bay you are analysing. Confirming it does two things: it places four labelled corner markers (A–D) that become reference points for Step 4, and it unlocks the segmentation tools.</p>
+<h3 id="drawing-the-roi">Drawing the ROI<a class="headerlink" href="#drawing-the-roi" title="Permanent link">¶</a></h3>
+<ol>
+<li>Select the <strong>ROI</strong> tool from the four-tool grid (it is selected by default when the page opens).</li>
+<li>Click and drag on the projection image to draw the rectangle.</li>
+<li>Resize and position it so that all <strong>four corners of the ROI align precisely with the four corners of the vault bay</strong>:</li>
+<li><strong>Drag the interior</strong> to move the whole rectangle.</li>
+<li><strong>Drag a corner or edge handle</strong> to resize.</li>
+<li><strong>Drag the rotation handle</strong> (arc above the top edge) to rotate the rectangle to align with the bay axis.</li>
+</ol>
+<p>The ROI panel shows the current size as a percentage of the image and the rotation angle. If masks are already present, it also shows how many fall inside versus outside the boundary.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../images/step-3/step3a-select-roi.png" data-title="Stage 1 — Draw and align the ROI to the vault corners" data-desc-position="bottom"><img alt="Stage 1 — Draw and align the ROI to the vault corners" class="center" src="../../images/step-3/step3a-select-roi.png" width="800"></a></p>
+<p>The green rectangle should fit tightly to the vault boundary. Corner handle points are visible at each corner — drag them individually to fine-tune the fit before confirming.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Rotate the ROI to match the axis of the bay rather than forcing a straight rectangle onto a skewed scan. Even a few degrees of correction can significantly improve the quality of the geometry analysis in Step 4.</p>
+</div>
+<h3 id="confirming-the-roi">Confirming the ROI<a class="headerlink" href="#confirming-the-roi" title="Permanent link">¶</a></h3>
+<p>Once you are satisfied with the boundary:</p>
+<ol>
+<li>Click <strong>Confirm ROI &amp; Set Corners A–D</strong> in the ROI panel.</li>
+<li>Four gold dot markers labelled <strong>A</strong>, <strong>B</strong>, <strong>C</strong>, <strong>D</strong> (top-left, top-right, bottom-right, bottom-left) are placed at the exact corner positions as mask entries.</li>
+<li>The ROI status pill changes to <strong>✓ ROI</strong> and the segmentation tools become active.</li>
+</ol>
+<p>If you need to adjust the boundary after confirming, switch back to the ROI tool and redraw. The confirmation clears automatically when the rectangle is moved or resized and must be re-confirmed before segmenting.</p>
+<h3 id="removing-masks-outside-the-roi">Removing masks outside the ROI<a class="headerlink" href="#removing-masks-outside-the-roi" title="Permanent link">¶</a></h3>
+<p>After segmenting, any masks that fall outside the bay boundary can be removed:</p>
+<ul>
+<li>In the ROI panel (with the ROI tool active), click <strong>Remove N Outside ROI</strong> if the button is visible.</li>
+<li>The backend classifies every mask by pixel overlap rather than just bounding-box centre, so masks that touch the ROI edge are retained.</li>
+<li>This operation permanently deletes the outside masks from the project file. Review the list before proceeding.</li>
+</ul>
+<hr>
+<h2 id="stage-2-segmenting-features">Stage 2 — Segmenting features<a class="headerlink" href="#stage-2-segmenting-features" title="Permanent link">¶</a></h2>
+<h3 id="choosing-what-to-segment">Choosing what to segment<a class="headerlink" href="#choosing-what-to-segment" title="Permanent link">¶</a></h3>
 <p>For rib-geometry analysis you need at minimum:</p>
 <ul>
-<li>a <strong>Rib</strong> class covering the visible rib surfaces</li>
-<li>a <strong>Boss Stone</strong> class covering the boss keystones</li>
+<li><strong>Rib</strong> masks covering the visible rib surfaces.</li>
+<li><strong>Boss stone</strong> masks for the boss keystones at rib intersections.</li>
 </ul>
-<h3 id="3-draw-a-prompt">3. Draw a prompt<a class="headerlink" href="#3-draw-a-prompt" title="Permanent link">¶</a></h3>
-<p>Use one of the prompt tools to indicate the target feature:</p>
+<p>The corner markers A–D are placed automatically during ROI confirmation; you do not need to draw them separately.</p>
+<h3 id="segmentation-tools">Segmentation tools<a class="headerlink" href="#segmentation-tools" title="Permanent link">¶</a></h3>
+<p>Four tools are available in a 2×2 grid below the SAM button. Switch between them with a single click.</p>
 <table>
 <thead>
 <tr>
 <th>Tool</th>
-<th>How to use</th>
+<th>Icon</th>
+<th>Use for</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Polygon prompt</strong></td>
-<td>Click to place vertices around or along the feature; double-click to close</td>
+<td><strong>Polygon</strong></td>
+<td>Hexagon</td>
+<td>Drawing closed outlines around features for guided segmentation</td>
 </tr>
 <tr>
-<td><strong>Bounding box prompt</strong></td>
-<td>Drag a rectangle enclosing the feature</td>
+<td><strong>Box</strong></td>
+<td>Square</td>
+<td>Drawing bounding boxes as positive or negative prompts</td>
 </tr>
 <tr>
 <td><strong>ROI</strong></td>
-<td>Define a broad region to constrain the model's attention</td>
+<td>Scan frame</td>
+<td>Adjusting the vault bay boundary (Stage 1)</td>
+</tr>
+<tr>
+<td><strong>Eraser</strong></td>
+<td>Eraser</td>
+<td>Removing unwanted portions of an existing mask</td>
 </tr>
 </tbody>
 </table>
-<p>After drawing, the model processes the prompt and returns a candidate mask. Review it in the canvas overlay.</p>
-<h3 id="4-accept-adjust-or-retry">4. Accept, adjust, or retry<a class="headerlink" href="#4-accept-adjust-or-retry" title="Permanent link">¶</a></h3>
-<ul>
-<li>If the mask correctly captures the feature, keep it.</li>
-<li>If the mask is too large, too small, or noisy, adjust the prompt and run again.</li>
-<li>Repeat for each feature instance or class.</li>
-</ul>
-<h3 id="5-manage-visibility-and-save">5. Manage visibility and save<a class="headerlink" href="#5-manage-visibility-and-save" title="Permanent link">¶</a></h3>
-<p>Use the overlay controls to toggle masks on and off. Save the segmentation state before leaving this step.</p>
-<h2 id="interface-controls">Interface controls<a class="headerlink" href="#interface-controls" title="Permanent link">¶</a></h2>
+<p>The Polygon, Box, and Eraser tools are disabled until the ROI is confirmed.</p>
+<hr>
+<h3 id="text-prompts">Text prompts<a class="headerlink" href="#text-prompts" title="Permanent link">¶</a></h3>
+<p>Text prompts tell SAM what kind of feature you are looking for before running segmentation. They act as a semantic guide on top of the spatial prompt.</p>
+<p><strong>Quick presets</strong> — click a preset button to add it immediately:</p>
 <table>
 <thead>
 <tr>
-<th>Control</th>
-<th>What it does</th>
+<th>Preset</th>
+<th>Use for</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Feature class selector</td>
-<td>Sets which class the next mask will be assigned to</td>
+<td><code>rib</code></td>
+<td>Main vault ribs</td>
 </tr>
 <tr>
-<td>Polygon / box / ROI tools</td>
-<td>Draw prompts on the canvas</td>
-</tr>
-<tr>
-<td>Mask visibility toggles</td>
-<td>Show or hide individual or grouped masks</td>
-</tr>
-<tr>
-<td>Save button</td>
-<td>Persists the segmentation state for downstream steps</td>
-</tr>
-<tr>
-<td>Reset button</td>
-<td>Clears unsaved changes for the current session</td>
+<td><code>boss stone</code></td>
+<td>Keystone bosses at rib junctions</td>
 </tr>
 </tbody>
 </table>
-<h2 id="tips">Tips<a class="headerlink" href="#tips" title="Permanent link">¶</a></h2>
+<p><strong>Custom prompts</strong> — type into the prompt field and press <strong>Enter</strong> or click <strong>+</strong> to add any term not covered by the presets. If a standard label like <code>rib</code> or <code>intrados</code> gives poor results, try alternative descriptions such as:</p>
 <ul>
-<li><strong>Ribs</strong>: several focused prompts usually work better than one very broad prompt.</li>
-<li><strong>Bosses</strong>: a tight box or polygon is often enough.</li>
-<li><strong>Occlusions</strong>: keep the visible evidence clean rather than forcing a speculative mask through missing areas.</li>
+<li><code>soffit</code> or <code>vault ceiling</code> — alternative terms for the intrados surface</li>
+<li><code>arch line</code> or <code>vault rib line</code> — can work better when ribs are narrow or faint</li>
+<li><code>keystone</code> — for prominent decorative keystones not classified as boss stones</li>
+<li><code>tierceron</code> or <code>lierne</code> — for secondary and linking ribs in more complex vaults</li>
 </ul>
+<p>Active prompts appear as tags below the input. Click <strong>×</strong> on a tag to remove it. Multiple prompts can be active at once; SAM will segment instances of each type in a single pass.</p>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../images/step-3/step3b-text-prompt-select.png" data-title="Stage 2 — Select text prompts and run segmentation" data-desc-position="bottom"><img alt="Stage 2 — Select text prompts and run segmentation" class="center" src="../../images/step-3/step3b-text-prompt-select.png" width="800"></a></p>
+<p>With <code>rib</code> selected as the prompt, clicking <strong>Run SAM Segmentation</strong> returns masks for all detected rib instances across the full image automatically.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>When using the <strong>Box</strong> or <strong>Polygon</strong> tools to run segmentation, only the name assigned to that box or polygon is used as the text prompt — not the active text prompt list. This allows you to run multiple targeted segmentations in one pass without changing the global prompt list.</p>
+</div>
+<h3 id="running-sam-segmentation">Running SAM segmentation<a class="headerlink" href="#running-sam-segmentation" title="Permanent link">¶</a></h3>
+<ol>
+<li>Add at least one text prompt (or draw a box/polygon — see below).</li>
+<li>Click <strong>Run SAM Segmentation</strong>.</li>
+<li>The model processes the full image and returns masks for all detected instances.</li>
+<li>New masks are merged into the existing set — see <a href="#duplicate-handling">Duplicate handling</a> below.</li>
+<li>Masks outside the ROI are automatically removed after each run.</li>
+</ol>
+<hr>
+<h3 id="box-prompts-find-similar">Box prompts (Find Similar)<a class="headerlink" href="#box-prompts-find-similar" title="Permanent link">¶</a></h3>
+<p>Use box prompts when you want to point the model at a specific visible instance and have it find all similar features across the image. This is particularly effective for boss stones, which can be hard to describe by text alone.</p>
+<ol>
+<li>Select the <strong>Box</strong> tool.</li>
+<li>Drag a rectangle around a clear example of the target feature on the canvas.</li>
+<li>A <strong>Name This Selection</strong> dialog appears — enter a label (e.g. <code>boss stone</code>, <code>rib</code>) or click one of the quick-select options.</li>
+</ol>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../images/step-3/step3c-box-select.png" data-title="Box tool — naming a selection" data-desc-position="bottom"><img alt="Box tool — naming a selection" class="center" src="../../images/step-3/step3c-box-select.png" width="800"></a></p>
+<ol>
+<li>Use the <strong>+/−</strong> toggle on a drawn box to mark it as a positive prompt (include) or negative prompt (exclude). Negative prompts tell the model what to avoid.</li>
+<li>Add as many boxes as needed across the image.</li>
+<li>Click <strong>Find Similar</strong> to run segmentation using all drawn boxes simultaneously.</li>
+</ol>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../images/step-3/step3d-find-similar.png" data-title="Box tool — running Find Similar after marking features" data-desc-position="bottom"><img alt="Box tool — running Find Similar after marking features" class="center" src="../../images/step-3/step3d-find-similar.png" width="800"></a></p>
+<p>The box name becomes the class label for all masks produced by that prompt. Draw one clear positive box on the best visible example, then add negative boxes on areas to avoid (shadows, adjacent features of a similar shape) for cleaner results.</p>
+<p>The <strong>Polygon</strong> tool works identically but lets you draw a freeform closed outline instead of a rectangle — useful for irregularly shaped features or when you need to exclude a specific sub-region.</p>
+<hr>
+<h3 id="eraser-tool">Eraser tool<a class="headerlink" href="#eraser-tool" title="Permanent link">¶</a></h3>
+<p>Use the eraser to clean up the edges of an existing mask without deleting it entirely — useful when SAM has spilled over onto adjacent masonry or included a shadow.</p>
+<ol>
+<li>Select the <strong>Eraser</strong> tool (highlighted red when active).</li>
+<li>Set the <strong>Brush size</strong> using the slider in the eraser panel.</li>
+<li>Select the mask you want to edit from the list in the panel.</li>
+<li>Paint over the canvas to remove those pixels from the selected mask in real time.</li>
+</ol>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../images/step-3/step3e-eraser-tool.png" data-title="Eraser tool — brush size and mask selection" data-desc-position="bottom"><img alt="Eraser tool — brush size and mask selection" class="center" src="../../images/step-3/step3e-eraser-tool.png" width="400"></a></p>
+<p>Only visible masks appear in the eraser's selection list. To erase a mask that is hidden, make it visible first using the checkbox in the Segments panel.</p>
+<hr>
+<h2 id="duplicate-handling">Duplicate handling<a class="headerlink" href="#duplicate-handling" title="Permanent link">¶</a></h2>
+<p>Each time new masks are returned from SAM they are merged with the existing masks using these rules:</p>
+<ul>
+<li><strong>IoU threshold of 0.35.</strong> If a new mask overlaps an existing mask by more than 35% of their combined area, they are considered duplicates.</li>
+<li><strong>Quality replacement.</strong> If the new mask has a higher predicted IoU quality score than the existing one, the existing mask is replaced. If the new mask is lower quality, it is discarded.</li>
+<li><strong>No false duplicates.</strong> Masks that only partially overlap (below the threshold) are kept as separate instances.</li>
+</ul>
+<p>This means repeated segmentation runs progressively improve mask quality rather than accumulating duplicates.</p>
+<hr>
+<h2 id="mask-management">Mask management<a class="headerlink" href="#mask-management" title="Permanent link">¶</a></h2>
+<h3 id="overlay-controls">Overlay controls<a class="headerlink" href="#overlay-controls" title="Permanent link">¶</a></h3>
+<p>At the top of the image panel:</p>
+<ul>
+<li><strong>Opacity slider</strong> — adjusts how strongly the coloured masks are blended over the projection image.</li>
+<li><strong>Labels toggle</strong> — shows or hides the short label identifier on each mask in the canvas overlay.</li>
+</ul>
+<h3 id="segments-panel">Segments panel<a class="headerlink" href="#segments-panel" title="Permanent link">¶</a></h3>
+<p>All current masks are listed below the tool card, grouped by feature type. Within each group:</p>
+<ul>
+<li><strong>Show/hide group</strong> — the group header checkbox toggles all masks in the group at once.</li>
+<li><strong>Show/hide individual mask</strong> — the checkbox next to each mask entry.</li>
+<li><strong>Rename mask</strong> — double-click the label or click the pencil icon; press <strong>Enter</strong> to save or <strong>Escape</strong> to cancel.</li>
+<li><strong>Delete mask</strong> — click the trash icon next to the mask entry.</li>
+<li><strong>Delete whole group</strong> — click the trash icon on the group header row.</li>
+<li><strong>Reorder</strong> — drag masks within the list using the grip handle on the left.</li>
+</ul>
+<p>Changes to the mask list are saved to the project file immediately.</p>
+<h3 id="mask-labelling">Mask labelling<a class="headerlink" href="#mask-labelling" title="Permanent link">¶</a></h3>
+<p>Masks are automatically labelled when created:</p>
+<ul>
+<li><strong>Corner markers</strong> receive labels A, B, C, D (always the first four alphabetical slots).</li>
+<li><strong>Boss stones</strong> receive labels E, F, G, … continuing after the corners.</li>
+<li><strong>All other feature types</strong> (ribs, etc.) receive sequential numeric labels: <code>rib #1</code>, <code>rib #2</code>, …</li>
+</ul>
+<p>The short suffix letter or number is shown on the canvas overlay (e.g. <code>E</code> rather than <code>boss stone E</code>) to keep the image uncluttered.</p>
+<hr>
 <h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
 <ul>
-<li>Rib masks cover the main rib surfaces without too much spill onto adjacent masonry.</li>
-<li>Bosses are marked clearly enough for later geometry steps.</li>
-<li>The segmentation state has been saved.</li>
+<li>The ROI tightly encloses the vault bay, with all four corner markers (A–D) visible and correctly positioned.</li>
+<li>Rib masks cover the main rib surfaces without large gaps or excessive spill onto adjacent masonry.</li>
+<li>Boss stones are marked clearly at the main rib intersections.</li>
+<li>No major masks are missing or obviously wrong.</li>
+<li>Saving happens automatically when masks are added or deleted; click <strong>Continue to Step 4</strong> to proceed.</li>
 </ul>
 <h2 id="expected-result">Expected result<a class="headerlink" href="#expected-result" title="Permanent link">¶</a></h2>
-<p>Saved segmentation masks for the features needed in Step 4.</p>
+<p>A set of saved segmentation masks — ribs, boss stones, and corner markers — ready for the 2D geometry analysis in Step 4.</p>
 <div class="footnote">
 <hr>
 <ol>
 <li id="fn:1">
-<p>SAM 3 extends the prompt-driven segmentation framework with concept-level understanding, enabling the model to associate masks with semantic categories without task-specific retraining; see Carion et al., "SAM 3: Segment Anything with Concepts", <a href="https://arxiv.org/abs/2511.16719">arXiv:2511.16719</a>, 2025.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+<p>SAM 3 extends the prompt-driven segmentation framework with concept-level understanding, enabling the model to associate masks with semantic categories without task-specific retraining. See Carion et al., "SAM 3: Segment Anything with Concepts", <a href="https://arxiv.org/abs/2511.16719">arXiv:2511.16719</a>, 2025.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
 </li>
 </ol>
 </div>

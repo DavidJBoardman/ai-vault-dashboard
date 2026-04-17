@@ -113,10 +113,10 @@
               
                 <h1 id="step-4-2d-geometry-analysis">Step 4: 2D Geometry Analysis<a class="headerlink" href="#step-4-2d-geometry-analysis" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>This step performs the main two-dimensional interpretation of the vault. It uses the projection image and segmentation masks from Steps 2 and 3 to build a <strong>bay plan</strong>: a 2D graph of bosses, boundary points, and rib connections.</p>
-<p>The step is historically informed rather than purely graphical. The app estimates a bay rectangle, tests boss positions against template families such as starcuts and circlecuts, and then reconstructs the rib network from that evidence.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup></p>
+<p>This step performs the main two-dimensional geometric interpretation of the segmented vault data. It takes the projection image and segmentation masks produced in Steps 2–3 and works towards a <strong>bay-plan</strong> — the network of intrados lines (rib centre-lines) that defines the vault's planimetric design.</p>
+<p>Medieval vault plans were conceived as intersecting patterns of ribs, laid out through iterative geometrical operations on a rectangular bay.<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> Vault Analyser replicates this logic computationally: it establishes the bay rectangle, locates the bosses (rib junctions), tests which geometric template best explains their positions, and reconstructs the rib network.</p>
 <h2 id="sub-stages">Sub-stages<a class="headerlink" href="#sub-stages" title="Permanent link">¶</a></h2>
-<p>2D Geometry Analysis is split into four sequential sub-stages, labelled <strong>4A–4D</strong> in the interface:</p>
+<p>2D Geometry Analysis is consisted of four sequential sub-stages, labelled <strong>4A–4D</strong> in the interface:</p>
 <table>
 <thead>
 <tr>
@@ -177,7 +177,7 @@ This is the most interpretation-heavy part of the workflow. The bay-plan reconst
 <hr>
 <ol>
 <li id="fn:1">
-<p>Background reference: <a href="https://www.tracingthepast.org.uk/2021/04/07/designing_plans/">Plans — Tracing the Past</a>.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
+<p>For background on medieval vault-plan geometry see <a href="https://www.tracingthepast.org.uk/2021/04/07/designing_plans/">Plans — Tracing the Past</a>.&nbsp;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">↩</a></p>
 </li>
 </ol>
 </div>

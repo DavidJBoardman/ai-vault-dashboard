@@ -113,31 +113,26 @@
               
                 <h1 id="step-4b-reference-points">Step 4B: Reference Points<a class="headerlink" href="#step-4b-reference-points" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>This sub-stage prepares the <strong>reference points</strong> used in later geometry analysis. In most cases these are boss locations plus the ROI corners or other boundary anchors.</p>
-<p>Accurate reference points matter because the later matching and reconstruction stages use them as the geometric skeleton for the bay.</p>
-<h2 id="what-you-are-looking-for">What you are looking for<a class="headerlink" href="#what-you-are-looking-for" title="Permanent link">¶</a></h2>
-<p>In this step, you are identifying the most useful geometric guide points in the bay.</p>
-<p>These usually include:</p>
-<ul>
-<li><strong>Boss points</strong>: visible bosses or rib-junction points inside the ROI</li>
-<li><strong>Corner anchors</strong>: the ROI corners, used as boundary reference points for the bay</li>
-</ul>
-<p>The goal is not to place as many points as possible. The goal is to keep the points that best represent the bay geometry.</p>
+<p>This sub-stage prepares the <strong>reference points</strong> — boss locations and corner anchors — that later matching and reconstruction stages use as the geometric skeleton for the bay. The goal is to keep the points that best represent the bay geometry, not to place as many as possible.</p>
 <h2 id="workflow">Workflow<a class="headerlink" href="#workflow" title="Permanent link">¶</a></h2>
 <p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../../images/step-4/step4b-reference.png" data-title="Screenshot showing Step 4B interface with reference points over the ROI and projection image. Visible points mark bosses and ROI corners. Layers panel is open for toggling overlays." data-desc-position="bottom"><img alt="Screenshot showing Step 4B interface with reference points over the ROI and projection image. Visible points mark bosses and ROI corners. Layers panel is open for toggling overlays." class="center" src="../../../images/step-4/step4b-reference.png" width="800"></a></p>
 <ol>
-<li>Review the detected boss points on the canvas.</li>
+<li>Review the detected boss points on the canvas.<ul>
+<li>ROI corners are included as default. Untick the option, if it is not the case.</li>
+<li>The other reference points are identified from the segmented "bosses" from STEP 3.</li>
+</ul>
+</li>
 <li>Remove obvious false detections.</li>
 <li>Add or reposition points where an important boss has been missed or misplaced.</li>
-<li>Decide whether the ROI corners should be included as boundary anchors.</li>
 <li>Save the point set before moving on.</li>
 </ol>
-<h2 id="what-to-check-before-moving-on">What to check before moving on<a class="headerlink" href="#what-to-check-before-moving-on" title="Permanent link">¶</a></h2>
+<h2 id="before-moving-on">Before moving on<a class="headerlink" href="#before-moving-on" title="Permanent link">¶</a></h2>
 <ul>
 <li>The main bosses inside the ROI are represented.</li>
 <li>Spurious points outside the bay have been removed.</li>
 <li>Corner anchors are included only if they help the interpretation.</li>
 </ul>
+<p>Click <strong>Cut-Typology Matching</strong> on the workflow stepper bar at the top to continue to sub-stage 4C.</p>
               
             </div>
           </div><footer>
