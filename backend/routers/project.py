@@ -237,6 +237,14 @@ def _sanitize_measurement_config(raw: Dict[str, Any], valid_rib_ids: set) -> Dic
             "sides": normalized_sides,
         })
 
+    semicircular_ids_raw = raw.get("semicircularIds", [])
+    if not isinstance(semicircular_ids_raw, list):
+        semicircular_ids_raw = []
+    clean_semicircular_ids = [
+        str(v) for v in semicircular_ids_raw
+        if str(v).strip() and (not valid_rib_ids or str(v) in valid_rib_ids)
+    ]
+
     return {
         "ribNameById": clean_rib_names,
         "customGroups": clean_groups,
@@ -244,6 +252,7 @@ def _sanitize_measurement_config(raw: Dict[str, Any], valid_rib_ids: set) -> Dic
         "groupNameById": clean_group_names,
         "bossStoneNameById": clean_boss_stone_names,
         "ribPairings": clean_pairings,
+        "semicircularIds": clean_semicircular_ids,
     }
 
 

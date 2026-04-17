@@ -971,13 +971,17 @@ export default function Step7MeasurementsPage() {
   };
 
   const toggleSemicircular = (groupId: string) => {
+    const group = displayGroupById.get(groupId);
+    const ribIds = group?.ribIds ?? [groupId];
     setMeasurementConfig(prev => {
-      const ids = prev.semicircularIds ?? [];
-      const isOn = ids.includes(groupId);
-      return {
-        ...prev,
-        semicircularIds: isOn ? ids.filter(id => id !== groupId) : [...ids, groupId],
-      };
+      const ids = new Set(prev.semicircularIds ?? []);
+      const allIn = ribIds.every(rid => ids.has(rid));
+      if (allIn) {
+        ribIds.forEach(rid => ids.delete(rid));
+      } else {
+        ribIds.forEach(rid => ids.add(rid));
+      }
+      return { ...prev, semicircularIds: Array.from(ids) };
     });
   };
 
@@ -1335,18 +1339,17 @@ export default function Step7MeasurementsPage() {
   }, [measurementConfig.ribPairings, displayGroupById, pairingDisplayName, availableRibIdSet]);
 
   const semicircularInputs = useMemo((): SemicircularGroupInput[] => {
-    const ids = measurementConfig.semicircularIds ?? [];
-    if (ids.length === 0) return [];
-    return ids.map(groupId => {
-      const group = displayGroupById.get(groupId);
-      const ribIds = group ? group.ribIds.filter(rid => availableRibIdSet.has(rid)) : [];
-      return {
-        groupId,
-        groupName: group?.groupName ?? groupId,
-        ribIds,
-      };
-    }).filter(sg => sg.ribIds.length > 0);
-  }, [measurementConfig.semicircularIds, displayGroupById, availableRibIdSet]);
+    const ids = new Set(measurementConfig.semicircularIds ?? []);
+    if (ids.size === 0) return [];
+    return displayGroups
+      .filter(group => group.ribIds.length > 0 && group.ribIds.every(rid => ids.has(rid)))
+      .map(group => ({
+        groupId: group.groupId,
+        groupName: group.groupName ?? group.groupId,
+        ribIds: group.ribIds.filter(rid => availableRibIdSet.has(rid)),
+      }))
+      .filter(sg => sg.ribIds.length > 0);
+  }, [measurementConfig.semicircularIds, displayGroups, availableRibIdSet]);
 
   // Calculate boss apex/span and user-defined pairing apex heights.
   useEffect(() => {
@@ -1793,7 +1796,7 @@ export default function Step7MeasurementsPage() {
         // Apex height — from semicircular or pairingApex result (normalized)
         let apexHeight = "";
         let span = "";
-        const isSemiGroup = (measurementConfig.semicircularIds ?? []).includes(group.groupId);
+        const isSemiGroup = group.ribIds.every(rid => (measurementConfig.semicircularIds ?? []).includes(rid));
         const semiResult = isSemiGroup
           ? apexSpanResult?.semicircularApex?.find(r => r.groupId === group.groupId)
           : undefined;
@@ -2026,7 +2029,7 @@ export default function Step7MeasurementsPage() {
               </div>
 
               {/* Right panel â€” rib list (labelling only) + boss stones + impost */}
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 min-w-[220px]">
 
                 {/* Rib groups & labels card */}
                 <Card className="order-3">
@@ -2049,7 +2052,7 @@ export default function Step7MeasurementsPage() {
                     {previewLoading && displayGroups.length === 0 ? (
                       <div className="flex flex-col items-center justify-center gap-2 py-10">
                         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                        <p className="text-xs text-muted-foreground">Loading ribsâ€¦</p>
+                        <p className="text-xs text-muted-foreground">Loading ribs</p>
                       </div>
                     ) : (
                     <>
@@ -2092,13 +2095,13 @@ export default function Step7MeasurementsPage() {
                       </div>
                     )}
                     <ScrollArea className="h-64">
-                      <div className="space-y-2 pr-2">
+                      <div className="space-y-2 pr-2 w-0 min-w-full overflow-hidden">
                         {displayGroups.length > 0 ? displayGroups.map((group) => {
                           const isMulti = group.isGrouped && group.ribIds.length > 1;
                           const isExpanded = expandedGroups.has(group.groupId);
                           const primaryId = group.ribIds[0];
                           const groupTitle = group.groupName ?? composeGroupName(group.ribIds) ?? `Group (${group.ribIds.length} ribs)`;
-                          const isSemicircular = (measurementConfig.semicircularIds ?? []).includes(group.groupId);
+                          const isSemicircular = group.ribIds.every(rid => (measurementConfig.semicircularIds ?? []).includes(rid));
 
                           if (isMulti) {
                             return (
@@ -2114,8 +2117,8 @@ export default function Step7MeasurementsPage() {
                                     toggleExpandGroup(group.groupId);
                                   }}
                                 >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-1.5 min-w-0">
+                                  <div className="flex items-center gap-2 overflow-hidden">
+                                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                       <Link2 className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                                       <span className="font-medium text-sm truncate">
                                         {groupTitle} ({group.ribIds.length} ribs)
@@ -2172,10 +2175,10 @@ export default function Step7MeasurementsPage() {
                                           )}
                                           onClick={() => { setSelectedRib(ribId); setSelectedGroupId(null); }}
                                         >
-                                          <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-1.5 min-w-0">
+                                          <div className="flex items-center gap-2 overflow-hidden">
+                                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                               <button
-                                                className="p-0.5 rounded hover:bg-muted"
+                                                className="p-0.5 rounded hover:bg-muted shrink-0"
                                                 title="Toggle rib for grouping"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
@@ -2240,10 +2243,10 @@ export default function Step7MeasurementsPage() {
                               )}
                               onClick={() => { setSelectedRib(primaryId); setSelectedGroupId(null); }}
                             >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="flex items-center gap-2 overflow-hidden">
+                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                   <button
-                                    className="p-0.5 rounded hover:bg-muted"
+                                    className="p-0.5 rounded hover:bg-muted shrink-0"
                                     title="Toggle rib for grouping"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -2676,7 +2679,7 @@ export default function Step7MeasurementsPage() {
           </div>
         </TabsContent>
 
-        {/* â”€â”€ 7B: DATA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* 7B: DATA*/}
         <TabsContent value="data" className="mt-4">
           <div className="flex flex-col gap-6">
             <div className="grid lg:grid-cols-3 gap-6">
