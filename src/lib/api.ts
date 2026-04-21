@@ -393,7 +393,10 @@ export interface DetectRibGroupsRequest {
     points: Array<[number, number, number]>;
   }>;
   maxGap?: number;
+  angleThresholdDeg?: number;
   radiusTolerance?: number;
+  bossGapFactor?: number;
+  planeNormalThresholdDeg?: number;
   bosses?: Array<{ x: number; y: number; z: number }>;
 }
 

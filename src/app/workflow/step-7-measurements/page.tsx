@@ -818,8 +818,14 @@ export default function Step7MeasurementsPage() {
       try {
         const response = await detectRibGroups({
           ribs: intradosLines.map(line => ({ id: line.id, points: line.points3d })),
-          maxGap: 0.5,
-          bosses: bossStoneMarkers.map(m => ({ x: m.x, y: m.y, z: m.z })),
+          maxGap: 0.35,
+          angleThresholdDeg: 12,
+          radiusTolerance: 0.1,
+          bossGapFactor: 0.4,
+          planeNormalThresholdDeg: 15,
+          bosses: bossStoneMarkers
+            .filter(m => m.groupId !== "roi_corner")
+            .map(m => ({ x: m.x, y: m.y, z: m.z })),
         });
         if (response.success && response.data) {
           setRibGroups(response.data);
@@ -2332,7 +2338,7 @@ export default function Step7MeasurementsPage() {
                 </Card>
 
                 {/* Boss Stones panel â€” rename & auto-label */}
-                {bossStoneMarkers.length > 0 && (
+                {(previewLoading || bossStoneMarkers.length > 0) && (
                   <Card className="order-2">
                     <CardHeader className="p-4 shrink-0 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "bossStones" ? null : "bossStones")}>
                       <div className="flex items-center justify-between">
@@ -2352,6 +2358,13 @@ export default function Step7MeasurementsPage() {
                     </CardHeader>
                     {labellingPanel === "bossStones" && (
                     <CardContent className="space-y-3 pt-0 px-4 pb-4">
+                      {previewLoading && bossStoneMarkers.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center gap-2 py-10">
+                          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">Loading boss stones...</p>
+                        </div>
+                      ) : (
+                      <>
                       {bossStoneRenameId && (
                         <div className="rounded-md border bg-muted/40 p-2">
                           <div className="flex items-center gap-2">
@@ -2448,6 +2461,8 @@ export default function Step7MeasurementsPage() {
                         <Wand2 className="w-3.5 h-3.5" />
                         <span className="text-xs">Auto Label Ribs</span>
                       </Button>
+                      </>
+                      )}
                     </CardContent>
                     )}
                   </Card>
@@ -3167,7 +3182,7 @@ export default function Step7MeasurementsPage() {
                 )}
 
                 {/* Read-only boss stone list with apex Z */}
-                {bossStoneMarkers.length > 0 && (
+                {(previewLoading || bossStoneMarkers.length > 0) && (
                   <Card>
                     <CardHeader className="pb-2 shrink-0">
                       <CardTitle className="text-base font-display flex items-center gap-2">
@@ -3176,6 +3191,12 @@ export default function Step7MeasurementsPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="pt-0 px-4 pb-4">
+                      {previewLoading && bossStoneMarkers.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center gap-2 py-10">
+                          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">Loading boss stones...</p>
+                        </div>
+                      ) : (
                       <ScrollArea className="h-36">
                         <div className="space-y-2 pr-2">
                           {bossStoneMarkers.map((marker) => {
@@ -3247,6 +3268,7 @@ export default function Step7MeasurementsPage() {
                           })}
                         </div>
                       </ScrollArea>
+                      )}
                     </CardContent>
                   </Card>
                 )}

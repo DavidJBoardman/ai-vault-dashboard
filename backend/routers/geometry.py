@@ -1,5 +1,6 @@
 """Geometry analysis router for vault classification and measurements."""
 
+import hashlib
 from typing import List, Optional, Literal
 from uuid import uuid4
 
@@ -294,7 +295,10 @@ class BossPosition(BaseModel):
 class DetectRibGroupsRequest(BaseModel):
     ribs: List[RibForGrouping]
     maxGap: float = 0.5
+    angleThresholdDeg: float = 25.0
     radiusTolerance: float = 0.15
+    bossGapFactor: float = 0.6
+    planeNormalThresholdDeg: float = 18.0
     bosses: Optional[List[BossPosition]] = None
 
 
@@ -327,19 +331,26 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
             None,
             service.detect_rib_groups,
             request.maxGap,
-            10.0,  # angle_threshold_deg - internal constant
+            request.angleThresholdDeg,
             request.radiusTolerance,
             boss_positions,
+            request.bossGapFactor,
+            request.planeNormalThresholdDeg,
         )
 
         results = []
-        for i, group_ids in enumerate(groups):
-            combined = service.calculate_group_measurements(group_ids)
+        for group_ids in groups:
+            normalized_rib_ids = sorted(group_ids)
+            group_key = "|".join(normalized_rib_ids)
+            group_hash = hashlib.sha1(group_key.encode("utf-8")).hexdigest()[:10]
+            group_id = f"group-{group_hash}"
+
+            combined = service.calculate_group_measurements(normalized_rib_ids)
             results.append(RibGroupResult(
-                groupId=f"group-{i}",
+                groupId=group_id,
                 groupName=None,
-                ribIds=group_ids,
-                isGrouped=len(group_ids) > 1,
+                ribIds=normalized_rib_ids,
+                isGrouped=len(normalized_rib_ids) > 1,
                 combinedMeasurements=RibGroupCombinedMeasurements(
                     arc_radius=combined["arc_radius"],
                     rib_length=combined["rib_length"],

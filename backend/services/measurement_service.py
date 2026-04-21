@@ -455,29 +455,60 @@ class MeasurementService:
             at_end:  True  -> tangent at points[-1] (last point, forward direction)
                      False -> tangent at points[0]  (first point, reversed direction)
             n_pts:   How many points at the tip to use for the local tangent.
-                     Clamped to len(points)//4 so we don't overshoot the midpoint.
+                     Clamped so it never crosses the trace midpoint.
         """
-        k = max(2, min(n_pts, len(points) // 4))
-        if at_end:
-            segment = points[-k:]
-        else:
-            segment = points[:k]
+        n_points = len(points)
+        if n_points < 2:
+            return np.array([0.0, 0.0, 1.0], dtype=float)
 
-        # SVD: first principal component = best-fit direction through the segment
-        centroid = segment.mean(axis=0)
-        _, _, Vt = np.linalg.svd(segment - centroid)
-        direction = Vt[0]  # dominant direction
+        max_tip_points = max(2, min(n_pts, max(2, n_points - 1)))
+        svd_tip_points = max(3, min(max_tip_points, max(3, n_points // 3)))
+        direction: Optional[np.ndarray] = None
 
-        # Orient outward: should point from the body toward the tip
+        # Prefer SVD for sufficiently long traces; otherwise a directional
+        # finite-difference fallback is more stable than noisy local SVD.
+        if n_points >= 8:
+            segment = points[-svd_tip_points:] if at_end else points[:svd_tip_points]
+            centered = segment - segment.mean(axis=0)
+            if np.linalg.norm(centered) > 1e-12:
+                try:
+                    _, singular_vals, vt = np.linalg.svd(centered, full_matrices=False)
+                    if len(singular_vals) > 0 and singular_vals[0] > 1e-10:
+                        direction = vt[0]
+                except np.linalg.LinAlgError:
+                    direction = None
+
+        if direction is None:
+            if at_end:
+                body_idx = max(0, n_points - 1 - max_tip_points)
+                direction = points[-1] - points[body_idx]
+            else:
+                body_idx = min(n_points - 1, max_tip_points - 1)
+                direction = points[0] - points[body_idx]
+
+            if np.linalg.norm(direction) < 1e-10:
+                direction = points[-1] - points[0]
+                if not at_end:
+                    direction = -direction
+
         if at_end:
-            outward = points[-1] - points[-k]
+            ref_idx = max(0, n_points - 1 - max_tip_points)
+            outward_ref = points[-1] - points[ref_idx]
         else:
-            outward = points[0] - points[k - 1]
-        if np.dot(direction, outward) < 0:
+            ref_idx = min(n_points - 1, max_tip_points - 1)
+            outward_ref = points[0] - points[ref_idx]
+
+        if np.linalg.norm(outward_ref) < 1e-10:
+            outward_ref = direction
+
+        if np.dot(direction, outward_ref) < 0:
             direction = -direction
 
         length = np.linalg.norm(direction)
-        return direction / (length + 1e-12)
+        if length < 1e-12:
+            return np.array([0.0, 0.0, 1.0], dtype=float)
+
+        return direction / length
 
     def detect_rib_groups(
         self,
@@ -485,6 +516,8 @@ class MeasurementService:
         angle_threshold_deg: float = 25.0,
         radius_tolerance: float = 0.15,
         bosses: Optional[np.ndarray] = None,
+        boss_gap_factor: float = 0.6,
+        plane_normal_threshold_deg: float = 18.0,
     ) -> List[List[str]]:
         """
         Detect groups of ribs that are continuations of the same structural rib,
@@ -494,13 +527,21 @@ class MeasurementService:
 
           1. Their fitted arc radii agree within ``radius_tolerance`` (relative).
              Skipped when either trace has fewer than 15 points (unreliable fit).
-          2. The nearest endpoint pair is within ``max_gap`` metres.
+             2. Their fitted arc planes are compatible (normal-angle within
+                 ``plane_normal_threshold_deg``).  Skipped when either normal is
+                 unavailable.
+             3. The nearest endpoint pair is within ``max_gap`` metres.
              When a boss stone sits near the gap midpoint the threshold is
              relaxed to ``max_boss_gap`` (2 * max_gap, capped at 1.0 m).
-          3. Handshake direction: the tangent of rib A at its junction end
+             4. Handshake direction: the tangent of rib A at its junction end
              points toward rib B *and* the tangent of rib B at its junction end
              points back toward rib A, both within ``angle_threshold_deg``.
-             This enforces directional continuity regardless of gap size.
+                 A stricter anti-parallel fallback is only allowed for very short
+                 gaps where the chord direction can be unstable.
+
+          Additional anti-overgrouping rule:
+             - Endpoint uniqueness: each rib endpoint may connect to at most one
+                continuation candidate (greedy by smallest gap first).
 
         Returns a list of groups; singletons appear as a one-element group.
         """
@@ -508,11 +549,43 @@ class MeasurementService:
         if not rib_ids:
             return []
 
+        min_points_for_reliable_arc_fit = 15
+        min_valid_radius = 1e-6
+        boss_gap_factor = float(np.clip(boss_gap_factor, 0.1, 1.0))
+        plane_normal_threshold_deg = float(np.clip(plane_normal_threshold_deg, 1.0, 45.0))
+
         cos_tol = np.cos(np.deg2rad(angle_threshold_deg))
+        cos_plane_tol = np.cos(np.deg2rad(plane_normal_threshold_deg))
         max_boss_gap = min(max_gap * 2.0, 1.0)  # relaxed threshold when boss stone in gap
+        antiparallel_max_gap = min(max_gap * 0.6, 0.25)
+
+        # Pre-fit radii for traces with enough points so pairwise checks can
+        # apply the radius gate cheaply and consistently.
+        radius_by_rib: Dict[str, float] = {}
+        normal_by_rib: Dict[str, np.ndarray] = {}
+        for rib_id in rib_ids:
+            pts = self.traces.get(rib_id)
+            if pts is None or len(pts) < min_points_for_reliable_arc_fit:
+                continue
+            try:
+                fit = self._fit_arc(pts)
+                radius = float(fit.get("radius", 0.0))
+                if np.isfinite(radius) and radius > min_valid_radius:
+                    radius_by_rib[rib_id] = radius
+
+                normal_raw = np.asarray(fit.get("normal", []), dtype=float)
+                if normal_raw.shape == (3,):
+                    normal_len = float(np.linalg.norm(normal_raw))
+                    if normal_len > 1e-9:
+                        normal_by_rib[rib_id] = normal_raw / normal_len
+            except Exception:
+                # Leave this rib uncached; the pairwise radius gate is skipped
+                # when either side lacks a reliable fit.
+                continue
 
         # Build undirected adjacency graph
         adj: Dict[str, set] = {rid: set() for rid in rib_ids}
+        candidate_edges: List[Tuple[float, str, str, bool, bool]] = []
         n = len(rib_ids)
         for i in range(n):
             for j in range(i + 1, n):
@@ -523,6 +596,22 @@ class MeasurementService:
                     continue
                 if len(pts_a) < 3 or len(pts_b) < 3:
                     continue
+
+                # Gate 0 - curvature agreement (when both traces are reliable)
+                radius_a = radius_by_rib.get(a)
+                radius_b = radius_by_rib.get(b)
+                if radius_a is not None and radius_b is not None:
+                    relative_diff = abs(radius_a - radius_b) / max(radius_a, radius_b)
+                    if relative_diff > radius_tolerance:
+                        continue
+
+                # Gate 0b - fitted plane compatibility (when both normals exist)
+                normal_a = normal_by_rib.get(a)
+                normal_b = normal_by_rib.get(b)
+                if normal_a is not None and normal_b is not None:
+                    alignment = abs(float(np.dot(normal_a, normal_b)))
+                    if alignment < cos_plane_tol:
+                        continue
 
                 # Gate 1 - nearest endpoint pair and gap cap
                 # Endpoints: (first, last) for each rib
@@ -546,7 +635,7 @@ class MeasurementService:
                     boss_dists = np.linalg.norm(bosses - midpoint, axis=1)
                     nearest_boss_dist = float(np.min(boss_dists))
                     # Boss must be roughly between the two endpoints
-                    if nearest_boss_dist < min_dist * 0.6:
+                    if nearest_boss_dist < min_dist * boss_gap_factor:
                         effective_gap = max_boss_gap
 
                 if min_dist > effective_gap:
@@ -566,8 +655,7 @@ class MeasurementService:
                     tan_b = self._tangent_at_endpoint(pts_b, at_end=b_end)
                     if float(np.dot(tan_a, tan_b)) > -cos_tol:
                         continue  # tangents not anti-parallel — different ribs
-                    adj[a].add(b)
-                    adj[b].add(a)
+                    candidate_edges.append((min_dist, a, b, bool(a_end), bool(b_end)))
                     continue
                 gap_vec = gap_vec / gap_len
 
@@ -582,13 +670,28 @@ class MeasurementService:
                 )
                 # Fallback: tangents are anti-parallel (continuations through a
                 # curved gap where the chord direction diverges from the arc tangent)
-                antiparallel_ok = float(np.dot(tan_a, tan_b)) < -cos_tol
+                antiparallel_ok = (
+                    gap_len <= antiparallel_max_gap
+                    and float(np.dot(tan_a, tan_b)) < -cos_tol
+                )
 
                 if not handshake_ok and not antiparallel_ok:
                     continue
 
-                adj[a].add(b)
-                adj[b].add(a)
+                candidate_edges.append((min_dist, a, b, bool(a_end), bool(b_end)))
+
+        # Keep only the best candidate per endpoint to prevent chain over-merging.
+        used_endpoints: set = set()
+        candidate_edges.sort(key=lambda item: item[0])
+        for _, a, b, a_end, b_end in candidate_edges:
+            endpoint_a = (a, a_end)
+            endpoint_b = (b, b_end)
+            if endpoint_a in used_endpoints or endpoint_b in used_endpoints:
+                continue
+            used_endpoints.add(endpoint_a)
+            used_endpoints.add(endpoint_b)
+            adj[a].add(b)
+            adj[b].add(a)
 
         # Connected components via BFS
         visited: set = set()
