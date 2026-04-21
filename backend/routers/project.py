@@ -1901,6 +1901,40 @@ def _is_boss_stone(text: str) -> bool:
     return any(k in slug for k in known)
 
 
+def _strip_boss_stone_prefix(label: str) -> str:
+    """Strip leading 'boss stone' variants for cleaner display labels."""
+    if not label:
+        return label
+
+    text = str(label).strip()
+    lowered = text.lower()
+
+    prefixes = (
+        "boss stone",
+        "boss_stone",
+        "boss-stone",
+    )
+
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            stripped = text[len(prefix):].lstrip(" _-:#")
+            return stripped or text
+
+    return text
+
+
+def _strip_corner_prefix(label: str) -> str:
+    """Strip leading 'corner' variants for cleaner display labels."""
+    if not label:
+        return label
+
+    import re
+
+    text = str(label).strip()
+    stripped = re.sub(r"^(?:roi[\s_-]*)?corner\b[\s_:-]*", "", text, flags=re.IGNORECASE).strip()
+    return stripped or text
+
+
 def _denormalize_xyz(norm_xyz, min_vals: list, range_vals: list, centroid: list):
     """Denormalise a normalised centred coordinate to real-world E57 space."""
     x = float(norm_xyz[0] * range_vals[0] + min_vals[0] + centroid[0])
@@ -1979,7 +2013,7 @@ def _boss_markers_from_reference_points(
                 x, y, z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
 
             point_id = point.get("id")
-            label = f"Boss {point_id}"
+            label = _strip_boss_stone_prefix(f"Boss Stone {point_id}")
 
             markers.append({
                 "id": f"boss-ref-{point_id}",
@@ -2068,7 +2102,7 @@ def _boss_markers_from_segmentations(
                 color = seg.get("color") or group_info.get("color") or "#FFD700"
                 markers.append({
                     "id": seg.get("id", ""),
-                    "label": seg.get("label", group_id),
+                    "label": _strip_boss_stone_prefix(seg.get("label", group_id)),
                     "groupId": group_id,
                     "color": color,
                     "x": x,
@@ -2089,7 +2123,7 @@ def _boss_markers_from_segmentations(
 
         markers.append({
             "id": seg.get("id", ""),
-            "label": seg.get("label", group_id),
+            "label": _strip_boss_stone_prefix(seg.get("label", group_id)),
             "groupId": group_id,
             "color": color,
             "x": x,
@@ -2100,17 +2134,66 @@ def _boss_markers_from_segmentations(
     return markers
 
 
+def _apply_reference_positions_to_segmentation_markers(
+    segmentation_markers: list,
+    reference_markers: list,
+    max_match_distance: float = 2.0,
+) -> list:
+    """Refine segmentation markers and retain unmatched reference markers.
+
+    Segmentation markers remain the canonical source for IDs and labels.
+    If a reference marker is spatially close, only XYZ is copied over.
+    Any unmatched reference markers are appended so additional step 4 points
+    are still available in step 7 preview and downstream tools.
+    """
+    if not segmentation_markers or not reference_markers:
+        return segmentation_markers
+
+    merged = [dict(marker) for marker in segmentation_markers]
+    unmatched_ref_indices = set(range(len(reference_markers)))
+
+    for marker in merged:
+        best_ref_idx = None
+        best_dist = float("inf")
+
+        for ref_idx in unmatched_ref_indices:
+            ref = reference_markers[ref_idx]
+            dx = float(marker.get("x", 0.0)) - float(ref.get("x", 0.0))
+            dy = float(marker.get("y", 0.0)) - float(ref.get("y", 0.0))
+            dz = float(marker.get("z", 0.0)) - float(ref.get("z", 0.0))
+            dist = (dx * dx + dy * dy + dz * dz) ** 0.5
+            if dist < best_dist:
+                best_dist = dist
+                best_ref_idx = ref_idx
+
+        if best_ref_idx is None or best_dist > max_match_distance:
+            continue
+
+        ref = reference_markers[best_ref_idx]
+        marker["x"] = float(ref.get("x", marker.get("x", 0.0)))
+        marker["y"] = float(ref.get("y", marker.get("y", 0.0)))
+        marker["z"] = float(ref.get("z", marker.get("z", 0.0)))
+        unmatched_ref_indices.remove(best_ref_idx)
+
+    for ref_idx in sorted(unmatched_ref_indices):
+        merged.append(dict(reference_markers[ref_idx]))
+
+    return merged
+
+
 @router.get("/{project_id}/boss-stone-markers")
 async def get_boss_stone_markers(project_id: str):
     """Get 3D centroid positions for boss stone / keystone markers.
 
-    Preferred source: step 4B reference points (node_points.json).  Each boss-type
-    reference point's pixel coordinates are looked up in the projection's
-    ``_coordinates.npy`` and denormalised to real-world XYZ.
+    Preferred source: segmentation boss masks from step 3.  Their labels are used
+    as canonical marker labels in downstream steps.
 
-    Fallback: if no step 4B reference points exist, uses segmentation masks — for
-    every segmentation whose groupId or label is recognised as a boss stone the
-    centroid pixel of its alpha mask is used instead.
+    If step 4B reference points exist, they are used to refine nearby
+    segmentation markers and are also included as additional markers when
+    they do not match an existing segmentation boss.
+
+    Fallback: if no segmentation boss markers exist, uses step 4B reference
+    points directly.
 
     Returns a list of markers::
         [{ id, label, groupId, color, x, y, z }, ...]
@@ -2191,22 +2274,12 @@ async def get_boss_stone_markers(project_id: str):
                 print(f"  Warning: could not derive impost Z from intrados lines: {_e}")
 
         # ------------------------------------------------------------------
-        # Primary: step 4B reference points
+        # Build segmentation markers first (canonical labels for Step 7)
         # ------------------------------------------------------------------
-        markers = _boss_markers_from_reference_points(
-            project_dir, coords, min_vals, range_vals, centroid, impost_z
-        )
+        seg_index_path = seg_dir / "index.json"
+        seg_markers = []
 
-        if markers:
-            print(f"Boss stone markers for {project_id}: {len(markers)} from step 4B reference points")
-        else:
-            # ------------------------------------------------------------------
-            # Fallback: segmentation masks
-            # ------------------------------------------------------------------
-            seg_index_path = seg_dir / "index.json"
-            if not seg_index_path.exists():
-                return {"success": True, "data": {"markers": []}}
-
+        if seg_index_path.exists():
             with open(seg_index_path, "r") as f:
                 seg_index = json.load(f)
 
@@ -2224,19 +2297,35 @@ async def get_boss_stone_markers(project_id: str):
                 if _is_boss_stone(s.get("groupId", "")) or _is_boss_stone(s.get("label", ""))
             ]
 
-            markers = _boss_markers_from_segmentations(
+            seg_markers = _boss_markers_from_segmentations(
                 boss_segs, seg_dir, coords, min_vals, range_vals, centroid, impost_z, group_lookup
             )
 
+        # ------------------------------------------------------------------
+        # Optional geometric refinement from step 4B reference points
+        # ------------------------------------------------------------------
+        ref_markers = _boss_markers_from_reference_points(
+            project_dir, coords, min_vals, range_vals, centroid, impost_z
+        )
+
+        if seg_markers:
+            markers = _apply_reference_positions_to_segmentation_markers(seg_markers, ref_markers)
             print(
-                f"Boss stone markers for {project_id}: {len(markers)} from segmentation masks"
+                f"Boss stone markers for {project_id}: {len(markers)} segmentation labels"
+                f" ({len(ref_markers)} reference-point candidates)"
             )
+        elif ref_markers:
+            markers = ref_markers
+            print(f"Boss stone markers for {project_id}: {len(markers)} from step 4B reference points (fallback)")
+        else:
+            markers = []
 
         # ------------------------------------------------------------------
         # Always append ROI corner markers (both primary & fallback paths)
         # ------------------------------------------------------------------
         roi_corners = []
-        seg_index_path = seg_dir / "index.json"
+        roi_corner_meta_by_index: Dict[int, Dict[str, str]] = {}
+        roi_corner_pixels_by_index: Dict[int, List[float]] = {}
         if seg_index_path.exists():
             try:
                 with open(seg_index_path, "r") as f:
@@ -2245,6 +2334,49 @@ async def get_boss_stone_markers(project_id: str):
                     stored_roi = _seg_idx.get("roi")
                     if stored_roi:
                         roi_corners = stored_roi.get("corners", [])
+                    seg_entries = _seg_idx.get("segmentations", [])
+                else:
+                    seg_entries = _seg_idx if isinstance(_seg_idx, list) else []
+
+                # Prefer corner IDs/labels saved in step 3 segmentation
+                # (e.g. roi-corner-0-... with labels like "corner A").
+                import re
+
+                for seg in seg_entries:
+                    if not isinstance(seg, dict):
+                        continue
+                    seg_id = str(seg.get("id", ""))
+                    match = re.search(r"roi-corner-(\d+)", seg_id)
+                    if not match:
+                        continue
+                    idx = int(match.group(1))
+                    if idx < 0 or idx > 3:
+                        continue
+                    roi_corner_meta_by_index[idx] = {
+                        "id": seg_id,
+                        "label": str(seg.get("label") or ""),
+                        "color": str(seg.get("color") or "#FFFFFF"),
+                    }
+
+                    bbox = seg.get("bbox")
+                    if isinstance(bbox, list) and len(bbox) >= 4:
+                        try:
+                            x = float(bbox[0])
+                            y = float(bbox[1])
+                            w = float(bbox[2])
+                            h = float(bbox[3])
+                            roi_corner_pixels_by_index[idx] = [x + w / 2.0, y + h / 2.0]
+                        except Exception:
+                            pass
+
+                # Fallback for older projects where ROI wasn't persisted at top level:
+                # derive corner pixels from roi-corner segmentation bbox centres.
+                if not roi_corners and roi_corner_pixels_by_index:
+                    roi_corners = [
+                        roi_corner_pixels_by_index[idx]
+                        for idx in sorted(roi_corner_pixels_by_index.keys())
+                        if idx in roi_corner_pixels_by_index
+                    ]
             except Exception:
                 pass
 
@@ -2254,6 +2386,13 @@ async def get_boss_stone_markers(project_id: str):
             try:
                 cx_px = int(corner[0])
                 cy_px = int(corner[1])
+                corner_meta = roi_corner_meta_by_index.get(i, {})
+                corner_id = corner_meta.get("id") or f"roi-corner-{i}"
+                corner_label_raw = corner_meta.get("label") or (
+                    _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
+                )
+                corner_label = _strip_corner_prefix(corner_label_raw)
+                corner_color = corner_meta.get("color") or "#FFFFFF"
                 cy_clamped = max(0, min(cy_px, coords.shape[0] - 1))
                 cx_clamped = max(0, min(cx_px, coords.shape[1] - 1))
                 norm_xyz = coords[cy_clamped, cx_clamped]
@@ -2269,8 +2408,6 @@ async def get_boss_stone_markers(project_id: str):
                     valid_patch = np.any(patch != 0, axis=2)
                     valid_ys, valid_xs = np.where(valid_patch)
                     if len(valid_ys) == 0:
-                        if impost_z is None:
-                            continue
                         coord_valid_full = np.any(coords != 0, axis=2)
                         all_valid_ys, all_valid_xs = np.where(coord_valid_full)
                         if len(all_valid_ys) == 0:
@@ -2278,14 +2415,13 @@ async def get_boss_stone_markers(project_id: str):
                         dists = (all_valid_ys - cy_clamped) ** 2 + (all_valid_xs - cx_clamped) ** 2
                         best_idx_full = int(np.argmin(dists))
                         norm_xyz = coords[all_valid_ys[best_idx_full], all_valid_xs[best_idx_full]]
-                        x, y, _ = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
-                        z = impost_z
-                        corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
+                        x, y, _z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
+                        z = impost_z if impost_z is not None else _z
                         markers.append({
-                            "id": f"roi-corner-{i}",
+                            "id": corner_id,
                             "label": corner_label,
                             "groupId": "roi_corner",
-                            "color": "#FFFFFF",
+                            "color": corner_color,
                             "x": x,
                             "y": y,
                             "z": z,
@@ -2298,12 +2434,11 @@ async def get_boss_stone_markers(project_id: str):
                     norm_xyz = patch[valid_ys[best], valid_xs[best]]
                 x, y, _z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
                 z = impost_z if impost_z is not None else _z
-                corner_label = _corner_labels[i] if i < len(_corner_labels) else f"Corner {i}"
                 markers.append({
-                    "id": f"roi-corner-{i}",
+                    "id": corner_id,
                     "label": corner_label,
                     "groupId": "roi_corner",
-                    "color": "#FFFFFF",
+                    "color": corner_color,
                     "x": x,
                     "y": y,
                     "z": z,
