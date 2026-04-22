@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import os
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
@@ -518,6 +519,8 @@ class MeasurementService:
         bosses: Optional[np.ndarray] = None,
         boss_gap_factor: float = 0.6,
         plane_normal_threshold_deg: float = 18.0,
+        min_points_for_reliable_arc_fit: int = 15,
+        debug_label: Optional[str] = None,
     ) -> List[List[str]]:
         """
         Detect groups of ribs that are continuations of the same structural rib,
@@ -549,10 +552,17 @@ class MeasurementService:
         if not rib_ids:
             return []
 
-        min_points_for_reliable_arc_fit = 15
+        min_points_for_reliable_arc_fit = max(3, int(min_points_for_reliable_arc_fit))
         min_valid_radius = 1e-6
         boss_gap_factor = float(np.clip(boss_gap_factor, 0.1, 1.0))
         plane_normal_threshold_deg = float(np.clip(plane_normal_threshold_deg, 1.0, 45.0))
+        debug_enabled = self._rib_grouping_debug_enabled()
+        label = debug_label or "single-pass"
+
+        rejection_counts: Dict[str, int] = {}
+
+        def record_rejection(reason: str) -> None:
+            rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
 
         cos_tol = np.cos(np.deg2rad(angle_threshold_deg))
         cos_plane_tol = np.cos(np.deg2rad(plane_normal_threshold_deg))
@@ -586,6 +596,7 @@ class MeasurementService:
         # Build undirected adjacency graph
         adj: Dict[str, set] = {rid: set() for rid in rib_ids}
         candidate_edges: List[Tuple[float, str, str, bool, bool]] = []
+        considered_pairs = 0
         n = len(rib_ids)
         for i in range(n):
             for j in range(i + 1, n):
@@ -593,9 +604,13 @@ class MeasurementService:
                 pts_a = self.traces.get(a)
                 pts_b = self.traces.get(b)
                 if pts_a is None or pts_b is None:
+                    record_rejection("missing_trace")
                     continue
                 if len(pts_a) < 3 or len(pts_b) < 3:
+                    record_rejection("insufficient_points")
                     continue
+
+                considered_pairs += 1
 
                 # Gate 0 - curvature agreement (when both traces are reliable)
                 radius_a = radius_by_rib.get(a)
@@ -603,6 +618,7 @@ class MeasurementService:
                 if radius_a is not None and radius_b is not None:
                     relative_diff = abs(radius_a - radius_b) / max(radius_a, radius_b)
                     if relative_diff > radius_tolerance:
+                        record_rejection("radius_mismatch")
                         continue
 
                 # Gate 0b - fitted plane compatibility (when both normals exist)
@@ -611,6 +627,7 @@ class MeasurementService:
                 if normal_a is not None and normal_b is not None:
                     alignment = abs(float(np.dot(normal_a, normal_b)))
                     if alignment < cos_plane_tol:
+                        record_rejection("plane_mismatch")
                         continue
 
                 # Gate 1 - nearest endpoint pair and gap cap
@@ -639,6 +656,7 @@ class MeasurementService:
                         effective_gap = max_boss_gap
 
                 if min_dist > effective_gap:
+                    record_rejection("gap_too_large")
                     continue
 
                 # gap_vec: unit vector from A's junction point toward B's
@@ -654,6 +672,7 @@ class MeasurementService:
                     tan_a = self._tangent_at_endpoint(pts_a, at_end=a_end)
                     tan_b = self._tangent_at_endpoint(pts_b, at_end=b_end)
                     if float(np.dot(tan_a, tan_b)) > -cos_tol:
+                        record_rejection("coincident_not_antiparallel")
                         continue  # tangents not anti-parallel — different ribs
                     candidate_edges.append((min_dist, a, b, bool(a_end), bool(b_end)))
                     continue
@@ -676,6 +695,7 @@ class MeasurementService:
                 )
 
                 if not handshake_ok and not antiparallel_ok:
+                    record_rejection("handshake_failed")
                     continue
 
                 candidate_edges.append((min_dist, a, b, bool(a_end), bool(b_end)))
@@ -683,15 +703,18 @@ class MeasurementService:
         # Keep only the best candidate per endpoint to prevent chain over-merging.
         used_endpoints: set = set()
         candidate_edges.sort(key=lambda item: item[0])
+        accepted_edges = 0
         for _, a, b, a_end, b_end in candidate_edges:
             endpoint_a = (a, a_end)
             endpoint_b = (b, b_end)
             if endpoint_a in used_endpoints or endpoint_b in used_endpoints:
+                record_rejection("endpoint_already_used")
                 continue
             used_endpoints.add(endpoint_a)
             used_endpoints.add(endpoint_b)
             adj[a].add(b)
             adj[b].add(a)
+            accepted_edges += 1
 
         # Connected components via BFS
         visited: set = set()
@@ -711,7 +734,202 @@ class MeasurementService:
                         queue.append(neighbor)
             groups.append(component)
 
+        if debug_enabled:
+            rejected_total = sum(rejection_counts.values())
+            top_rejections = sorted(
+                rejection_counts.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:5]
+            top_repr = ", ".join([f"{name}={count}" for name, count in top_rejections]) or "none"
+            print(
+                f"[RibGrouping:{label}] ribs={len(rib_ids)} pairs={considered_pairs} "
+                f"candidates={len(candidate_edges)} accepted_edges={accepted_edges} "
+                f"groups={len(groups)} rejected={rejected_total} top={top_repr}"
+            )
+
         return groups
+
+    @staticmethod
+    def _rib_grouping_debug_enabled() -> bool:
+        value = os.getenv("DEBUG_RIB_GROUPING", "")
+        return value.lower() in {"1", "true", "yes", "on"}
+
+    def _validate_relaxed_group(
+        self,
+        group_ids: List[str],
+        max_gap_ratio: float = 0.35,
+        max_absolute_gap: float = 0.4,
+        high_radius_drift: float = 0.25,
+        min_plane_alignment_deg: float = 20.0,
+        min_points_for_fit: int = 8,
+    ) -> bool:
+        """Apply conservative guards to relaxed second-pass candidate groups."""
+        if len(group_ids) < 2:
+            return False
+
+        valid_ids = [
+            rid for rid in group_ids
+            if rid in self.traces and len(self.traces[rid]) >= 3
+        ]
+        if len(valid_ids) < 2:
+            return False
+
+        length_by_rib: Dict[str, float] = {
+            rid: self._calculate_length(self.traces[rid])
+            for rid in valid_ids
+        }
+        cos_plane_tol = np.cos(np.deg2rad(min_plane_alignment_deg))
+        fit_cache: Dict[str, Dict[str, Any]] = {}
+
+        def fit_for(rib_id: str) -> Dict[str, Any]:
+            if rib_id not in fit_cache:
+                fit_cache[rib_id] = self._fit_arc(self.traces[rib_id])
+            return fit_cache[rib_id]
+
+        for i in range(len(valid_ids)):
+            for j in range(i + 1, len(valid_ids)):
+                a, b = valid_ids[i], valid_ids[j]
+                pts_a = self.traces[a]
+                pts_b = self.traces[b]
+
+                # Guard 1: reject unrealistically large endpoint gaps.
+                a0, a1 = pts_a[0], pts_a[-1]
+                b0, b1 = pts_b[0], pts_b[-1]
+                min_gap = min(
+                    float(np.linalg.norm(a0 - b0)),
+                    float(np.linalg.norm(a0 - b1)),
+                    float(np.linalg.norm(a1 - b0)),
+                    float(np.linalg.norm(a1 - b1)),
+                )
+                short_len = max(min(length_by_rib[a], length_by_rib[b]), 1e-6)
+                allowed_gap = max(max_absolute_gap, max_gap_ratio * short_len)
+                if min_gap > allowed_gap:
+                    return False
+
+                if len(pts_a) < min_points_for_fit or len(pts_b) < min_points_for_fit:
+                    continue
+
+                # Guard 2: if radius drift is high, enforce stronger plane alignment.
+                fit_a = fit_for(a)
+                fit_b = fit_for(b)
+                radius_a = float(fit_a.get("radius", 0.0))
+                radius_b = float(fit_b.get("radius", 0.0))
+
+                if radius_a <= 1e-6 or radius_b <= 1e-6:
+                    continue
+
+                relative_diff = abs(radius_a - radius_b) / max(radius_a, radius_b)
+                if relative_diff <= high_radius_drift:
+                    continue
+
+                normal_a = np.asarray(fit_a.get("normal", []), dtype=float)
+                normal_b = np.asarray(fit_b.get("normal", []), dtype=float)
+                if normal_a.shape != (3,) or normal_b.shape != (3,):
+                    return False
+
+                norm_a = float(np.linalg.norm(normal_a))
+                norm_b = float(np.linalg.norm(normal_b))
+                if norm_a <= 1e-9 or norm_b <= 1e-9:
+                    return False
+
+                alignment = abs(float(np.dot(normal_a / norm_a, normal_b / norm_b)))
+                if alignment < cos_plane_tol:
+                    return False
+
+        return True
+
+    def detect_rib_groups_two_pass(
+        self,
+        max_gap: float = 0.5,
+        angle_threshold_deg: float = 25.0,
+        radius_tolerance: float = 0.15,
+        bosses: Optional[np.ndarray] = None,
+        boss_gap_factor: float = 0.6,
+        plane_normal_threshold_deg: float = 18.0,
+    ) -> List[List[str]]:
+        """Run strict grouping first, then a guarded relaxed pass on remaining singletons."""
+        rib_ids = list(self.traces.keys())
+        if not rib_ids:
+            return []
+
+        pass1_groups = self.detect_rib_groups(
+            max_gap=max_gap,
+            angle_threshold_deg=angle_threshold_deg,
+            radius_tolerance=radius_tolerance,
+            bosses=bosses,
+            boss_gap_factor=boss_gap_factor,
+            plane_normal_threshold_deg=plane_normal_threshold_deg,
+            min_points_for_reliable_arc_fit=15,
+            debug_label="pass1",
+        )
+
+        grouped_in_pass1 = {
+            rid
+            for group in pass1_groups
+            if len(group) > 1
+            for rid in group
+        }
+        ungrouped = [rid for rid in rib_ids if rid not in grouped_in_pass1]
+        if len(ungrouped) < 2:
+            return pass1_groups
+
+        relaxed_service = MeasurementService()
+        relaxed_service.traces = {
+            rid: self.traces[rid]
+            for rid in ungrouped
+            if rid in self.traces
+        }
+
+        pass2_groups = relaxed_service.detect_rib_groups(
+            max_gap=max(max_gap, 0.5),
+            angle_threshold_deg=max(angle_threshold_deg, 18.0),
+            radius_tolerance=max(radius_tolerance, 0.2),
+            bosses=bosses,
+            boss_gap_factor=max(boss_gap_factor, 0.65),
+            plane_normal_threshold_deg=max(plane_normal_threshold_deg, 22.0),
+            min_points_for_reliable_arc_fit=8,
+            debug_label="pass2",
+        )
+
+        pass2_accepted: List[List[str]] = []
+        used_in_pass2: set = set()
+        for group in pass2_groups:
+            if len(group) <= 1:
+                continue
+            normalized_group = sorted(group)
+            if any(rid in used_in_pass2 for rid in normalized_group):
+                continue
+            if not self._validate_relaxed_group(normalized_group):
+                continue
+
+            pass2_accepted.append(normalized_group)
+            used_in_pass2.update(normalized_group)
+
+        final_groups: List[List[str]] = [
+            sorted(group)
+            for group in pass1_groups
+            if len(group) > 1
+        ]
+        final_groups.extend(pass2_accepted)
+
+        grouped_final = {
+            rid
+            for group in final_groups
+            for rid in group
+        }
+        for rid in rib_ids:
+            if rid not in grouped_final:
+                final_groups.append([rid])
+
+        if self._rib_grouping_debug_enabled():
+            print(
+                f"[RibGrouping:two-pass] pass1={len(pass1_groups)} "
+                f"ungrouped={len(ungrouped)} pass2_added={len(pass2_accepted)} "
+                f"final={len(final_groups)}"
+            )
+
+        return final_groups
 
     def calculate_group_measurements(
         self,

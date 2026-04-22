@@ -327,9 +327,14 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
 
         import asyncio as _asyncio
         loop = _asyncio.get_event_loop()
+        group_detector = (
+            service.detect_rib_groups_two_pass
+            if hasattr(service, "detect_rib_groups_two_pass")
+            else service.detect_rib_groups
+        )
         groups = await loop.run_in_executor(
             None,
-            service.detect_rib_groups,
+            group_detector,
             request.maxGap,
             request.angleThresholdDeg,
             request.radiusTolerance,

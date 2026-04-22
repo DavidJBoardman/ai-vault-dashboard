@@ -595,10 +595,11 @@ export default function Step7MeasurementsPage() {
   // Boss stone rename + selection state
   const [bossStoneRenameId, setBossStoneRenameId] = useState<string | null>(null);
   const [bossStoneRenameValue, setBossStoneRenameValue] = useState("");
+  const [isAutoLabellingRibs, setIsAutoLabellingRibs] = useState(false);
   const [selectedBossStone, setSelectedBossStone] = useState<string | null>(null);
   const bossStoneRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const bossStoneScrollAreaRef = useRef<HTMLDivElement | null>(null);
-  const [labellingPanel, setLabellingPanel] = useState<"groups" | "bossStones" | "pairings" | "impost" | null>("groups");
+  const [labellingPanel, setLabellingPanel] = useState<"groups" | "bossStones" | "pairings" | "impost" | null>("impost");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const ribRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const pairingSelectorRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -1117,8 +1118,11 @@ export default function Step7MeasurementsPage() {
     setBossStoneRenameValue("");
   };
 
-  const autoLabelRibs = () => {
+  const autoLabelRibs = async () => {
     if (bossStoneMarkers.length === 0 || intradosLines.length === 0) return;
+
+    setIsAutoLabellingRibs(true);
+    const startedAt = Date.now();
 
     const getDisplayName = (id: string) =>
       measurementConfig.bossStoneNameById[id] ??
@@ -1135,29 +1139,42 @@ export default function Step7MeasurementsPage() {
       return bestId;
     };
 
-    const newRibNameById: Record<string, string> = { ...measurementConfig.ribNameById };
+    try {
+      const newRibNameById: Record<string, string> = { ...measurementConfig.ribNameById };
 
-    for (const line of intradosLines) {
-      // Skip ribs already manually named
-      if (measurementConfig.ribNameById[line.id]) continue;
-      if (line.points3d.length < 2) continue;
+      for (const line of intradosLines) {
+        // Skip ribs already manually named
+        if (measurementConfig.ribNameById[line.id]) continue;
+        if (line.points3d.length < 2) continue;
 
-      const firstPt = line.points3d[0] as [number, number, number];
-      const lastPt = line.points3d[line.points3d.length - 1] as [number, number, number];
+        const firstPt = line.points3d[0] as [number, number, number];
+        const lastPt = line.points3d[line.points3d.length - 1] as [number, number, number];
 
-      // Lower Z = spring end, higher Z = crown end â€” name reads "lower-upper"
-      const lowerPt = firstPt[2] <= lastPt[2] ? firstPt : lastPt;
-      const upperPt = firstPt[2] <= lastPt[2] ? lastPt : firstPt;
+        // Lower Z = spring end, higher Z = crown end — name reads "lower-upper"
+        const lowerPt = firstPt[2] <= lastPt[2] ? firstPt : lastPt;
+        const upperPt = firstPt[2] <= lastPt[2] ? lastPt : firstPt;
 
-      const lowerId = nearestBossStone(lowerPt);
-      const upperId = nearestBossStone(upperPt);
+        const lowerId = nearestBossStone(lowerPt);
+        const upperId = nearestBossStone(upperPt);
 
-      newRibNameById[line.id] = lowerId === upperId
-        ? "unidentified"
-        : `${getDisplayName(lowerId)}-${getDisplayName(upperId)}`;
+        newRibNameById[line.id] = lowerId === upperId
+          ? "unidentified"
+          : `${getDisplayName(lowerId)}-${getDisplayName(upperId)}`;
+      }
+
+      setMeasurementConfig(prev => ({ ...prev, ribNameById: newRibNameById }));
+
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, 500 - elapsed);
+      if (remaining > 0) {
+        await new Promise(resolve => setTimeout(resolve, remaining));
+      }
+
+      // Open groups panel so users immediately see the new rib labels.
+      setLabellingPanel("groups");
+    } finally {
+      setIsAutoLabellingRibs(false);
     }
-
-    setMeasurementConfig(prev => ({ ...prev, ribNameById: newRibNameById }));
   };
 
   const commitRename = () => {
@@ -2455,11 +2472,15 @@ export default function Step7MeasurementsPage() {
                         variant="secondary"
                         className="w-full gap-1.5 mt-1"
                         onClick={autoLabelRibs}
-                        disabled={bossStoneMarkers.length === 0 || intradosLines.length === 0}
+                        disabled={isAutoLabellingRibs || bossStoneMarkers.length === 0 || intradosLines.length === 0}
                         title="Auto-name ribs from nearest boss stones at each end. Skips already-named ribs."
                       >
-                        <Wand2 className="w-3.5 h-3.5" />
-                        <span className="text-xs">Auto Label Ribs</span>
+                        {isAutoLabellingRibs ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Wand2 className="w-3.5 h-3.5" />
+                        )}
+                        <span className="text-xs">{isAutoLabellingRibs ? "Auto Labelling..." : "Auto Label Ribs"}</span>
                       </Button>
                       </>
                       )}
