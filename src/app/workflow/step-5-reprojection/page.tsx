@@ -675,6 +675,37 @@ export default function Step5ReprojectionPage() {
                     )}
                   </div>
                 )}
+
+                {/* Generate 3D Preview */}
+                <div className="space-y-2 pt-2 border-t">
+                  <Button
+                    className="w-full gap-2"
+                    onClick={handlePreview}
+                    disabled={isReprojecting}
+                  >
+                    {isReprojecting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating Preview...
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-4 h-4" />
+                        Generate 3D Preview
+                      </>
+                    )}
+                  </Button>
+
+                  {error && (
+                    <p className="text-xs text-destructive text-center">{error}</p>
+                  )}
+
+                  {previewReady && pointCloudData && (
+                    <div className="text-xs text-center text-muted-foreground">
+                      Showing {pointCloudData.length.toLocaleString()} points
+                    </div>
+                  )}
+                </div>
               </CardContent>}
             </Card>
 
@@ -875,38 +906,6 @@ export default function Step5ReprojectionPage() {
               </CardContent>
             </Card>
             
-            {/* Actions */}
-            <Card>
-              <CardContent className="pt-6 space-y-3">
-                <Button
-                  className="w-full gap-2"
-                  onClick={handlePreview}
-                  disabled={isReprojecting}
-                >
-                  {isReprojecting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Generating Preview...
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="w-4 h-4" />
-                      Generate 3D Preview
-                    </>
-                  )}
-                </Button>
-                
-                {error && (
-                  <p className="text-xs text-destructive text-center">{error}</p>
-                )}
-                
-                {previewReady && pointCloudData && (
-                  <div className="text-xs text-center text-muted-foreground">
-                    Showing {pointCloudData.length.toLocaleString()} points
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </div>
           
           {/* 3D Preview */}
