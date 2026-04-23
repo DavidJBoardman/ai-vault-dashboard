@@ -58,6 +58,9 @@ export default function Step5ReprojectionPage() {
   // Preview settings collapsed state
   const [showPreviewSettings, setShowPreviewSettings] = useState(false);
 
+  // Intrados bridge option
+  const [bridgeBossStones, setBridgeBossStones] = useState(false);
+
   // Exclusion controls state
   const savedStepData = currentProject?.stepData?.[5] as { impostLineZ?: number; showImpostLine?: boolean } | undefined;
   const [impostLineZ, setImpostLineZ] = useState<number | undefined>(
@@ -204,6 +207,7 @@ export default function Step5ReprojectionPage() {
       const response = await traceIntradosLines(currentProject.id, {
         floorPlaneZ: showImpostLine ? impostLineZ : undefined,
         exclusionBox: showExclusionBox ? exclusionBox : undefined,
+        bridgeBossStones,
       });
       
       if (response.success && response.data) {
@@ -868,6 +872,23 @@ export default function Step5ReprojectionPage() {
                   })()}
                 </div>
                 
+                {/* Bridge through boss stones */}
+                <div className="flex items-start space-x-2">
+                  <Checkbox
+                    id="bridge-boss-stones"
+                    checked={bridgeBossStones}
+                    onCheckedChange={(checked) => setBridgeBossStones(checked === true)}
+                  />
+                  <div className="space-y-0.5">
+                    <Label htmlFor="bridge-boss-stones" className="text-sm cursor-pointer leading-tight">
+                      Bridge ribs through boss stones
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Connects collinear rib pairs through each boss stone, producing a full continuous arc for arch reconstruction
+                    </p>
+                  </div>
+                </div>
+
                 {/* Trace Button */}
                 <Button
                   className="w-full gap-2"
@@ -892,11 +913,16 @@ export default function Step5ReprojectionPage() {
                   <p className="text-xs text-destructive text-center">{intradosError}</p>
                 )}
                 
-                {intradosLines.length > 0 && (
-                  <p className="text-xs text-muted-foreground text-center">
-                    {intradosLines.length} intrados lines traced
-                  </p>
-                )}
+                {intradosLines.length > 0 && (() => {
+                  const bridges = intradosLines.filter(l => l.isBridge).length;
+                  const ribs = intradosLines.length - bridges;
+                  return (
+                    <p className="text-xs text-muted-foreground text-center">
+                      {ribs} rib line{ribs !== 1 ? "s" : ""}
+                      {bridges > 0 && ` + ${bridges} full arc${bridges !== 1 ? "s" : ""}`}
+                    </p>
+                  );
+                })()}
                 
                 {!pointCloudData && (
                   <p className="text-xs text-muted-foreground text-center">

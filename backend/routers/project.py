@@ -1614,6 +1614,8 @@ class IntradosTraceRequest(BaseModel):
     # Exclusion parameters
     floorPlaneZ: Optional[float] = None  # Exclude points below this Z value
     exclusionBox: Optional[ExclusionBox] = None  # Exclude points inside this box
+    # Arc continuity
+    bridgeBossStones: bool = False  # Stitch collinear rib pairs through boss stones
 
 
 @router.post("/trace-intrados")
@@ -1777,7 +1779,52 @@ async def trace_intrados(request: IntradosTraceRequest):
         
         if not intrados_results:
             return {"success": False, "error": "Could not trace any intrados lines"}
-        
+
+        # ── Bridge ribs through boss stones (optional) ───────────────────────
+        bridge_results: dict = {}
+        if request.bridgeBossStones:
+            from services.intrados_tracer import bridge_rib_intrados_through_boss_stones
+
+            boss_segs = [
+                s for s in segmentations
+                if _is_boss_stone(s.get("groupId", "")) or _is_boss_stone(s.get("label", ""))
+            ]
+            boss_masks: dict = {}
+            boss_meta: dict = {}
+            for seg in boss_segs:
+                mask_file = seg.get("maskFile")
+                if not mask_file:
+                    continue
+                mask_path = seg_dir / mask_file
+                if not mask_path.exists():
+                    continue
+                mask_img = Image.open(mask_path)
+                if mask_img.mode == "RGBA":
+                    mask_array = np.array(mask_img)[:, :, 3]
+                elif mask_img.mode == "LA":
+                    mask_array = np.array(mask_img)[:, :, 1]
+                else:
+                    mask_array = np.array(mask_img.convert("L"))
+                boss_masks[seg.get("id")] = mask_array
+                boss_meta[seg.get("id")] = {
+                    "label": seg.get("label", "boss stone"),
+                    "color": seg.get("color", "#FFD700"),
+                }
+
+            if boss_masks:
+                print(f"  Bridging through {len(boss_masks)} boss stone(s)...")
+                bridge_results = bridge_rib_intrados_through_boss_stones(
+                    rib_results=intrados_results,
+                    e57_points=processor.points,
+                    boss_stone_masks=boss_masks,
+                    boss_stone_meta=boss_meta,
+                    projection_metadata=proj_metadata,
+                    centroid=centroid,
+                )
+                print(f"  Generated {len(bridge_results)} bridge arc(s)")
+            else:
+                print("  No boss stone masks found for bridging")
+
         # Build result with segmentation metadata
         lines = []
         for seg in rib_segmentations:
@@ -1793,6 +1840,28 @@ async def trace_intrados(request: IntradosTraceRequest):
                     "pointCount": result["point_count"],
                     "lineLength": result["line_length"],
                 })
+
+        # Append bridge arcs (rib_a + boss + rib_b as single continuous lines)
+        for bridge_id, bridge_data in bridge_results.items():
+            rib_a_id = bridge_data.get("ribAId")
+            rib_b_id = bridge_data.get("ribBId")
+            rib_a_seg = next((s for s in rib_segmentations if s.get("id") == rib_a_id), None)
+            rib_b_seg = next((s for s in rib_segmentations if s.get("id") == rib_b_id), None)
+            a_label = rib_a_seg.get("label", "rib") if rib_a_seg else "rib"
+            b_label = rib_b_seg.get("label", "rib") if rib_b_seg else "rib"
+            color = rib_a_seg.get("color", "#FFFFFF") if rib_a_seg else "#FFFFFF"
+            lines.append({
+                "id": bridge_id,
+                "label": f"Arc: {a_label} — {b_label}",
+                "color": color,
+                "points3d": bridge_data["points_3d"],
+                "points2d": bridge_data["points_2d"],
+                "pointCount": bridge_data["point_count"],
+                "lineLength": bridge_data["line_length"],
+                "isBridge": True,
+                "ribAId": rib_a_id,
+                "ribBId": rib_b_id,
+            })
         
         # Save intrados data to project
         intrados_path = seg_dir / "intrados_lines.json"
