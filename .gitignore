@@ -83,3 +83,5 @@ backend/.python-version
 .claude/
 docs/.obsidian/
 CLAUDE.md
+
+site/
