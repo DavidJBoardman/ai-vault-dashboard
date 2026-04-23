@@ -16,6 +16,9 @@ Others
       * - Windows: `C:\Users\<you>\Vault Analyser\`
     * fixed on building, but need to discuss if this is okay
 [Done] logo 
+[] AHRC, UKRI, logo
+[] Collect users info before they download the install files
+[] Change the red colour
 [?] app icon
 
 
@@ -68,3 +71,4 @@ Analysis page, show a quick summary of the vault results 2d + 3d anaylsis with c
 
 Build
 [?] Add NSIS installer if required.Need a vote.
+[] Add uninstall doc
