@@ -1,7 +1,3 @@
-Segmentation
-[] segmentation delete mulfunction
-[] segmentation reset button?
-
 2d Geometry
 [Done] Suggested ROI - change the content on pop up alert window. currently it is n located inside roi, change it to xxxxx is completed, it is not garanteed that xxx, use xxxx, to the right bottom corner maybe?
 [Done] Suggested ROI - add Beta label
@@ -16,10 +12,11 @@ Others
       * - Windows: `C:\Users\<you>\Vault Analyser\`
     * fixed on building, but need to discuss if this is okay
 [Done] logo 
-[] AHRC, UKRI, logo
+[x] UKRI logo on documentation
+[] UKRI logo on app
 [] Collect users info before they download the install files
 [] Change the red colour
-[?] app icon
+<del> [?] app icon </del>
 
 
 # David
@@ -43,13 +40,13 @@ Remove Analysis page - David
 
 
 
-2d geometry - load segmentation labels for boss stone points (abc lettering) - yang
+[ ] 2d geometry - load segmentation labels for boss stone points (abc lettering) - yang
 
 remove depth and plasma from ui viewer all pages - yang
 
 Add warning when navigating to cut typology saying to make sure all boss stones are labelled because they're used in future steps - yang
 
-add logo  ukri or whatever - yang
+[] add logo  ukri or whatever - yang
 
 
 

@@ -2,6 +2,8 @@
 
 Medieval Vault Architecture Analysis Platform - A cross-platform desktop application for analyzing 3D point cloud scans of historical vault structures.
 
+This work was supported by UK Research and Innovation (UKRI) under the project *Virtual Vaults: Using AI to process, analyse and supplement digital data* ([UKRI955](https://gtr.ukri.org/projects?ref=UKRI955)), in partnership with the [Virtual Engineering Centre](https://www.virtualengineeringcentre.com/), the [University of Liverpool](https://www.liverpool.ac.uk/), and the [Tracing the Past](https://www.tracingthepast.org.uk/) initiative.
+
 ## Contents
 
 - [Features](#features)
