@@ -2238,7 +2238,7 @@ async def get_boss_stone_markers(project_id: str):
             except Exception:
                 pass
 
-        _corner_labels = ["Corner TL", "Corner TR", "Corner BR", "Corner BL"]
+        _corner_labels = ["Corner C", "Corner A", "Corner B", "Corner D"]  # PDF: TL→C, TR→A, BR→B, BL→D
         _corner_search_radius = 20
         for i, corner in enumerate(roi_corners[:4]):
             try:

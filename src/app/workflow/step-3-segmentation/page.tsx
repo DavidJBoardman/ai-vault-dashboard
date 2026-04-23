@@ -67,23 +67,24 @@ type Tool = "polygon" | "box" | "roi" | "eraser";
 function getBaseLabel(label: string): string {
   return (
     label
-      .replace(/\s+[A-Z][a-z]?$/, "") // " A", " B", " Aa", " Ab", …
-      .replace(/\s*#?\d+$/, "")        // " #1", " 1", …
+      .replace(/\s+[A-Za-z][a-z]?$/, "") // " A", " B", " a", " b", …
+      .replace(/\s*#?\d+$/, "")            // " #1", " 1", …
       .trim() || label
   );
 }
 
+// Vault plan labelling convention (skips I, O, and Z which is reserved for bay centre)
+const UPPER_LABELS = "ABCDEFGHJKLMNPQRSTUVWXY"; // 23 uppercase letters
+const LOWER_LABELS = "abcdefghjklmnpqrstuvwxyz"; // 24 lowercase letters
+
 /**
- * Convert a 0-based index to an alphabetical identifier.
- * 0→A, 1→B, … 25→Z, 26→Aa, 27→Ab, … 51→Az, 52→Ba, …
+ * Convert a 0-based index to a vault plan label.
+ * 0→A … 7→H, 8→J (skips I), … 13→N, 14→P (skips O) … 22→Y, 23→a …
+ * Z is reserved for the bay centre and is never assigned here.
  */
 function getAlphabeticalLabel(index: number): string {
-  if (index < 26) return String.fromCharCode(65 + index);
-  const i = index - 26;
-  return (
-    String.fromCharCode(65 + Math.floor(i / 26)) +
-    String.fromCharCode(97 + (i % 26))
-  );
+  if (index < UPPER_LABELS.length) return UPPER_LABELS[index];
+  return LOWER_LABELS[(index - UPPER_LABELS.length) % LOWER_LABELS.length];
 }
 
 /**
@@ -93,7 +94,7 @@ function getAlphabeticalLabel(index: number): string {
  * For numeric groups (e.g. "rib #1") return the full label.
  */
 function getMaskDisplayLabel(label: string): string {
-  const m = label.match(/^.+\s+([A-Z][a-z]?)$/);
+  const m = label.match(/^.+\s+([A-Za-z][a-z]?)$/);
   return m ? m[1] : label;
 }
 
@@ -646,7 +647,7 @@ export default function Step3SegmentationPage() {
   /**
    * Merge `newMasks` (from SAM) into `existingMasks`, handling:
    *  - Duplicate removal (IoU > 0.5)
-   *  - Alphabetical labels for "corner" (A, B, C, D) and "boss stone" (E, F, …)
+   *  - Positional labels for "corner" (A=TR, B=BR, C=TL, D=BL) and "boss stone" (E, F, G, H, J, … skipping I, O, Z)
    *  - Sequential #N labels for all other groups
    *  - Consistent colours per group
    */
@@ -1000,13 +1001,15 @@ export default function Step3SegmentationPage() {
 
     const CORNER_COLOR = "#FFD700"; // gold
     const dotBboxR = Math.round(resolution * 0.006); // ~12px on 2048
+    // PDF convention: getROICorners returns [TL, TR, BR, BL] → map to [C, A, B, D]
+    const cornerLabelOrder = ["C", "A", "B", "D"];
 
     const cornerMasks: SegmentationMask[] = corners.map(([cx, cy], i) => {
       const px = cx * resolution;
       const py = cy * resolution;
       return {
         id: `roi-corner-${i}-${Date.now()}`,
-        label: `corner ${getAlphabeticalLabel(i)}`, // "corner A" … "corner D"
+        label: `corner ${cornerLabelOrder[i]}`,
         color: CORNER_COLOR,
         maskBase64: createDotMask(cx, cy),
         bbox: [
@@ -1053,7 +1056,7 @@ export default function Step3SegmentationPage() {
         height: roi.height * resolution,
         rotation: roi.rotation,
         corners: corners.map(([cx, cy]) => [cx * resolution, cy * resolution]),
-        cornerLabels: ["A", "B", "C", "D"],
+        cornerLabels: ["C", "A", "B", "D"], // TL→C, TR→A, BR→B, BL→D
       };
       await saveROI(currentProject.id, roiData).catch(console.error);
     }
@@ -1158,7 +1161,8 @@ export default function Step3SegmentationPage() {
           .length;
 
         // Compute corner boss stone reference points in pixel coordinates (TL, TR, BR, BL)
-        const cornerLabels = ["Corner TL", "Corner TR", "Corner BR", "Corner BL"];
+        // PDF convention: getROICorners returns [TL, TR, BR, BL] → [C, A, B, D]
+        const cornerLabels = ["Corner C", "Corner A", "Corner B", "Corner D"];
         const roiCornerBossStones = corners.map(([cx, cy], i) => ({
           id: `roi-corner-${i}`,
           label: cornerLabels[i],
@@ -2918,7 +2922,7 @@ export default function Step3SegmentationPage() {
                               {roiAppliedCorners.map((c, i) => {
                                 const px = c.x * 100;
                                 const py = c.y * 100;
-                                const shortLabels = ["TL", "TR", "BR", "BL"];
+                                const shortLabels = ["C", "A", "B", "D"]; // PDF: TL→C, TR→A, BR→B, BL→D
                                 return (
                                   <g key={`boss-corner-${i}`}>
                                     <circle cx={px} cy={py} r="1.4" fill="#7C3AED" stroke="#ffffff" strokeWidth="0.35" />
