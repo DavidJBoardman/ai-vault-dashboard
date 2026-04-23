@@ -2992,7 +2992,7 @@ export default function Step3SegmentationPage() {
                         
                         {/* Tool mode indicator */}
                         {activeTool === "box" && (
-                          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-blue-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
+                          <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-blue-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
                             {boxInteractionMode === "move" ? (
                               <>
                                 <Scan className="w-3.5 h-3.5" />
@@ -3014,7 +3014,7 @@ export default function Step3SegmentationPage() {
                         
                         {/* Polygon mode indicator */}
                         {activeTool === "polygon" && (
-                          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-purple-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
+                          <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-purple-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
                             <Hexagon className="w-3.5 h-3.5" />
                             {currentPolygon.length === 0 
                               ? "Click to place points" 
@@ -3027,7 +3027,7 @@ export default function Step3SegmentationPage() {
                         
                         {/* Eraser mode indicator */}
                         {activeTool === "eraser" && (
-                          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
+                          <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
                             <Eraser className="w-3.5 h-3.5" />
                             {activeMaskId
                               ? `Erasing: ${masks.find(m => m.id === activeMaskId)?.label ?? "selected mask"}`
@@ -3038,7 +3038,7 @@ export default function Step3SegmentationPage() {
 
                         {/* ROI mode indicator */}
                         {activeTool === "roi" && (
-                          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-green-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
+                          <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-green-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 z-10">
                             <Square className="w-3.5 h-3.5" />
                             {roiInteractionMode === "drawing" 
                               ? "Drawing ROI..." 
