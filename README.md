@@ -308,6 +308,8 @@ open "Vault Analyser.app"
 
 ## Documentation
 
+**[View the full documentation →](https://davidjboardman.github.io/ai-vault-dashboard/)**
+
 Hosted project documentation lives under `docs/` and is built with MkDocs.
 
 ### Local preview from the repository root
