@@ -3112,7 +3112,7 @@ export default function Step3SegmentationPage() {
           <DialogHeader>
             <DialogTitle>Name This Selection</DialogTitle>
             <DialogDescription>
-              Enter a name for what you're selecting (e.g., "rib", "boss stone", "keystone").
+              Enter a name for what you're selecting (e.g., "rib", "boss stone").
               Leave empty to use a generic name.
             </DialogDescription>
           </DialogHeader>
@@ -3129,13 +3129,13 @@ export default function Step3SegmentationPage() {
                     handleSaveBoxName();
                   }
                 }}
-                placeholder="e.g., rib, boss stone, keystone"
+                placeholder="e.g., rib, boss stone"
                 autoFocus
               />
             </div>
             <div className="flex flex-wrap gap-2">
               <p className="text-xs text-muted-foreground w-full mb-1">Quick select:</p>
-              {["rib", "boss stone", "corner", "keystone", "intrados", "tiercerons", "lierne"].map((name) => (
+              {["rib", "boss stone"].map((name) => (
                 <Badge
                   key={name}
                   variant="outline"
