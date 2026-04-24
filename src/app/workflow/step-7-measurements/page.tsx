@@ -62,6 +62,9 @@ import {
   type ApexSpanResult,
   type RibPairing,
   type ImportedCurve,
+  type SemicircularGroupInput,
+  type RibGroupingDiagnostics,
+  type RibGroupPairDiagnostic,
 } from "@/lib/api";
 import {
   coerceTraceSourceSelection,
@@ -123,6 +126,8 @@ interface MeasurementResponse {
   error?: string;
 }
 
+type MeasurementData = NonNullable<MeasurementResponse["data"]>;
+
 interface DisplayGroup extends RibGroup {
   source: "custom" | "auto" | "single";
 }
@@ -133,6 +138,10 @@ interface RenameTarget {
   source: "custom" | "auto" | "single";
 }
 
+interface AutoPairCandidate {
+  sides: [string, string];
+}
+
 const EMPTY_MEASUREMENT_CONFIG: MeasurementConfig = {
   ribNameById: {},
   customGroups: [],
@@ -140,6 +149,7 @@ const EMPTY_MEASUREMENT_CONFIG: MeasurementConfig = {
   groupNameById: {},
   bossStoneNameById: {},
   ribPairings: [],
+  semicircularIds: [],
 };
 
 const AUTO_GROUP_NAME_SENTINEL = "__AUTO_COMPOSED_GROUP_NAME__";
@@ -265,21 +275,69 @@ function composeRibGroupName(names: string[]): string | undefined {
   return components.map(component => component.label).join(" + ");
 }
 
+function makePairKey(a: string, b: string): string {
+  return a < b ? `${a}::${b}` : `${b}::${a}`;
+}
 
+
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
 
 /**
  * Ratio of radius-to-rib-length above which the arc is considered a straight line.
  * R > 10 * L means the sagitta is ~1.25% of L — visually imperceptible curvature.
  */
 const STRAIGHT_LINE_RATIO = 10;
+const HEATMAP_UPPER_QUANTILE = 0.95;
+
+function computeQuantile(sortedValues: number[], q: number): number {
+  if (sortedValues.length === 0) return 0;
+  if (sortedValues.length === 1) return sortedValues[0];
+
+  const clampedQ = Math.max(0, Math.min(1, q));
+  const index = clampedQ * (sortedValues.length - 1);
+  const lo = Math.floor(index);
+  const hi = Math.ceil(index);
+  if (lo === hi) return sortedValues[lo];
+  const t = index - lo;
+  return sortedValues[lo] * (1 - t) + sortedValues[hi] * t;
+}
+
+function computeGlobalHeatmapScaleMax(distanceSets: number[][]): number {
+  const values = distanceSets
+    .flatMap((distances) => distances)
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b);
+
+  if (values.length === 0) {
+    return 1;
+  }
+
+  const quantileCap = computeQuantile(values, HEATMAP_UPPER_QUANTILE);
+  if (quantileCap > 1e-9) {
+    return quantileCap;
+  }
+
+  // Fallback for nearly-flat inputs.
+  return values[values.length - 1] > 0 ? values[values.length - 1] : 1;
+}
 
 function formatRadius(r: number | undefined | null, ribLength?: number | null): string {
-  if (r == null || r <= 0) return "N/A";
+  if (!hasDisplayableRadius(r, ribLength)) return "N/A";
+  return `${r.toFixed(2)}m`;
+}
+
+function hasDisplayableRadius(r: number | undefined | null, ribLength?: number | null): r is number {
+  if (r == null || r <= 0) return false;
   const threshold = (ribLength != null && ribLength > 0)
     ? STRAIGHT_LINE_RATIO * ribLength
     : 500;
-  if (r > threshold) return "N/A";
-  return `${r.toFixed(2)}m`;
+  return r <= threshold;
 }
 
 /**
@@ -338,16 +396,17 @@ function createColoredTraceLines(
   segmentPoints: Point3D[],
   pointDistances: number[],
   traceId: string,
-  isSelected: boolean = false
+  isSelected: boolean = false,
+  scaleMaxDistance?: number,
 ): Line3D[] {
   if (segmentPoints.length < 2 || pointDistances.length === 0) {
     return [];
   }
   
-  // Find min and max distances for normalization
-  const minDist = Math.min(...pointDistances);
-  const maxDist = Math.max(...pointDistances);
-  const range = maxDist - minDist || 1;
+  const localMaxDist = Math.max(...pointDistances.map((value) => Math.max(0, value)));
+  const normalizer = (scaleMaxDistance ?? localMaxDist) > 0
+    ? (scaleMaxDistance ?? localMaxDist)
+    : 1;
   
   // Create line segments between consecutive points
   const lines: Line3D[] = [];
@@ -356,10 +415,10 @@ function createColoredTraceLines(
     // Use average of the two endpoints' errors for the segment color
     const error1 = pointDistances[i];
     const error2 = pointDistances[i + 1];
-    const avgError = (error1 + error2) / 2;
+    const avgError = Math.max(0, (error1 + error2) / 2);
     
     // Normalize error to 0-1 range
-    const normalizedError = Math.abs((avgError - minDist) / range);
+    const normalizedError = Math.min(1, avgError / normalizer);
     
     // If selected, use full color gradient; otherwise use neutral gray
     const color = isSelected ? "rgb(180, 180, 180)" : errorToColor(normalizedError);
@@ -560,11 +619,14 @@ export default function Step7MeasurementsPage() {
   // Impost line data
   const [impostLineData, setImpostLineData] = useState<ImpostLineResult | null>(null);
   const [isLoadingImpost, setIsLoadingImpost] = useState(false);
-  const [impostMode, setImpostMode] = useState<"auto" | "floorPlane">("floorPlane");
   const step5ImpostLineZ = currentProject?.stepData?.[5]?.impostLineZ as number | undefined;
+  const [impostMode, setImpostMode] = useState<"auto" | "floorPlane">(
+    () => step5ImpostLineZ !== undefined ? "floorPlane" : "auto"
+  );
 
   // Rib grouping state
   const [ribGroups, setRibGroups] = useState<RibGroup[] | null>(null);
+  const [ribGroupingDiagnostics, setRibGroupingDiagnostics] = useState<RibGroupingDiagnostics | null>(null);
   const [customGroupMetrics, setCustomGroupMetrics] = useState<Record<string, RibGroup["combinedMeasurements"]>>({});
   const [measurementConfig, setMeasurementConfig] = useState<MeasurementConfig>(EMPTY_MEASUREMENT_CONFIG);
   const [selectedForGrouping, setSelectedForGrouping] = useState<Set<string>>(new Set());
@@ -573,7 +635,6 @@ export default function Step7MeasurementsPage() {
   const [renamePairingValue, setRenamePairingValue] = useState("");
   const [configLoaded, setConfigLoaded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const [proximityThreshold, setProximityThreshold] = useState(2.0);
   const [isDetectingGroups, setIsDetectingGroups] = useState(false);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -585,10 +646,12 @@ export default function Step7MeasurementsPage() {
   // Boss stone rename + selection state
   const [bossStoneRenameId, setBossStoneRenameId] = useState<string | null>(null);
   const [bossStoneRenameValue, setBossStoneRenameValue] = useState("");
+  const [isAutoLabellingRibs, setIsAutoLabellingRibs] = useState(false);
+  const [isAutoPairingRibs, setIsAutoPairingRibs] = useState(false);
   const [selectedBossStone, setSelectedBossStone] = useState<string | null>(null);
   const bossStoneRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const bossStoneScrollAreaRef = useRef<HTMLDivElement | null>(null);
-  const [labellingPanel, setLabellingPanel] = useState<"groups" | "bossStones" | "pairings" | "impost" | null>("groups");
+  const [labellingPanel, setLabellingPanel] = useState<"groups" | "bossStones" | "pairings" | "impost" | null>("impost");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const ribRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const pairingSelectorRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -802,25 +865,38 @@ export default function Step7MeasurementsPage() {
     const detectGroups = async () => {
       if (intradosLines.length === 0) {
         setRibGroups(null);
+        setRibGroupingDiagnostics(null);
         return;
       }
       setIsDetectingGroups(true);
       try {
         const response = await detectRibGroups({
           ribs: intradosLines.map(line => ({ id: line.id, points: line.points3d })),
-          maxGap: proximityThreshold,
+          maxGap: 0.35,
+          angleThresholdDeg: 12,
+          radiusTolerance: 0.1,
+          bossGapFactor: 0.4,
+          planeNormalThresholdDeg: 15,
+          diagnostics: true,
+          bosses: bossStoneMarkers
+            .filter(m => m.groupId !== "roi_corner")
+            .map(m => ({ x: m.x, y: m.y, z: m.z })),
         });
         if (response.success && response.data) {
           setRibGroups(response.data);
+          setRibGroupingDiagnostics(response.diagnostics ?? null);
+        } else {
+          setRibGroupingDiagnostics(null);
         }
       } catch (err) {
         console.error("Error detecting rib groups:", err);
+        setRibGroupingDiagnostics(null);
       } finally {
         setIsDetectingGroups(false);
       }
     };
     detectGroups();
-  }, [intradosLines, proximityThreshold]);
+  }, [intradosLines, bossStoneMarkers]);
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -959,6 +1035,21 @@ export default function Step7MeasurementsPage() {
     }
   };
 
+  const toggleSemicircular = (groupId: string) => {
+    const group = displayGroupById.get(groupId);
+    const ribIds = group?.ribIds ?? [groupId];
+    setMeasurementConfig(prev => {
+      const ids = new Set(prev.semicircularIds ?? []);
+      const allIn = ribIds.every(rid => ids.has(rid));
+      if (allIn) {
+        ribIds.forEach(rid => ids.delete(rid));
+      } else {
+        ribIds.forEach(rid => ids.add(rid));
+      }
+      return { ...prev, semicircularIds: Array.from(ids) };
+    });
+  };
+
   const toggleRibForGrouping = (ribId: string) => {
     setSelectedForGrouping(prev => {
       const next = new Set(prev);
@@ -1085,8 +1176,11 @@ export default function Step7MeasurementsPage() {
     setBossStoneRenameValue("");
   };
 
-  const autoLabelRibs = () => {
+  const autoLabelRibs = async () => {
     if (bossStoneMarkers.length === 0 || intradosLines.length === 0) return;
+
+    setIsAutoLabellingRibs(true);
+    const startedAt = Date.now();
 
     const getDisplayName = (id: string) =>
       measurementConfig.bossStoneNameById[id] ??
@@ -1103,29 +1197,42 @@ export default function Step7MeasurementsPage() {
       return bestId;
     };
 
-    const newRibNameById: Record<string, string> = { ...measurementConfig.ribNameById };
+    try {
+      const newRibNameById: Record<string, string> = { ...measurementConfig.ribNameById };
 
-    for (const line of intradosLines) {
-      // Skip ribs already manually named
-      if (measurementConfig.ribNameById[line.id]) continue;
-      if (line.points3d.length < 2) continue;
+      for (const line of intradosLines) {
+        // Skip ribs already manually named
+        if (measurementConfig.ribNameById[line.id]) continue;
+        if (line.points3d.length < 2) continue;
 
-      const firstPt = line.points3d[0] as [number, number, number];
-      const lastPt = line.points3d[line.points3d.length - 1] as [number, number, number];
+        const firstPt = line.points3d[0] as [number, number, number];
+        const lastPt = line.points3d[line.points3d.length - 1] as [number, number, number];
 
-      // Lower Z = spring end, higher Z = crown end â€” name reads "lower-upper"
-      const lowerPt = firstPt[2] <= lastPt[2] ? firstPt : lastPt;
-      const upperPt = firstPt[2] <= lastPt[2] ? lastPt : firstPt;
+        // Lower Z = spring end, higher Z = crown end — name reads "lower-upper"
+        const lowerPt = firstPt[2] <= lastPt[2] ? firstPt : lastPt;
+        const upperPt = firstPt[2] <= lastPt[2] ? lastPt : firstPt;
 
-      const lowerId = nearestBossStone(lowerPt);
-      const upperId = nearestBossStone(upperPt);
+        const lowerId = nearestBossStone(lowerPt);
+        const upperId = nearestBossStone(upperPt);
 
-      newRibNameById[line.id] = lowerId === upperId
-        ? "unidentified"
-        : `${getDisplayName(lowerId)}-${getDisplayName(upperId)}`;
+        newRibNameById[line.id] = lowerId === upperId
+          ? "unidentified"
+          : `${getDisplayName(lowerId)}-${getDisplayName(upperId)}`;
+      }
+
+      setMeasurementConfig(prev => ({ ...prev, ribNameById: newRibNameById }));
+
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, 500 - elapsed);
+      if (remaining > 0) {
+        await new Promise(resolve => setTimeout(resolve, remaining));
+      }
+
+      // Open groups panel so users immediately see the new rib labels.
+      setLabellingPanel("groups");
+    } finally {
+      setIsAutoLabellingRibs(false);
     }
-
-    setMeasurementConfig(prev => ({ ...prev, ribNameById: newRibNameById }));
   };
 
   const commitRename = () => {
@@ -1296,6 +1403,27 @@ export default function Step7MeasurementsPage() {
     return byId;
   }, [displayGroups]);
 
+  const displayGroupIdByRibId = useMemo(() => {
+    const byRibId = new Map<string, string>();
+    displayGroups.forEach(group => {
+      group.ribIds.forEach(ribId => {
+        byRibId.set(ribId, group.groupId);
+      });
+    });
+    return byRibId;
+  }, [displayGroups]);
+
+  const semicircularGroupIds = useMemo(() => {
+    const semicircularRibIds = new Set(measurementConfig.semicircularIds ?? []);
+    const groupIds = new Set<string>();
+    displayGroups.forEach(group => {
+      if (group.ribIds.length > 0 && group.ribIds.every(ribId => semicircularRibIds.has(ribId))) {
+        groupIds.add(group.groupId);
+      }
+    });
+    return groupIds;
+  }, [displayGroups, measurementConfig.semicircularIds]);
+
   const pairingApexInputs = useMemo(() => {
     return (measurementConfig.ribPairings ?? []).map(pairing => ({
       pairingId: pairing.id,
@@ -1312,6 +1440,229 @@ export default function Step7MeasurementsPage() {
     }));
   }, [measurementConfig.ribPairings, displayGroupById, pairingDisplayName, availableRibIdSet]);
 
+  const semicircularInputs = useMemo((): SemicircularGroupInput[] => {
+    const ids = new Set(measurementConfig.semicircularIds ?? []);
+    if (ids.size === 0) return [];
+    return displayGroups
+      .filter(group => group.ribIds.length > 0 && group.ribIds.every(rid => ids.has(rid)))
+      .map(group => ({
+        groupId: group.groupId,
+        groupName: group.groupName ?? group.groupId,
+        ribIds: group.ribIds.filter(rid => availableRibIdSet.has(rid)),
+      }))
+      .filter(sg => sg.ribIds.length > 0);
+  }, [measurementConfig.semicircularIds, displayGroups, availableRibIdSet]);
+
+  const buildAutoPairCandidates = useCallback((data: ApexSpanResult): AutoPairCandidate[] => {
+    const candidates: AutoPairCandidate[] = [];
+    const seenKeys = new Set<string>();
+
+    data.bosses.forEach(boss => {
+      boss.ribPairs.forEach(pair => {
+        const sideA = displayGroupIdByRibId.get(pair.ribA) ?? pair.ribA;
+        const sideB = displayGroupIdByRibId.get(pair.ribB) ?? pair.ribB;
+
+        if (sideA === sideB) return;
+        if (!displayGroupById.has(sideA) || !displayGroupById.has(sideB)) return;
+        if (semicircularGroupIds.has(sideA) || semicircularGroupIds.has(sideB)) return;
+
+        const key = makePairKey(sideA, sideB);
+        if (seenKeys.has(key)) return;
+
+        seenKeys.add(key);
+        candidates.push({
+          sides: sideA < sideB ? [sideA, sideB] : [sideB, sideA],
+        });
+      });
+    });
+
+    return candidates;
+  }, [displayGroupById, displayGroupIdByRibId, semicircularGroupIds]);
+
+  const resolveApexSpanForAutoPairing = useCallback(async (): Promise<ApexSpanResult | null> => {
+    if (apexSpanResult?.bosses?.length) {
+      return apexSpanResult;
+    }
+
+    if (intradosLines.length === 0 || bossStoneMarkers.length === 0) {
+      return null;
+    }
+
+    const ribs = intradosLines.map(line => ({ id: line.id, points: line.points3d }));
+    const bosses = bossStoneMarkers.map(m => ({
+      id: m.id,
+      x: m.x,
+      y: m.y,
+      z: m.z,
+      label: m.label ?? m.id,
+    }));
+
+    const response = await calculateApexSpan({
+      ribs,
+      bosses,
+      maxBossDistance: 0.5,
+      impostHeight: impostLineData?.impost_height ?? undefined,
+      pairings: pairingApexInputs.length > 0 ? pairingApexInputs : undefined,
+      semicircularGroups: semicircularInputs.length > 0 ? semicircularInputs : undefined,
+    });
+
+    if (!response.success || !response.data) {
+      return null;
+    }
+
+    setApexSpanResult(response.data);
+    return response.data;
+  }, [
+    apexSpanResult,
+    bossStoneMarkers,
+    intradosLines,
+    impostLineData?.impost_height,
+    pairingApexInputs,
+    semicircularInputs,
+  ]);
+
+  const canAutoPairRibs = useMemo(() => {
+    if (bossStoneMarkers.length === 0 || intradosLines.length < 2) {
+      return false;
+    }
+
+    const currentlyPairedSides = new Set<string>();
+    (measurementConfig.ribPairings ?? []).forEach(pairing => {
+      const [left, right] = pairing.sides;
+      if (!left || !right || left === right) return;
+      currentlyPairedSides.add(left);
+      currentlyPairedSides.add(right);
+    });
+
+    const pairableGroupCount = displayGroups.filter(group => (
+      !semicircularGroupIds.has(group.groupId) &&
+      !currentlyPairedSides.has(group.groupId)
+    )).length;
+
+    if (pairableGroupCount < 2) {
+      return false;
+    }
+
+    if (!apexSpanResult?.bosses?.length) {
+      return true;
+    }
+
+    const candidates = buildAutoPairCandidates(apexSpanResult);
+    if (candidates.length === 0) {
+      return false;
+    }
+
+    const existingPairKeys = new Set<string>();
+    const usedSides = new Set<string>();
+    (measurementConfig.ribPairings ?? []).forEach(pairing => {
+      const [left, right] = pairing.sides;
+      if (!left || !right || left === right) return;
+      existingPairKeys.add(makePairKey(left, right));
+      usedSides.add(left);
+      usedSides.add(right);
+    });
+
+    return candidates.some(candidate => {
+      const [left, right] = candidate.sides;
+      const key = makePairKey(left, right);
+      if (existingPairKeys.has(key)) return false;
+      if (usedSides.has(left) || usedSides.has(right)) return false;
+      usedSides.add(left);
+      usedSides.add(right);
+      return true;
+    });
+  }, [
+    apexSpanResult,
+    bossStoneMarkers.length,
+    buildAutoPairCandidates,
+    displayGroups,
+    intradosLines.length,
+    measurementConfig.ribPairings,
+    semicircularGroupIds,
+  ]);
+
+  const autoPairRibs = useCallback(async () => {
+    if (bossStoneMarkers.length === 0 || intradosLines.length < 2) return;
+
+    setIsAutoPairingRibs(true);
+    const startedAt = Date.now();
+
+    try {
+      const apexData = await resolveApexSpanForAutoPairing();
+      if (!apexData) {
+        setLabellingPanel("pairings");
+        return;
+      }
+
+      const candidates = buildAutoPairCandidates(apexData);
+      const pairStamp = Date.now();
+
+      setMeasurementConfig(prev => {
+        const existingPairings = prev.ribPairings ?? [];
+        const existingPairKeys = new Set<string>();
+        const usedSides = new Set<string>();
+
+        existingPairings.forEach(pairing => {
+          const [left, right] = pairing.sides;
+          if (!left || !right || left === right) return;
+          existingPairKeys.add(makePairKey(left, right));
+          usedSides.add(left);
+          usedSides.add(right);
+        });
+
+        const additions: RibPairing[] = [];
+        let sequence = 1;
+
+        candidates.forEach(candidate => {
+          const [left, right] = candidate.sides;
+          const key = makePairKey(left, right);
+          if (existingPairKeys.has(key)) return;
+          if (usedSides.has(left) || usedSides.has(right)) return;
+
+          additions.push({
+            id: `pair-auto-${pairStamp}-${sequence}`,
+            name: `${pairingDisplayName(left)} / ${pairingDisplayName(right)}`,
+            sides: [left, right],
+          });
+          sequence += 1;
+          existingPairKeys.add(key);
+          usedSides.add(left);
+          usedSides.add(right);
+        });
+
+        if (additions.length === 0) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          ribPairings: [...existingPairings, ...additions],
+        };
+      });
+
+      setSelectedForPairing(new Set());
+      setRenamePairingId(null);
+      setRenamePairingValue("");
+      setLabellingPanel("pairings");
+    } catch (err) {
+      console.error("Error auto-pairing ribs:", err);
+      setLabellingPanel("pairings");
+    } finally {
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, 500 - elapsed);
+      if (remaining > 0) {
+        await new Promise(resolve => setTimeout(resolve, remaining));
+      }
+      setIsAutoPairingRibs(false);
+    }
+  }, [
+    bossStoneMarkers.length,
+    buildAutoPairCandidates,
+    intradosLines.length,
+    pairingDisplayName,
+    resolveApexSpanForAutoPairing,
+  ]);
+
   // Calculate boss apex/span and user-defined pairing apex heights.
   useEffect(() => {
     const loadApexSpan = async () => {
@@ -1319,7 +1670,7 @@ export default function Step7MeasurementsPage() {
         setApexSpanResult(null);
         return;
       }
-      if (bossStoneMarkers.length === 0 && pairingApexInputs.length === 0) {
+      if (bossStoneMarkers.length === 0 && pairingApexInputs.length === 0 && semicircularInputs.length === 0) {
         setApexSpanResult(null);
         return;
       }
@@ -1338,9 +1689,10 @@ export default function Step7MeasurementsPage() {
         const response = await calculateApexSpan({
           ribs,
           bosses,
-          maxBossDistance: proximityThreshold,
+          maxBossDistance: 0.5,
           impostHeight: impostHeight ?? undefined,
           pairings: pairingApexInputs.length > 0 ? pairingApexInputs : undefined,
+          semicircularGroups: semicircularInputs.length > 0 ? semicircularInputs : undefined,
         });
         if (response.success && response.data) {
           setApexSpanResult(response.data);
@@ -1355,12 +1707,60 @@ export default function Step7MeasurementsPage() {
       }
     };
     loadApexSpan();
-  }, [intradosLines, bossStoneMarkers, impostLineData, proximityThreshold, pairingApexInputs]);
+  }, [intradosLines, bossStoneMarkers, impostLineData, pairingApexInputs, semicircularInputs]);
 
   const selectedGroup = useMemo(
     () => (selectedGroupId ? displayGroups.find(g => g.groupId === selectedGroupId) ?? null : null),
     [selectedGroupId, displayGroups]
   );
+
+  const selectedRibGroupingDetails = useMemo(() => {
+    if (!selectedRib || !ribGroupingDiagnostics?.passes?.length) {
+      return null;
+    }
+
+    const allPairDiagnostics: RibGroupPairDiagnostic[] = ribGroupingDiagnostics.passes.flatMap(pass =>
+      (pass.pairDiagnostics ?? []).map(pair => ({
+        ...pair,
+        passLabel: pair.passLabel ?? pass.passLabel,
+      }))
+    );
+
+    const involvingSelected = allPairDiagnostics.filter(pair =>
+      pair.ribA === selectedRib || pair.ribB === selectedRib
+    );
+
+    const decisionRank = (decision?: string) => {
+      if (decision === "accepted") return 0;
+      if (decision === "candidate") return 1;
+      return 2;
+    };
+
+    const topPairs = [...involvingSelected]
+      .sort((left, right) => {
+        const decisionDelta = decisionRank(left.decision) - decisionRank(right.decision);
+        if (decisionDelta !== 0) return decisionDelta;
+        return (left.score ?? Number.POSITIVE_INFINITY) - (right.score ?? Number.POSITIVE_INFINITY);
+      })
+      .slice(0, 8);
+
+    const rejectionCounts: Record<string, number> = {};
+    ribGroupingDiagnostics.passes.forEach(pass => {
+      const perRib = pass.perRibRejectionCounts?.[selectedRib] ?? {};
+      Object.entries(perRib).forEach(([reason, count]) => {
+        rejectionCounts[reason] = (rejectionCounts[reason] ?? 0) + count;
+      });
+    });
+
+    return {
+      mode: ribGroupingDiagnostics.mode,
+      totalPairs: involvingSelected.length,
+      topPairs,
+      rejectionCounts: Object.entries(rejectionCounts)
+        .sort(([, left], [, right]) => right - left)
+        .slice(0, 6),
+    };
+  }, [selectedRib, ribGroupingDiagnostics]);
 
   const selectedViewerRibIds = useMemo(() => {
     if (selectedGroupId && selectedGroup) {
@@ -1485,47 +1885,58 @@ export default function Step7MeasurementsPage() {
             throw new Error(response.error || `Failed to compute trace ${line.id}`);
           }
 
-          let lineTraces: Line3D[] = [];
-
-          if (viewMode === "bestFitArc") {
-            lineTraces = createBestFitArcLines(
-              response.data.segmentPoints,
-              response.data.arcCenter,
-              response.data.arcRadius,
-              line.id,
-              response.data.arcBasisU,
-              response.data.arcBasisV,
-              response.data.arcStartAngle,
-              response.data.arcEndAngle,
-            );
-          } else {
-            const decimated = decimateSegmentsForDisplay(
-              response.data.segmentPoints,
-              response.data.pointDistances,
-              MAX_DISPLAY_TRACE_POINTS,
-            );
-            lineTraces = createColoredTraceLines(
-              decimated.points,
-              decimated.distances,
-              line.id,
-              false
-            );
-          }
-
           return {
             traceId: line.id,
-            data: response.data,
-            lineTraces,
+            data: response.data as MeasurementData,
           };
         })
       );
+
+      const successfulTraceData = traceResults
+        .filter((result): result is PromiseFulfilledResult<{ traceId: string; data: MeasurementData }> => result.status === "fulfilled")
+        .map((result) => result.value);
+
+      const sharedHeatmapScaleMax =
+        viewMode === "errorHeatmap"
+          ? computeGlobalHeatmapScaleMax(
+              successfulTraceData.map((result) => result.data.pointDistances)
+            )
+          : undefined;
 
       const allTraces: Line3D[] = [];
       traceResults.forEach((result, index) => {
         const line = intradosLines[index];
         if (result.status === "fulfilled") {
           measurementCacheRef.current.set(result.value.traceId, result.value.data);
-          allTraces.push(...result.value.lineTraces);
+
+          let lineTraces: Line3D[] = [];
+          if (viewMode === "bestFitArc") {
+            lineTraces = createBestFitArcLines(
+              result.value.data.segmentPoints,
+              result.value.data.arcCenter,
+              result.value.data.arcRadius,
+              result.value.traceId,
+              result.value.data.arcBasisU,
+              result.value.data.arcBasisV,
+              result.value.data.arcStartAngle,
+              result.value.data.arcEndAngle,
+            );
+          } else {
+            const decimated = decimateSegmentsForDisplay(
+              result.value.data.segmentPoints,
+              result.value.data.pointDistances,
+              MAX_DISPLAY_TRACE_POINTS,
+            );
+            lineTraces = createColoredTraceLines(
+              decimated.points,
+              decimated.distances,
+              result.value.traceId,
+              false,
+              sharedHeatmapScaleMax,
+            );
+          }
+
+          allTraces.push(...lineTraces);
           return;
         }
 
@@ -1654,6 +2065,33 @@ export default function Step7MeasurementsPage() {
         z: (impostZ != null && m.groupId === "roi_corner") ? impostZ : m.z,
       }));
   }, [bossStoneMarkers, measurementConfig.bossStoneNameById, impostLineData, hiddenBossStones]);
+
+  // Assign each rib to two boss stones (one per endpoint), labelled low/high by Z.
+  // "high" is the crown (culminating) end, "low" is the springing end.
+  const ribToBossMap = useMemo(() => {
+    const map = new Map<string, { low: string; high: string }>();
+    if (!bossStoneMarkers.length || !intradosLines.length) return map;
+    for (const line of intradosLines) {
+      const pts = line.points3d;
+      if (pts.length < 2) continue;
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      // Determine which endpoint is higher (crown) vs lower (springing)
+      const firstIsHigh = first[2] >= last[2];
+      const highPt = firstIsHigh ? first : last;
+      const lowPt = firstIsHigh ? last : first;
+      let bestHigh = { id: "", dist: Infinity };
+      let bestLow = { id: "", dist: Infinity };
+      for (const boss of bossStoneMarkers) {
+        const dHigh = Math.hypot(highPt[0] - boss.x, highPt[1] - boss.y, highPt[2] - boss.z);
+        const dLow = Math.hypot(lowPt[0] - boss.x, lowPt[1] - boss.y, lowPt[2] - boss.z);
+        if (dHigh < bestHigh.dist) bestHigh = { id: boss.id, dist: dHigh };
+        if (dLow < bestLow.dist) bestLow = { id: boss.id, dist: dLow };
+      }
+      if (bestHigh.id && bestLow.id) map.set(line.id, { low: bestLow.id, high: bestHigh.id });
+    }
+    return map;
+  }, [bossStoneMarkers, intradosLines]);
   
   // Update measurements when loaded data changes
   useEffect(() => {
@@ -1726,29 +2164,43 @@ export default function Step7MeasurementsPage() {
           }
         }
 
-        // Apex height — from pairingApex result (normalized)
+        // Apex height — from semicircular or pairingApex result (normalized)
         let apexHeight = "";
-        const pairing = (measurementConfig.ribPairings ?? []).find(p =>
-          p.sides.some(sideId => {
-            const dg = displayGroupById.get(sideId);
-            const sideRibIds = dg ? dg.ribIds : [sideId];
-            return sideRibIds.some(rid => group.ribIds.includes(rid));
-          })
-        );
-        if (pairing) {
-          const pr = apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id);
-          if (pr?.status === "ok" && typeof pr.apexHeight === "number") {
-            apexHeight = (pr.apexHeight - impostH).toFixed(4);
-          }
-        }
-
-        // Span — from apexSpanResult.ribs, same value stored on every rib in the group
         let span = "";
-        const ribSpan = group.ribIds
-          .map(rid => apexSpanResult?.ribs[rid])
-          .find(r => r != null);
-        if (ribSpan) {
-          span = ribSpan.span.toFixed(4);
+        const isSemiGroup = group.ribIds.every(rid => (measurementConfig.semicircularIds ?? []).includes(rid));
+        const semiResult = isSemiGroup
+          ? apexSpanResult?.semicircularApex?.find(r => r.groupId === group.groupId)
+          : undefined;
+
+        if (semiResult?.status === "ok") {
+          if (typeof semiResult.apexHeight === "number") {
+            apexHeight = (semiResult.apexHeight - impostH).toFixed(4);
+          }
+          if (typeof semiResult.span === "number") {
+            span = semiResult.span.toFixed(4);
+          }
+        } else {
+          const pairing = (measurementConfig.ribPairings ?? []).find(p =>
+            p.sides.some(sideId => {
+              const dg = displayGroupById.get(sideId);
+              const sideRibIds = dg ? dg.ribIds : [sideId];
+              return sideRibIds.some(rid => group.ribIds.includes(rid));
+            })
+          );
+          if (pairing) {
+            const pr = apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id);
+            if (pr?.status === "ok" && typeof pr.apexHeight === "number") {
+              apexHeight = (pr.apexHeight - impostH).toFixed(4);
+            }
+          }
+
+          // Span — from apexSpanResult.ribs, same value stored on every rib in the group
+          const ribSpan = group.ribIds
+            .map(rid => apexSpanResult?.ribs[rid])
+            .find(r => r != null);
+          if (ribSpan) {
+            span = ribSpan.span.toFixed(4);
+          }
         }
 
         const label = group.groupName ?? group.groupId;
@@ -1948,7 +2400,7 @@ export default function Step7MeasurementsPage() {
               </div>
 
               {/* Right panel â€” rib list (labelling only) + boss stones + impost */}
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 min-w-[220px]">
 
                 {/* Rib groups & labels card */}
                 <Card className="order-3">
@@ -1971,7 +2423,7 @@ export default function Step7MeasurementsPage() {
                     {previewLoading && displayGroups.length === 0 ? (
                       <div className="flex flex-col items-center justify-center gap-2 py-10">
                         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                        <p className="text-xs text-muted-foreground">Loading ribsâ€¦</p>
+                        <p className="text-xs text-muted-foreground">Loading ribs</p>
                       </div>
                     ) : (
                     <>
@@ -1979,17 +2431,34 @@ export default function Step7MeasurementsPage() {
                       <p className="text-xs text-muted-foreground">
                         Selected for grouping: {selectedForGrouping.size}
                       </p>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="h-7 gap-1"
-                        onClick={handleCreateCustomGroup}
-                        disabled={selectedForGrouping.size < 2}
-                        title="Create a manual group from selected ribs"
-                      >
-                        <FolderPlus className="w-3.5 h-3.5" />
-                        <span className="text-xs">Group Selected</span>
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 gap-1"
+                          onClick={handleCreateCustomGroup}
+                          disabled={selectedForGrouping.size < 2}
+                          title="Create a manual group from selected ribs"
+                        >
+                          <FolderPlus className="w-3.5 h-3.5" />
+                          <span className="text-xs">Group Selected</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 gap-1"
+                          onClick={autoPairRibs}
+                          disabled={isAutoPairingRibs || !canAutoPairRibs}
+                          title="Auto-create missing pairings from boss-symmetry analysis"
+                        >
+                          {isAutoPairingRibs ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Wand2 className="w-3.5 h-3.5" />
+                          )}
+                          <span className="text-xs">{isAutoPairingRibs ? "Auto Pairing..." : "Auto Pair Ribs"}</span>
+                        </Button>
+                      </div>
                     </div>
                     {renameTarget && (
                       <div className="rounded-md border bg-muted/40 p-2">
@@ -2014,12 +2483,13 @@ export default function Step7MeasurementsPage() {
                       </div>
                     )}
                     <ScrollArea className="h-64">
-                      <div className="space-y-2 pr-2">
+                      <div className="space-y-2 pr-2 w-0 min-w-full overflow-hidden">
                         {displayGroups.length > 0 ? displayGroups.map((group) => {
                           const isMulti = group.isGrouped && group.ribIds.length > 1;
                           const isExpanded = expandedGroups.has(group.groupId);
                           const primaryId = group.ribIds[0];
                           const groupTitle = group.groupName ?? composeGroupName(group.ribIds) ?? `Group (${group.ribIds.length} ribs)`;
+                          const isSemicircular = group.ribIds.every(rid => (measurementConfig.semicircularIds ?? []).includes(rid));
 
                           if (isMulti) {
                             return (
@@ -2035,14 +2505,27 @@ export default function Step7MeasurementsPage() {
                                     toggleExpandGroup(group.groupId);
                                   }}
                                 >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-1.5 min-w-0">
+                                  <div className="flex items-center gap-2 overflow-hidden">
+                                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                       <Link2 className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                                       <span className="font-medium text-sm truncate">
                                         {groupTitle} ({group.ribIds.length} ribs)
                                       </span>
+                                      {isSemicircular && (
+                                        <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-violet-500/20 text-violet-400 shrink-0">Semi</span>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        className={cn("p-0.5 rounded", isSemicircular ? "bg-violet-500/20 text-violet-400" : "hover:bg-amber-500/20 text-amber-600 dark:text-amber-400")}
+                                        title={isSemicircular ? "Unmark as semicircular" : "Mark as semicircular"}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleSemicircular(group.groupId);
+                                        }}
+                                      >
+                                        <Circle className="w-3.5 h-3.5" />
+                                      </button>
                                       <button
                                         className="p-0.5 rounded hover:bg-amber-500/20 text-amber-600 dark:text-amber-400"
                                         title="Rename this group"
@@ -2080,10 +2563,10 @@ export default function Step7MeasurementsPage() {
                                           )}
                                           onClick={() => { setSelectedRib(ribId); setSelectedGroupId(null); }}
                                         >
-                                          <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-1.5 min-w-0">
+                                          <div className="flex items-center gap-2 overflow-hidden">
+                                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                               <button
-                                                className="p-0.5 rounded hover:bg-muted"
+                                                className="p-0.5 rounded hover:bg-muted shrink-0"
                                                 title="Toggle rib for grouping"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
@@ -2148,10 +2631,10 @@ export default function Step7MeasurementsPage() {
                               )}
                               onClick={() => { setSelectedRib(primaryId); setSelectedGroupId(null); }}
                             >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="flex items-center gap-2 overflow-hidden">
+                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                   <button
-                                    className="p-0.5 rounded hover:bg-muted"
+                                    className="p-0.5 rounded hover:bg-muted shrink-0"
                                     title="Toggle rib for grouping"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -2163,8 +2646,21 @@ export default function Step7MeasurementsPage() {
                                       : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
                                   </button>
                                   <span className="font-medium truncate">{m?.name ?? group.groupName ?? getRibDisplayName(primaryId)}</span>
+                                  {isSemicircular && (
+                                    <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-violet-500/20 text-violet-400 shrink-0">Semi</span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    className={cn("p-0.5 rounded", isSemicircular ? "bg-violet-500/20 text-violet-400" : "hover:bg-muted text-muted-foreground")}
+                                    title={isSemicircular ? "Unmark as semicircular" : "Mark as semicircular"}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleSemicircular(group.groupId);
+                                    }}
+                                  >
+                                    <Circle className="w-3.5 h-3.5" />
+                                  </button>
                                   {!isRibInCustomGroup(primaryId) && group.source === "auto" && (
                                     <button
                                       className="p-0.5 rounded hover:bg-muted"
@@ -2212,25 +2708,11 @@ export default function Step7MeasurementsPage() {
                       </div>
                     </ScrollArea>
 
-                    {/* Keystone gap slider */}
-                    <div className="shrink-0 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <label>Max keystone gap</label>
-                        <span className="font-mono">{proximityThreshold.toFixed(1)} m</span>
-                      </div>
-                      <Slider
-                        min={0.1}
-                        max={5.0}
-                        step={0.1}
-                        value={[proximityThreshold]}
-                        onValueChange={([v]) => setProximityThreshold(v)}
-                      />
-                      {isDetectingGroups && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Loader2 className="w-3 h-3 animate-spin" /> Detecting groupsâ€¦
-                        </p>
-                      )}
-                    </div>
+                    {isDetectingGroups && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Detecting groupsâ€¦
+                      </p>
+                    )}
                     </>
                     )}
                   </CardContent>
@@ -2238,7 +2720,7 @@ export default function Step7MeasurementsPage() {
                 </Card>
 
                 {/* Boss Stones panel â€” rename & auto-label */}
-                {bossStoneMarkers.length > 0 && (
+                {(previewLoading || bossStoneMarkers.length > 0) && (
                   <Card className="order-2">
                     <CardHeader className="p-4 shrink-0 cursor-pointer select-none" onClick={() => setLabellingPanel(p => p === "bossStones" ? null : "bossStones")}>
                       <div className="flex items-center justify-between">
@@ -2258,6 +2740,13 @@ export default function Step7MeasurementsPage() {
                     </CardHeader>
                     {labellingPanel === "bossStones" && (
                     <CardContent className="space-y-3 pt-0 px-4 pb-4">
+                      {previewLoading && bossStoneMarkers.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center gap-2 py-10">
+                          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">Loading boss stones...</p>
+                        </div>
+                      ) : (
+                      <>
                       {bossStoneRenameId && (
                         <div className="rounded-md border bg-muted/40 p-2">
                           <div className="flex items-center gap-2">
@@ -2348,12 +2837,18 @@ export default function Step7MeasurementsPage() {
                         variant="secondary"
                         className="w-full gap-1.5 mt-1"
                         onClick={autoLabelRibs}
-                        disabled={bossStoneMarkers.length === 0 || intradosLines.length === 0}
+                        disabled={isAutoLabellingRibs || bossStoneMarkers.length === 0 || intradosLines.length === 0}
                         title="Auto-name ribs from nearest boss stones at each end. Skips already-named ribs."
                       >
-                        <Wand2 className="w-3.5 h-3.5" />
-                        <span className="text-xs">Auto Label Ribs</span>
+                        {isAutoLabellingRibs ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Wand2 className="w-3.5 h-3.5" />
+                        )}
+                        <span className="text-xs">{isAutoLabellingRibs ? "Auto Labelling..." : "Auto Label Ribs"}</span>
                       </Button>
+                      </>
+                      )}
                     </CardContent>
                     )}
                   </Card>
@@ -2398,7 +2893,7 @@ export default function Step7MeasurementsPage() {
                     <div ref={pairingSelectorScrollAreaRef}>
                     <ScrollArea className="h-40">
                       <div className="space-y-1 pr-2">
-                        {displayGroups.map((group) => {
+                        {displayGroups.filter(g => !semicircularGroupIds.has(g.groupId)).map((group) => {
                           const isChecked = selectedForPairing.has(group.groupId);
                           const isSelectedTarget = selectedPairingTargetId === group.groupId;
                           const alreadyPaired = (measurementConfig.ribPairings ?? []).some(
@@ -2545,7 +3040,7 @@ export default function Step7MeasurementsPage() {
                           </p>
                         ) : (
                           <p className="text-amber-600 dark:text-amber-400">
-                            Impost line height not set in Step 5. Switch to <strong>Auto</strong> mode.
+                            Impost line height not set in Step 5. Switch to <strong>Auto</strong> mode or go back to Step 5.
                           </p>
                         )}
                       </div>
@@ -2585,7 +3080,7 @@ export default function Step7MeasurementsPage() {
           </div>
         </TabsContent>
 
-        {/* â”€â”€ 7B: DATA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* 7B: DATA*/}
         <TabsContent value="data" className="mt-4">
           <div className="flex flex-col gap-6">
             <div className="grid lg:grid-cols-3 gap-6">
@@ -2705,7 +3200,7 @@ export default function Step7MeasurementsPage() {
                     {previewLoading && displayGroups.length === 0 ? (
                       <div className="flex flex-col items-center justify-center gap-2 py-10">
                         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                        <p className="text-xs text-muted-foreground">Loading ribsâ€¦</p>
+                        <p className="text-xs text-muted-foreground">Loading ribs</p>
                       </div>
                     ) : (
                     <div ref={dataRibScrollAreaRef}>
@@ -2739,27 +3234,19 @@ export default function Step7MeasurementsPage() {
                                       </span>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
-                                      <span className="text-xs font-mono text-muted-foreground">
-                                        R: {formatRadius(group.combinedMeasurements.arc_radius, group.combinedMeasurements.rib_length)}
-                                      </span>
                                       {isExpanded
                                         ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
                                         : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
                                     </div>
                                   </div>
                                   <div className="mt-1 text-xs text-muted-foreground">
-                                    L: {group.combinedMeasurements.rib_length.toFixed(2)}m
-                                    {" · "}Err: {group.combinedMeasurements.fit_error.toFixed(4)}m
-                                    {impostLineData && group.combinedMeasurements.arc_center_z !== 0 && (
-                                      <>{" I: "}{(group.combinedMeasurements.arc_center_z - impostLineData.impost_height).toFixed(2)}m</>
-                                    )}
+                                    Err: {group.combinedMeasurements.fit_error.toFixed(4)}m
                                   </div>
                                 </div>
                                 {isExpanded && (
                                   <div className="border-t border-amber-500/30 divide-y divide-amber-500/20">
                                     {group.ribIds.map(ribId => {
                                       const m = measurements.find(x => x.id === ribId);
-                                      const cached = measurementCacheRef.current.get(ribId);
                                       return (
                                         <div
                                           key={ribId}
@@ -2769,11 +3256,8 @@ export default function Step7MeasurementsPage() {
                                           )}
                                           onClick={() => { setSelectedRib(ribId); setSelectedGroupId(null); }}
                                         >
-                                          <div className="flex items-center justify-between">
+                                          <div className="flex items-center">
                                             <span className="text-sm truncate">{m?.name ?? getRibDisplayName(ribId)}</span>
-                                            <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                                              {cached?.arcRadius ? `R: ${formatRadius(cached.arcRadius, cached.ribLength)}` : ""}
-                                            </span>
                                           </div>
                                         </div>
                                       );
@@ -2785,7 +3269,6 @@ export default function Step7MeasurementsPage() {
                           }
 
                           const m = measurements.find(x => x.id === primaryId);
-                          const cached = measurementCacheRef.current.get(primaryId);
                           return (
                             <div
                               ref={(el) => { dataRibRowRefs.current[primaryId] = el; }}
@@ -2798,14 +3281,8 @@ export default function Step7MeasurementsPage() {
                               )}
                               onClick={() => { setSelectedRib(primaryId); setSelectedGroupId(null); }}
                             >
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center">
                                 <span className="font-medium truncate">{m?.name ?? group.groupName ?? getRibDisplayName(primaryId)}</span>
-                                <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                                  {cached?.arcRadius ? `R: ${formatRadius(cached.arcRadius, cached?.ribLength)}` : ""}
-                                  {impostLineData?.ribs[primaryId]?.arc_center_z != null && (
-                                    <>{" I: "}{(impostLineData.ribs[primaryId].arc_center_z - impostLineData.impost_height).toFixed(2)}m</>
-                                  )}
-                                </span>
                               </div>
                             </div>
                           );
@@ -2852,6 +3329,11 @@ export default function Step7MeasurementsPage() {
                               </div>
                             )}
                             {(() => {
+                              // Hide regular span when the group is semicircular (Semi Span shown instead)
+                              if ((measurementConfig.semicircularIds ?? []).includes(selectedGroup.groupId)) return null;
+                              if (!hasDisplayableRadius(selectedGroup.combinedMeasurements.arc_radius, selectedGroup.combinedMeasurements.rib_length)) {
+                                return null;
+                              }
                               const groupSpan = selectedGroup.ribIds
                                 .map(rid => apexSpanResult?.ribs[rid])
                                 .find(r => r != null);
@@ -2898,6 +3380,41 @@ export default function Step7MeasurementsPage() {
                                 </div>
                               );
                             })()}
+                            {(() => {
+                              const semiResult = apexSpanResult?.semicircularApex?.find(
+                                r => r.groupId === selectedGroup.groupId
+                              );
+                              if (!semiResult) return null;
+                              const impostH = impostLineData?.impost_height ?? 0;
+                              const hasApex = semiResult.status === "ok" && typeof semiResult.apexHeight === "number";
+                              const hasSpan = semiResult.status === "ok" && typeof semiResult.span === "number";
+                              return (
+                                <>
+                                  {hasSpan && (
+                                    <div className="p-2 rounded-lg bg-violet-500/10 text-center">
+                                      <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-violet-400" />
+                                      {isLoadingApexSpan ? (
+                                        <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
+                                      ) : (
+                                        <p className="text-sm font-bold">{semiResult.span!.toFixed(2)}m</p>
+                                      )}
+                                      <p className="text-xs text-muted-foreground">Semi Span</p>
+                                    </div>
+                                  )}
+                                  {hasApex && (
+                                    <div className="p-2 rounded-lg bg-violet-500/10 text-center">
+                                      <Circle className="w-3.5 h-3.5 mx-auto mb-0.5 text-violet-400" />
+                                      {isLoadingApexSpan ? (
+                                        <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
+                                      ) : (
+                                        <p className="text-sm font-bold">{(semiResult.apexHeight! - impostH).toFixed(3)}m</p>
+                                      )}
+                                      <p className="text-xs text-muted-foreground">Semi Apex</p>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
 
                           {apexSpanResult && (() => {
@@ -2936,6 +3453,12 @@ export default function Step7MeasurementsPage() {
                                       .map(rid => {
                                         const ribSpan = apexSpanResult.ribs[rid];
                                         const ribName = measurements.find(x => x.id === rid)?.name ?? rid;
+                                        const measurement = measurementCacheRef.current.get(rid) ?? measurements.find(x => x.id === rid);
+                                        const hasRadius = hasDisplayableRadius(
+                                          measurement?.arcRadius,
+                                          measurement?.ribLength
+                                        );
+                                        if (!hasRadius) return null;
                                         return (
                                           <div key={rid} className="flex items-center justify-between text-xs px-1">
                                             <span className="truncate text-muted-foreground">{ribName}</span>
@@ -2953,17 +3476,13 @@ export default function Step7MeasurementsPage() {
                             <Label className="text-xs text-muted-foreground">Individual Ribs</Label>
                             {selectedGroup.ribIds.map(ribId => {
                               const m = measurements.find(x => x.id === ribId);
-                              const cached = measurementCacheRef.current.get(ribId);
                               return (
                                 <button
                                   key={ribId}
-                                  className="w-full text-left px-2 py-1 rounded text-xs hover:bg-muted/60 flex items-center justify-between"
+                                  className="w-full text-left px-2 py-1 rounded text-xs hover:bg-muted/60 flex items-center"
                                   onClick={() => { setSelectedRib(ribId); setSelectedGroupId(null); }}
                                 >
                                   <span className="truncate">{m?.name ?? getRibDisplayName(ribId)}</span>
-                                  <span className="text-muted-foreground shrink-0 ml-2">
-                                    {cached?.arcRadius ? `R: ${formatRadius(cached.arcRadius, cached?.ribLength)}` : ""}
-                                  </span>
                                 </button>
                               );
                             })}
@@ -2989,7 +3508,10 @@ export default function Step7MeasurementsPage() {
                                 <p className="text-xs text-muted-foreground">Impost Dist</p>
                               </div>
                             )}
-                            {apexSpanResult?.ribs[selectedRib!] && (
+                            {apexSpanResult?.ribs[selectedRib!] && hasDisplayableRadius(
+                              measurementData?.arcRadius ?? selectedMeasurement!.arcRadius,
+                              measurementData?.ribLength ?? selectedMeasurement!.ribLength
+                            ) && (
                               <div className="p-2 rounded-lg bg-muted/50 text-center">
                                 <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
                                 <p className="text-sm font-bold">{apexSpanResult.ribs[selectedRib!].span.toFixed(2)}m</p>
@@ -3028,54 +3550,77 @@ export default function Step7MeasurementsPage() {
                             })()}
                           </div>
 
-                          <div className="space-y-1.5">
-                            <Label className="text-xs text-muted-foreground">Apex Point</Label>
-                            <div className="grid grid-cols-3 gap-1.5 text-xs">
-                              <div className="p-1.5 rounded bg-muted/30 text-center">
-                                <p className="text-muted-foreground font-medium">X</p>
-                                <p className="font-mono">{selectedMeasurement!.apexPoint?.x.toFixed(2)}</p>
-                              </div>
-                              <div className="p-1.5 rounded bg-muted/30 text-center">
-                                <p className="text-muted-foreground font-medium">Y</p>
-                                <p className="font-mono">{selectedMeasurement!.apexPoint?.y.toFixed(2)}</p>
-                              </div>
-                              <div className="p-1.5 rounded bg-muted/30 text-center">
-                                <p className="text-muted-foreground font-medium">Z</p>
-                                <p className="font-mono">{((selectedMeasurement!.apexPoint?.z ?? 0) - (impostLineData?.impost_height ?? 0)).toFixed(2)}</p>
-                              </div>
-                            </div>
-                          </div>
 
-                          {selectedMeasurement!.springingPoints && selectedMeasurement!.springingPoints.length > 0 && (() => {
-                            const point = selectedMeasurement!.springingPoints[0];
-                            return (
-                              <div className="space-y-1.5">
-                                <Label className="text-xs text-muted-foreground">Springing Point</Label>
-                                <div className="grid grid-cols-3 gap-1.5 text-xs">
-                                  <div className="p-1.5 rounded bg-muted/30 text-center">
-                                    <p className="text-muted-foreground font-medium">X</p>
-                                    <p className="font-mono">{point.x.toFixed(2)}</p>
-                                  </div>
-                                  <div className="p-1.5 rounded bg-muted/30 text-center">
-                                    <p className="text-muted-foreground font-medium">Y</p>
-                                    <p className="font-mono">{point.y.toFixed(2)}</p>
-                                  </div>
-                                  <div className="p-1.5 rounded bg-muted/30 text-center">
-                                    <p className="text-muted-foreground font-medium">Z</p>
-                                    <p className="font-mono">{(point.z - (impostLineData?.impost_height ?? 0)).toFixed(2)}</p>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })()}
                         </>
+                      )}
+
+                      {selectedRib && selectedRibGroupingDetails && (
+                        <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label className="text-xs text-muted-foreground">Grouping Diagnostics</Label>
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              {selectedRibGroupingDetails.mode ?? "unknown"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            {selectedRibGroupingDetails.totalPairs} candidate pair
+                            {selectedRibGroupingDetails.totalPairs === 1 ? "" : "s"} involved this rib.
+                          </p>
+
+                          {selectedRibGroupingDetails.rejectionCounts.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {selectedRibGroupingDetails.rejectionCounts.map(([reason, count]) => (
+                                <span
+                                  key={reason}
+                                  className="rounded bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                >
+                                  {reason}: {count}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {selectedRibGroupingDetails.topPairs.length > 0 ? (
+                            <div className="space-y-1">
+                              {selectedRibGroupingDetails.topPairs.map((pair, index) => {
+                                const otherRibId = pair.ribA === selectedRib ? pair.ribB : pair.ribA;
+                                const statusColor = pair.decision === "accepted"
+                                  ? "text-emerald-500"
+                                  : pair.decision === "candidate"
+                                  ? "text-amber-500"
+                                  : "text-muted-foreground";
+
+                                return (
+                                  <div
+                                    key={`${pair.passLabel ?? "pass"}-${pair.ribA}-${pair.ribB}-${index}`}
+                                    className="rounded bg-background/70 px-2 py-1 text-[11px]"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="truncate">
+                                        {getRibDisplayName(otherRibId)} ({pair.passLabel ?? "pass"})
+                                      </span>
+                                      <span className={cn("shrink-0", statusColor)}>{pair.decision ?? "unknown"}</span>
+                                    </div>
+                                    <div className="text-muted-foreground">
+                                      gap: {pair.gapDistance != null ? `${pair.gapDistance.toFixed(3)}m` : "n/a"}
+                                      {pair.score != null && <> · score: {pair.score.toFixed(3)}</>}
+                                      {pair.reason && <> · {pair.reason}</>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-muted-foreground">No diagnostics available for this rib yet.</p>
+                          )}
+                        </div>
                       )}
                     </CardContent>
                   </Card>
                 )}
 
                 {/* Read-only boss stone list with apex Z */}
-                {bossStoneMarkers.length > 0 && (
+                {(previewLoading || bossStoneMarkers.length > 0) && (
                   <Card>
                     <CardHeader className="pb-2 shrink-0">
                       <CardTitle className="text-base font-display flex items-center gap-2">
@@ -3084,12 +3629,34 @@ export default function Step7MeasurementsPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="pt-0 px-4 pb-4">
+                      {previewLoading && bossStoneMarkers.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center gap-2 py-10">
+                          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">Loading boss stones...</p>
+                        </div>
+                      ) : (
                       <ScrollArea className="h-36">
                         <div className="space-y-2 pr-2">
                           {bossStoneMarkers.map((marker) => {
                             const displayName = measurementConfig.bossStoneNameById[marker.id] ?? marker.label;
                             const isSelected = selectedBossStone === marker.id;
                             const bossApex = apexSpanResult?.bosses.find(b => b.bossId === marker.id);
+                            const impostH = impostLineData?.impost_height ?? 0;
+
+                            // Find pairings where at least one rib culminates (high/crown end) at this boss
+                            const bossParingResults = (measurementConfig.ribPairings ?? [])
+                              .filter(pairing =>
+                                pairingApexInputs
+                                  .find(p => p.pairingId === pairing.id)
+                                  ?.sides.flatMap(s => s.ribIds)
+                                  .some(rid => ribToBossMap.get(rid)?.high === marker.id)
+                              )
+                              .map(pairing => apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id))
+                              .filter((r): r is NonNullable<typeof r> => r?.status === "ok" && typeof r.apexHeight === "number");
+                            const pairingApexHeights = bossParingResults.map(r => r.apexHeight as number);
+                            const medianApexZ =
+                              pairingApexHeights.length > 0 ? median(pairingApexHeights) : bossApex?.apex.z;
+
                             return (
                               <div
                                 key={marker.id}
@@ -3099,7 +3666,26 @@ export default function Step7MeasurementsPage() {
                                     ? "border-blue-400/70 bg-blue-400/10"
                                     : "border-border hover:border-blue-400/50"
                                 )}
-                                onClick={() => setSelectedBossStone(isSelected ? null : marker.id)}
+                                onClick={() => {
+                                  setSelectedBossStone(isSelected ? null : marker.id);
+                                  if (!isSelected) {
+                                    console.group(`[Boss Stone] "${displayName}" (id: ${marker.id})`);
+                                    console.log(`Pairing apex heights used (${bossParingResults.length}):`);
+                                    bossParingResults.forEach(r => {
+                                      console.log(
+                                        `  "${r.pairingName}"`,
+                                        `→ apexHeight = ${(r.apexHeight as number).toFixed(4)} (relative: ${((r.apexHeight as number) - impostH).toFixed(4)}m)`,
+                                      );
+                                    });
+                                    if (pairingApexHeights.length > 0) {
+                                      console.log(`Median apex Z (raw): ${median(pairingApexHeights).toFixed(4)}`);
+                                      console.log(`Median apex Z (relative to impost): ${(median(pairingApexHeights) - impostH).toFixed(4)}m`);
+                                    } else {
+                                      console.log("No pairing apex heights found — falling back to boss.apex.z:", bossApex?.apex.z?.toFixed(4));
+                                    }
+                                    console.groupEnd();
+                                  }
+                                }}
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2 min-w-0">
@@ -3109,9 +3695,9 @@ export default function Step7MeasurementsPage() {
                                     />
                                     <span className="text-sm font-medium truncate">{displayName}</span>
                                   </div>
-                                  {bossApex && (
+                                  {medianApexZ != null && (
                                     <span className="text-xs font-mono text-muted-foreground shrink-0">
-                                      Z: {(bossApex.apex.z - (impostLineData?.impost_height ?? 0)).toFixed(2)}m
+                                      Z: {(medianApexZ - impostH).toFixed(2)}m
                                     </span>
                                   )}
                                 </div>
@@ -3120,6 +3706,7 @@ export default function Step7MeasurementsPage() {
                           })}
                         </div>
                       </ScrollArea>
+                      )}
                     </CardContent>
                   </Card>
                 )}

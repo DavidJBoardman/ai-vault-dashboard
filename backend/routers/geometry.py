@@ -1,6 +1,7 @@
 """Geometry analysis router for vault classification and measurements."""
 
-from typing import List, Optional, Literal
+import hashlib
+from typing import Any, Dict, List, Optional, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter
@@ -286,15 +287,48 @@ class RibGroupResult(BaseModel):
     combinedMeasurements: RibGroupCombinedMeasurements
 
 
+class BossPosition(BaseModel):
+    x: float
+    y: float
+    z: float
+
 class DetectRibGroupsRequest(BaseModel):
     ribs: List[RibForGrouping]
-    maxGap: float = 2.0
+    maxGap: float = 0.5
+    angleThresholdDeg: float = 25.0
     radiusTolerance: float = 0.15
+    bossGapFactor: float = 0.6
+    planeNormalThresholdDeg: float = 18.0
+    bosses: Optional[List[BossPosition]] = None
+    diagnostics: bool = False
+    diagnosticsRibId: Optional[str] = None
+
+
+class RibGroupPassDiagnostics(BaseModel):
+    passLabel: Optional[str] = None
+    consideredPairs: Optional[int] = None
+    candidatePairs: Optional[int] = None
+    acceptedPairs: Optional[int] = None
+    rejectedPairs: Optional[int] = None
+    topRejections: Optional[List[Dict[str, Any]]] = None
+    pairDiagnostics: Optional[List[Dict[str, Any]]] = None
+    acceptedPairDiagnostics: Optional[List[Dict[str, Any]]] = None
+    perRibRejectionCounts: Optional[Dict[str, Dict[str, int]]] = None
+
+
+class RibGroupingDiagnosticsPayload(BaseModel):
+    mode: Optional[str] = None
+    passes: Optional[List[RibGroupPassDiagnostics]] = None
+    lockedRibs: Optional[List[str]] = None
+    pass2Pool: Optional[List[str]] = None
+    pass2AddedGroups: Optional[int] = None
+    finalGroupCount: Optional[int] = None
 
 
 class DetectRibGroupsResponse(BaseModel):
     success: bool
     data: Optional[List[RibGroupResult]] = None
+    diagnostics: Optional[RibGroupingDiagnosticsPayload] = None
     error: Optional[str] = None
 
 
@@ -311,24 +345,50 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
         if not service.traces:
             return DetectRibGroupsResponse(success=False, error="No valid rib traces provided")
 
+        boss_positions = None
+        if request.bosses:
+            boss_positions = np.array([[b.x, b.y, b.z] for b in request.bosses])
+
         import asyncio as _asyncio
+        from functools import partial
+
         loop = _asyncio.get_event_loop()
+        group_detector = (
+            service.detect_rib_groups_two_pass
+            if hasattr(service, "detect_rib_groups_two_pass")
+            else service.detect_rib_groups
+        )
+
+        detect_call = partial(
+            group_detector,
+            request.maxGap,
+            request.angleThresholdDeg,
+            request.radiusTolerance,
+            boss_positions,
+            request.bossGapFactor,
+            request.planeNormalThresholdDeg,
+            diagnostics=request.diagnostics,
+            diagnostics_focus_rib=request.diagnosticsRibId,
+        )
+
         groups = await loop.run_in_executor(
             None,
-            service.detect_rib_groups,
-            request.maxGap,
-            25.0,  # angle_threshold_deg - internal constant
-            request.radiusTolerance,
+            detect_call,
         )
 
         results = []
-        for i, group_ids in enumerate(groups):
-            combined = service.calculate_group_measurements(group_ids)
+        for group_ids in groups:
+            normalized_rib_ids = sorted(group_ids)
+            group_key = "|".join(normalized_rib_ids)
+            group_hash = hashlib.sha1(group_key.encode("utf-8")).hexdigest()[:10]
+            group_id = f"group-{group_hash}"
+
+            combined = service.calculate_group_measurements(normalized_rib_ids)
             results.append(RibGroupResult(
-                groupId=f"group-{i}",
+                groupId=group_id,
                 groupName=None,
-                ribIds=group_ids,
-                isGrouped=len(group_ids) > 1,
+                ribIds=normalized_rib_ids,
+                isGrouped=len(normalized_rib_ids) > 1,
                 combinedMeasurements=RibGroupCombinedMeasurements(
                     arc_radius=combined["arc_radius"],
                     rib_length=combined["rib_length"],
@@ -339,7 +399,31 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
                 ),
             ))
 
-        return DetectRibGroupsResponse(success=True, data=results)
+        diagnostics_payload: Optional[RibGroupingDiagnosticsPayload] = None
+        if request.diagnostics and service.last_grouping_diagnostics:
+            raw_diag = service.last_grouping_diagnostics
+            if raw_diag.get("mode") == "two-pass":
+                pass_models = [
+                    RibGroupPassDiagnostics(**pass_diag)
+                    for pass_diag in raw_diag.get("passes", [])
+                    if isinstance(pass_diag, dict)
+                ]
+                diagnostics_payload = RibGroupingDiagnosticsPayload(
+                    mode="two-pass",
+                    passes=pass_models,
+                    lockedRibs=raw_diag.get("lockedRibs"),
+                    pass2Pool=raw_diag.get("pass2Pool"),
+                    pass2AddedGroups=raw_diag.get("pass2AddedGroups"),
+                    finalGroupCount=raw_diag.get("finalGroupCount"),
+                )
+            else:
+                diagnostics_payload = RibGroupingDiagnosticsPayload(
+                    mode="single-pass",
+                    passes=[RibGroupPassDiagnostics(**raw_diag)],
+                    finalGroupCount=len(results),
+                )
+
+        return DetectRibGroupsResponse(success=True, data=results, diagnostics=diagnostics_payload)
     except Exception as e:
         return DetectRibGroupsResponse(success=False, error=str(e))
 
@@ -426,6 +510,13 @@ class ApexSpanRequest(BaseModel):
     symmetryAngleTolerance: float = 30.0
     impostHeight: Optional[float] = None
     pairings: Optional[List[PairingApexInput]] = None
+    semicircularGroups: Optional[List["SemicircularGroupInput"]] = None
+
+
+class SemicircularGroupInput(BaseModel):
+    groupId: str
+    groupName: str
+    ribIds: List[str]
 
 
 class RibPairIntersection(BaseModel):
@@ -461,10 +552,21 @@ class PairingApexResult(BaseModel):
     warning: Optional[str] = None
 
 
+class SemicircularApexResult(BaseModel):
+    groupId: str
+    groupName: str
+    apex: Optional[Point3D] = None
+    apexHeight: Optional[float] = None
+    span: Optional[float] = None
+    springingPoints: List[Point3D] = []
+    status: Literal["ok", "no-intersection", "insufficient-data"] = "insufficient-data"
+
+
 class ApexSpanResult(BaseModel):
     bosses: List[BossApexResult]
     ribs: dict  # {rib_id: RibSpanResult}
     pairingApex: List[PairingApexResult] = []
+    semicircularApex: List[SemicircularApexResult] = []
 
 
 class ApexSpanResponse(BaseModel):
@@ -515,6 +617,17 @@ async def calculate_apex_span_endpoint(request: ApexSpanRequest):
                 for pairing in request.pairings
             ]
 
+        semicircular_raw = None
+        if request.semicircularGroups:
+            semicircular_raw = [
+                {
+                    "groupId": sg.groupId,
+                    "groupName": sg.groupName,
+                    "ribIds": sg.ribIds,
+                }
+                for sg in request.semicircularGroups
+            ]
+
         import asyncio as _asyncio
         loop = _asyncio.get_event_loop()
         result = await loop.run_in_executor(
@@ -525,6 +638,7 @@ async def calculate_apex_span_endpoint(request: ApexSpanRequest):
                 symmetry_angle_tol_deg=request.symmetryAngleTolerance,
                 impost_height=request.impostHeight,
                 pairings=pairings_raw,
+                semicircular_groups=semicircular_raw,
             ),
         )
 
@@ -561,6 +675,18 @@ async def calculate_apex_span_endpoint(request: ApexSpanRequest):
                         warning=p.get("warning"),
                     )
                     for p in result.get("pairingApex", [])
+                ],
+                semicircularApex=[
+                    SemicircularApexResult(
+                        groupId=s["groupId"],
+                        groupName=s["groupName"],
+                        apex=Point3D(**s["apex"]) if s.get("apex") else None,
+                        apexHeight=s.get("apexHeight"),
+                        span=s.get("span"),
+                        springingPoints=[Point3D(**sp) for sp in s.get("springingPoints", [])],
+                        status=s.get("status", "insufficient-data"),
+                    )
+                    for s in result.get("semicircularApex", [])
                 ],
             ),
         )

@@ -387,22 +387,76 @@ export interface RibGroup {
   combinedMeasurements: RibGroupCombinedMeasurements;
 }
 
+export interface RibGroupPairDiagnostic {
+  passLabel?: string;
+  ribA: string;
+  ribB: string;
+  aEndpoint?: "start" | "end";
+  bEndpoint?: "start" | "end";
+  gapDistance?: number;
+  effectiveGap?: number;
+  radiusRelativeDiff?: number;
+  radiusTolerance?: number;
+  planeAlignment?: number;
+  planeThreshold?: number;
+  mergedFitError?: number;
+  mergedErrorAllowed?: number;
+  directionOpposition?: number;
+  directionThreshold?: number;
+  arcQuality?: number;
+  score?: number;
+  directionalPenalty?: number;
+  decision?: "rejected" | "candidate" | "accepted";
+  reason?: string | null;
+}
+
+export interface RibGroupPassDiagnostics {
+  passLabel?: string;
+  consideredPairs?: number;
+  candidatePairs?: number;
+  acceptedPairs?: number;
+  rejectedPairs?: number;
+  topRejections?: Array<{ reason: string; count: number }>;
+  pairDiagnostics?: RibGroupPairDiagnostic[];
+  acceptedPairDiagnostics?: RibGroupPairDiagnostic[];
+  perRibRejectionCounts?: Record<string, Record<string, number>>;
+}
+
+export interface RibGroupingDiagnostics {
+  mode?: "single-pass" | "two-pass";
+  passes?: RibGroupPassDiagnostics[];
+  lockedRibs?: string[];
+  pass2Pool?: string[];
+  pass2AddedGroups?: number;
+  finalGroupCount?: number;
+}
+
+export interface DetectRibGroupsApiResponse extends ApiResponse<RibGroup[]> {
+  diagnostics?: RibGroupingDiagnostics;
+}
+
 export interface DetectRibGroupsRequest {
   ribs: Array<{
     id: string;
     points: Array<[number, number, number]>;
   }>;
   maxGap?: number;
+  angleThresholdDeg?: number;
   radiusTolerance?: number;
+  bossGapFactor?: number;
+  planeNormalThresholdDeg?: number;
+  bosses?: Array<{ x: number; y: number; z: number }>;
+  diagnostics?: boolean;
+  diagnosticsRibId?: string;
 }
 
 export async function detectRibGroups(
   params: DetectRibGroupsRequest,
-): Promise<ApiResponse<RibGroup[]>> {
+): Promise<DetectRibGroupsApiResponse> {
   return apiRequest<RibGroup[]>("/api/geometry/measurements/rib-groups", {
     method: "POST",
     body: JSON.stringify(params),
-  });
+  }) as Promise<DetectRibGroupsApiResponse>;
 }
 
 export interface CustomRibGroupRequest {
@@ -444,6 +498,13 @@ export interface ApexSpanRequest {
   symmetryAngleTolerance?: number;
   impostHeight?: number;
   pairings?: PairingApexInput[];
+  semicircularGroups?: SemicircularGroupInput[];
+}
+
+export interface SemicircularGroupInput {
+  groupId: string;
+  groupName: string;
+  ribIds: string[];
 }
 
 export interface PairingApexSideInput {
@@ -485,6 +546,17 @@ export interface ApexSpanResult {
   bosses: BossApexResult[];
   ribs: Record<string, RibSpanResult>;
   pairingApex: PairingApexResult[];
+  semicircularApex: SemicircularApexResult[];
+}
+
+export interface SemicircularApexResult {
+  groupId: string;
+  groupName: string;
+  apex?: { x: number; y: number; z: number };
+  apexHeight?: number;
+  span?: number;
+  springingPoints: Array<{ x: number; y: number; z: number }>;
+  status: "ok" | "no-intersection" | "insufficient-data";
 }
 
 export interface PairingApexResult {
@@ -526,6 +598,7 @@ export interface MeasurementConfig {
   groupNameById: Record<string, string>;
   bossStoneNameById: Record<string, string>;
   ribPairings: RibPairing[];
+  semicircularIds: string[];
 }
 
 export async function getMeasurementConfig(
