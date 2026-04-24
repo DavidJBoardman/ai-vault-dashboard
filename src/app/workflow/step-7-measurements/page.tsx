@@ -138,6 +138,10 @@ interface RenameTarget {
   source: "custom" | "auto" | "single";
 }
 
+interface AutoPairCandidate {
+  sides: [string, string];
+}
+
 const EMPTY_MEASUREMENT_CONFIG: MeasurementConfig = {
   ribNameById: {},
   customGroups: [],
@@ -269,6 +273,10 @@ function composeRibGroupName(names: string[]): string | undefined {
 
   components.sort((left, right) => left.order - right.order);
   return components.map(component => component.label).join(" + ");
+}
+
+function makePairKey(a: string, b: string): string {
+  return a < b ? `${a}::${b}` : `${b}::${a}`;
 }
 
 
@@ -639,6 +647,7 @@ export default function Step7MeasurementsPage() {
   const [bossStoneRenameId, setBossStoneRenameId] = useState<string | null>(null);
   const [bossStoneRenameValue, setBossStoneRenameValue] = useState("");
   const [isAutoLabellingRibs, setIsAutoLabellingRibs] = useState(false);
+  const [isAutoPairingRibs, setIsAutoPairingRibs] = useState(false);
   const [selectedBossStone, setSelectedBossStone] = useState<string | null>(null);
   const bossStoneRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const bossStoneScrollAreaRef = useRef<HTMLDivElement | null>(null);
@@ -1394,6 +1403,27 @@ export default function Step7MeasurementsPage() {
     return byId;
   }, [displayGroups]);
 
+  const displayGroupIdByRibId = useMemo(() => {
+    const byRibId = new Map<string, string>();
+    displayGroups.forEach(group => {
+      group.ribIds.forEach(ribId => {
+        byRibId.set(ribId, group.groupId);
+      });
+    });
+    return byRibId;
+  }, [displayGroups]);
+
+  const semicircularGroupIds = useMemo(() => {
+    const semicircularRibIds = new Set(measurementConfig.semicircularIds ?? []);
+    const groupIds = new Set<string>();
+    displayGroups.forEach(group => {
+      if (group.ribIds.length > 0 && group.ribIds.every(ribId => semicircularRibIds.has(ribId))) {
+        groupIds.add(group.groupId);
+      }
+    });
+    return groupIds;
+  }, [displayGroups, measurementConfig.semicircularIds]);
+
   const pairingApexInputs = useMemo(() => {
     return (measurementConfig.ribPairings ?? []).map(pairing => ({
       pairingId: pairing.id,
@@ -1422,6 +1452,216 @@ export default function Step7MeasurementsPage() {
       }))
       .filter(sg => sg.ribIds.length > 0);
   }, [measurementConfig.semicircularIds, displayGroups, availableRibIdSet]);
+
+  const buildAutoPairCandidates = useCallback((data: ApexSpanResult): AutoPairCandidate[] => {
+    const candidates: AutoPairCandidate[] = [];
+    const seenKeys = new Set<string>();
+
+    data.bosses.forEach(boss => {
+      boss.ribPairs.forEach(pair => {
+        const sideA = displayGroupIdByRibId.get(pair.ribA) ?? pair.ribA;
+        const sideB = displayGroupIdByRibId.get(pair.ribB) ?? pair.ribB;
+
+        if (sideA === sideB) return;
+        if (!displayGroupById.has(sideA) || !displayGroupById.has(sideB)) return;
+        if (semicircularGroupIds.has(sideA) || semicircularGroupIds.has(sideB)) return;
+
+        const key = makePairKey(sideA, sideB);
+        if (seenKeys.has(key)) return;
+
+        seenKeys.add(key);
+        candidates.push({
+          sides: sideA < sideB ? [sideA, sideB] : [sideB, sideA],
+        });
+      });
+    });
+
+    return candidates;
+  }, [displayGroupById, displayGroupIdByRibId, semicircularGroupIds]);
+
+  const resolveApexSpanForAutoPairing = useCallback(async (): Promise<ApexSpanResult | null> => {
+    if (apexSpanResult?.bosses?.length) {
+      return apexSpanResult;
+    }
+
+    if (intradosLines.length === 0 || bossStoneMarkers.length === 0) {
+      return null;
+    }
+
+    const ribs = intradosLines.map(line => ({ id: line.id, points: line.points3d }));
+    const bosses = bossStoneMarkers.map(m => ({
+      id: m.id,
+      x: m.x,
+      y: m.y,
+      z: m.z,
+      label: m.label ?? m.id,
+    }));
+
+    const response = await calculateApexSpan({
+      ribs,
+      bosses,
+      maxBossDistance: 0.5,
+      impostHeight: impostLineData?.impost_height ?? undefined,
+      pairings: pairingApexInputs.length > 0 ? pairingApexInputs : undefined,
+      semicircularGroups: semicircularInputs.length > 0 ? semicircularInputs : undefined,
+    });
+
+    if (!response.success || !response.data) {
+      return null;
+    }
+
+    setApexSpanResult(response.data);
+    return response.data;
+  }, [
+    apexSpanResult,
+    bossStoneMarkers,
+    intradosLines,
+    impostLineData?.impost_height,
+    pairingApexInputs,
+    semicircularInputs,
+  ]);
+
+  const canAutoPairRibs = useMemo(() => {
+    if (bossStoneMarkers.length === 0 || intradosLines.length < 2) {
+      return false;
+    }
+
+    const currentlyPairedSides = new Set<string>();
+    (measurementConfig.ribPairings ?? []).forEach(pairing => {
+      const [left, right] = pairing.sides;
+      if (!left || !right || left === right) return;
+      currentlyPairedSides.add(left);
+      currentlyPairedSides.add(right);
+    });
+
+    const pairableGroupCount = displayGroups.filter(group => (
+      !semicircularGroupIds.has(group.groupId) &&
+      !currentlyPairedSides.has(group.groupId)
+    )).length;
+
+    if (pairableGroupCount < 2) {
+      return false;
+    }
+
+    if (!apexSpanResult?.bosses?.length) {
+      return true;
+    }
+
+    const candidates = buildAutoPairCandidates(apexSpanResult);
+    if (candidates.length === 0) {
+      return false;
+    }
+
+    const existingPairKeys = new Set<string>();
+    const usedSides = new Set<string>();
+    (measurementConfig.ribPairings ?? []).forEach(pairing => {
+      const [left, right] = pairing.sides;
+      if (!left || !right || left === right) return;
+      existingPairKeys.add(makePairKey(left, right));
+      usedSides.add(left);
+      usedSides.add(right);
+    });
+
+    return candidates.some(candidate => {
+      const [left, right] = candidate.sides;
+      const key = makePairKey(left, right);
+      if (existingPairKeys.has(key)) return false;
+      if (usedSides.has(left) || usedSides.has(right)) return false;
+      usedSides.add(left);
+      usedSides.add(right);
+      return true;
+    });
+  }, [
+    apexSpanResult,
+    bossStoneMarkers.length,
+    buildAutoPairCandidates,
+    displayGroups,
+    intradosLines.length,
+    measurementConfig.ribPairings,
+    semicircularGroupIds,
+  ]);
+
+  const autoPairRibs = useCallback(async () => {
+    if (bossStoneMarkers.length === 0 || intradosLines.length < 2) return;
+
+    setIsAutoPairingRibs(true);
+    const startedAt = Date.now();
+
+    try {
+      const apexData = await resolveApexSpanForAutoPairing();
+      if (!apexData) {
+        setLabellingPanel("pairings");
+        return;
+      }
+
+      const candidates = buildAutoPairCandidates(apexData);
+      const pairStamp = Date.now();
+
+      setMeasurementConfig(prev => {
+        const existingPairings = prev.ribPairings ?? [];
+        const existingPairKeys = new Set<string>();
+        const usedSides = new Set<string>();
+
+        existingPairings.forEach(pairing => {
+          const [left, right] = pairing.sides;
+          if (!left || !right || left === right) return;
+          existingPairKeys.add(makePairKey(left, right));
+          usedSides.add(left);
+          usedSides.add(right);
+        });
+
+        const additions: RibPairing[] = [];
+        let sequence = 1;
+
+        candidates.forEach(candidate => {
+          const [left, right] = candidate.sides;
+          const key = makePairKey(left, right);
+          if (existingPairKeys.has(key)) return;
+          if (usedSides.has(left) || usedSides.has(right)) return;
+
+          additions.push({
+            id: `pair-auto-${pairStamp}-${sequence}`,
+            name: `${pairingDisplayName(left)} / ${pairingDisplayName(right)}`,
+            sides: [left, right],
+          });
+          sequence += 1;
+          existingPairKeys.add(key);
+          usedSides.add(left);
+          usedSides.add(right);
+        });
+
+        if (additions.length === 0) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          ribPairings: [...existingPairings, ...additions],
+        };
+      });
+
+      setSelectedForPairing(new Set());
+      setRenamePairingId(null);
+      setRenamePairingValue("");
+      setLabellingPanel("pairings");
+    } catch (err) {
+      console.error("Error auto-pairing ribs:", err);
+      setLabellingPanel("pairings");
+    } finally {
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, 500 - elapsed);
+      if (remaining > 0) {
+        await new Promise(resolve => setTimeout(resolve, remaining));
+      }
+      setIsAutoPairingRibs(false);
+    }
+  }, [
+    bossStoneMarkers.length,
+    buildAutoPairCandidates,
+    intradosLines.length,
+    pairingDisplayName,
+    resolveApexSpanForAutoPairing,
+  ]);
 
   // Calculate boss apex/span and user-defined pairing apex heights.
   useEffect(() => {
@@ -2191,17 +2431,34 @@ export default function Step7MeasurementsPage() {
                       <p className="text-xs text-muted-foreground">
                         Selected for grouping: {selectedForGrouping.size}
                       </p>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="h-7 gap-1"
-                        onClick={handleCreateCustomGroup}
-                        disabled={selectedForGrouping.size < 2}
-                        title="Create a manual group from selected ribs"
-                      >
-                        <FolderPlus className="w-3.5 h-3.5" />
-                        <span className="text-xs">Group Selected</span>
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 gap-1"
+                          onClick={handleCreateCustomGroup}
+                          disabled={selectedForGrouping.size < 2}
+                          title="Create a manual group from selected ribs"
+                        >
+                          <FolderPlus className="w-3.5 h-3.5" />
+                          <span className="text-xs">Group Selected</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 gap-1"
+                          onClick={autoPairRibs}
+                          disabled={isAutoPairingRibs || !canAutoPairRibs}
+                          title="Auto-create missing pairings from boss-symmetry analysis"
+                        >
+                          {isAutoPairingRibs ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Wand2 className="w-3.5 h-3.5" />
+                          )}
+                          <span className="text-xs">{isAutoPairingRibs ? "Auto Pairing..." : "Auto Pair Ribs"}</span>
+                        </Button>
+                      </div>
                     </div>
                     {renameTarget && (
                       <div className="rounded-md border bg-muted/40 p-2">
@@ -2636,7 +2893,7 @@ export default function Step7MeasurementsPage() {
                     <div ref={pairingSelectorScrollAreaRef}>
                     <ScrollArea className="h-40">
                       <div className="space-y-1 pr-2">
-                        {displayGroups.filter(g => !(measurementConfig.semicircularIds ?? []).includes(g.groupId)).map((group) => {
+                        {displayGroups.filter(g => !semicircularGroupIds.has(g.groupId)).map((group) => {
                           const isChecked = selectedForPairing.has(group.groupId);
                           const isSelectedTarget = selectedPairingTargetId === group.groupId;
                           const alreadyPaired = (measurementConfig.ribPairings ?? []).some(
