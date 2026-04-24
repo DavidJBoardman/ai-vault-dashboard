@@ -841,6 +841,9 @@ export interface IntradosLine {
   points2d: number[][];  // [[px, py], ...]
   pointCount: number;
   lineLength: number;
+  isBridge?: boolean;    // true for arcs stitched through a boss stone
+  ribAId?: string;
+  ribBId?: string;
 }
 
 export interface IntradosTraceResponse {
@@ -868,6 +871,7 @@ export interface IntradosTraceOptions {
   maxStepMeters?: number;
   floorPlaneZ?: number;
   exclusionBox?: ExclusionBox;
+  bridgeBossStones?: boolean;
 }
 
 export async function traceIntradosLines(
@@ -886,6 +890,7 @@ export async function traceIntradosLines(
       maxStepMeters: options.maxStepMeters ?? 0.5,
       floorPlaneZ: options.floorPlaneZ,
       exclusionBox: options.exclusionBox,
+      bridgeBossStones: options.bridgeBossStones ?? false,
     }),
   });
 }

@@ -2,6 +2,25 @@
   display: none !important;
 }
 
+/* Vault photo behind the default blue sidebar header */
+.wy-side-nav-search {
+  background-image:
+    linear-gradient(rgba(41, 128, 185, 0.6), rgba(41, 128, 185, 0.6)),
+    url("../images/header.jpg");
+  background-size: cover;
+  background-position: center;
+}
+
+/* Inject "Version: latest" under the site title in the sidebar */
+.wy-side-nav-search > a::after {
+  content: "Version: latest";
+  display: block;
+  font-size: 0.75rem;
+  font-weight: normal;
+  opacity: 0.85;
+  margin-top: 0.5rem;
+}
+
 .wy-nav-content {
   max-width: 1000px;
 }
@@ -15,12 +34,13 @@ img.center {
 .partner-logos {
   margin-top: 2rem;
   margin-bottom: 2rem;
-  padding: 0.8rem 1rem;
-  background: #1f1f23;
+  padding: 1rem 1.25rem;
+  background: #ffffff;
+  border: 1px solid #e5e5ea;
   border-radius: 8px;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem 1.5rem;
+  gap: 1rem 2rem;
   align-items: center;
   justify-content: center;
 }
@@ -32,7 +52,13 @@ img.center {
 }
 
 .partner-logos img {
-  max-height: 42px;
+  max-height: 48px;
   width: auto;
   display: block;
 }
+
+/* Per-logo tuning — each source PNG has different internal padding,
+   so uniform max-height makes the marks look uneven. */
+.partner-logos .logo-ukri { max-height: 56px; }
+.partner-logos .logo-uol  { max-height: 52px; }
+.partner-logos .logo-vec  { max-height: 40px; }

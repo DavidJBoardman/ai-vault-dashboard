@@ -50,3 +50,23 @@ The application creates a **Vault Analyser** folder in your home directory. Proj
 - Make sure the scan you want to analyse is available as an `E57` file.
 - Keep enough free disk space for derived files such as projections, masks, and exports.
 - Expect the first AI-assisted segmentation run to take longer while the model is loaded.
+---
+
+# Uninstalling
+
+Removing the application binary does not delete your project data. If you only want to free the installed app, skip the "User data" step.
+
+### macOS
+
+1. Quit Vault Analyser if it is running.
+2. Drag **Vault Analyser.app** from `/Applications` (or wherever you placed it) to the Trash.
+3. **User data (optional):** delete `/Users/<your-user>/Vault Analyser/projects/` to remove your projects and exports.
+
+### Windows
+
+1. Quit Vault Analyser if it is running.
+2. Delete the extracted folder where you unzipped the release (it contains the `.exe` — no Windows installer was used, so there is no entry in **Installed apps**).
+3. **User data (optional):** delete `C:\Users\<your-user>\Vault Analyser\projects\` to remove your projects and exports.
+
+!!! warning "Back up first"
+    The `Vault Analyser` folder in your home directory contains all your project files, segmentations, and exports. Copy anything you want to keep to another location before deleting it.
