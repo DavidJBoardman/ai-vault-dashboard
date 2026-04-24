@@ -16,6 +16,7 @@ class MeasurementService:
         self.traces: Dict[str, np.ndarray] = {}
         self.measurements: Dict[str, Dict[str, Any]] = {}
         self.hypotheses: Dict[str, Dict[str, Any]] = {}
+        self.last_grouping_diagnostics: Optional[Dict[str, Any]] = None
     
     async def calculate(
         self,
@@ -336,38 +337,86 @@ class MeasurementService:
       points: np.ndarray,
       arc_params: Dict[str, Any],
   ) -> np.ndarray:
-      """Calculate distance of each point from the ideal fitted arc.
+      """Calculate point-to-arc distances in the fitted arc frame.
       
       Args:
           points: Array of 3D points (N x 3)
-          arc_params: Dictionary containing arc parameters with 'center' (2D tuple) and 'radius'
+          arc_params: Fitted arc parameters returned by _fit_arc()
       
       Returns:
-          Array of distances for each point from the ideal arc (N,)
+          Unsigned distance from each point to the closest point on the
+          finite fitted arc segment (N,)
       """
-      
-      # Extract center and radius from arc parameters
-      # center_2d is stored as tuple (cx, cz) for 2D projection calculations
-      center_2d = arc_params.get("center_2d", (0, 0))
-      if isinstance(center_2d, dict):
-          # Fallback if center is 3D dict (shouldn't happen, but be safe)
-          cx, cz = 0, 0
+
+      if points.size == 0:
+          return np.array([], dtype=float)
+
+      center_dict = arc_params.get("center", {})
+      center = np.array(
+          [
+              float(center_dict.get("x", 0.0)),
+              float(center_dict.get("y", 0.0)),
+              float(center_dict.get("z", 0.0)),
+          ],
+          dtype=float,
+      )
+
+      basis_u_dict = arc_params.get("basis_u", {})
+      basis_v_dict = arc_params.get("basis_v", {})
+      u = np.array(
+          [
+              float(basis_u_dict.get("x", 1.0)),
+              float(basis_u_dict.get("y", 0.0)),
+              float(basis_u_dict.get("z", 0.0)),
+          ],
+          dtype=float,
+      )
+      v = np.array(
+          [
+              float(basis_v_dict.get("x", 0.0)),
+              float(basis_v_dict.get("y", 0.0)),
+              float(basis_v_dict.get("z", 1.0)),
+          ],
+          dtype=float,
+      )
+
+      u_len = float(np.linalg.norm(u))
+      v_len = float(np.linalg.norm(v))
+      if u_len <= 1e-9 or v_len <= 1e-9:
+          # Fallback to sphere-like radial residuals if basis vectors are unavailable.
+          radius = max(float(arc_params.get("radius", 0.0)), 0.0)
+          rel = points - center
+          return np.abs(np.linalg.norm(rel, axis=1) - radius)
+
+      u = u / u_len
+      v = v / v_len
+
+      radius = max(float(arc_params.get("radius", 0.0)), 0.0)
+      start_angle = float(arc_params.get("start_angle", 0.0))
+      end_angle = float(arc_params.get("end_angle", start_angle))
+      finite_arc = np.isfinite(start_angle) and np.isfinite(end_angle)
+
+      rel = points - center
+      x_coords = rel @ u
+      z_coords = rel @ v
+      point_angles = np.arctan2(z_coords, x_coords)
+
+      if finite_arc:
+          # Lift point angles onto the same unwrapped branch as the fitted arc.
+          point_angles = start_angle + np.mod(point_angles - start_angle + np.pi, 2.0 * np.pi) - np.pi
+          angle_min = min(start_angle, end_angle)
+          angle_max = max(start_angle, end_angle)
+          closest_angles = np.clip(point_angles, angle_min, angle_max)
       else:
-          cx, cz = center_2d
-      radius = arc_params["radius"]
-      
-      # Project points to 2D (XZ plane)
-      x = points[:, 0]
-      z = points[:, 2]
-      
-      # Calculate distance from each point to the arc center
-      distances_to_center = np.sqrt((x - cx)**2 + (z - cz)**2)
-      
-      # Calculate signed distance from the ideal arc
-      # Positive = outside the arc, Negative = inside the arc
-      point_distances = distances_to_center - radius
-      
-      return point_distances
+          closest_angles = point_angles
+
+      closest_points = (
+          center
+          + (radius * np.cos(closest_angles))[:, np.newaxis] * u
+          + (radius * np.sin(closest_angles))[:, np.newaxis] * v
+      )
+
+      return np.linalg.norm(points - closest_points, axis=1)
     
     async def chord_method_analysis(self, hypothesis_id: str) -> Dict[str, Any]:
         """Perform three-circle chord method analysis."""
@@ -521,30 +570,32 @@ class MeasurementService:
         plane_normal_threshold_deg: float = 18.0,
         min_points_for_reliable_arc_fit: int = 15,
         debug_label: Optional[str] = None,
+        diagnostics: bool = False,
+        diagnostics_focus_rib: Optional[str] = None,
     ) -> List[List[str]]:
         """
         Detect groups of ribs that are continuations of the same structural rib,
-        split by a keystone or boss stone.
+          split by a keystone or boss stone.
 
-        Two ribs belong to the same group when ALL of the following hold:
+          Priorities for pairing ribs:
 
-          1. Their fitted arc radii agree within ``radius_tolerance`` (relative).
-             Skipped when either trace has fewer than 15 points (unreliable fit).
-             2. Their fitted arc planes are compatible (normal-angle within
-                 ``plane_normal_threshold_deg``).  Skipped when either normal is
-                 unavailable.
-             3. The nearest endpoint pair is within ``max_gap`` metres.
-             When a boss stone sits near the gap midpoint the threshold is
-             relaxed to ``max_boss_gap`` (2 * max_gap, capped at 1.0 m).
-             4. Handshake direction: the tangent of rib A at its junction end
-             points toward rib B *and* the tangent of rib B at its junction end
-             points back toward rib A, both within ``angle_threshold_deg``.
-                 A stricter anti-parallel fallback is only allowed for very short
-                 gaps where the chord direction can be unstable.
+             1. Arc compatibility (same best-fit arc within tolerance):
+                 - radius agreement,
+                 - plane-normal agreement,
+                 - low merged-fit error when both traces are fit together.
 
-          Additional anti-overgrouping rule:
-             - Endpoint uniqueness: each rib endpoint may connect to at most one
-                continuation candidate (greedy by smallest gap first).
+             2. Endpoint proximity:
+                 - nearest endpoint pair must be close enough (with optional boss-
+                    midpoint relaxation).
+
+             3. Directionality is secondary:
+                 - tangential handshake is used as a soft tie-breaker, not a hard
+                    rejection, except for almost-coincident endpoints where diverging
+                    tangents strongly indicate different ribs.
+
+             Additional anti-overgrouping rule:
+                 - Endpoint uniqueness: each rib endpoint may connect to at most one
+                    continuation candidate (greedy by best arc score, then shortest gap).
 
         Returns a list of groups; singletons appear as a one-element group.
         """
@@ -558,44 +609,115 @@ class MeasurementService:
         plane_normal_threshold_deg = float(np.clip(plane_normal_threshold_deg, 1.0, 45.0))
         debug_enabled = self._rib_grouping_debug_enabled()
         label = debug_label or "single-pass"
+        collect_diagnostics = bool(diagnostics or diagnostics_focus_rib)
 
         rejection_counts: Dict[str, int] = {}
+        rib_rejection_counts: Dict[str, Dict[str, int]] = {}
+        pair_diagnostics: List[Dict[str, Any]] = []
+        accepted_pairs: List[Dict[str, Any]] = []
+
+        def should_collect_pair(rib_a: str, rib_b: str) -> bool:
+            if not collect_diagnostics:
+                return False
+            if not diagnostics_focus_rib:
+                return True
+            return rib_a == diagnostics_focus_rib or rib_b == diagnostics_focus_rib
 
         def record_rejection(reason: str) -> None:
             rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
 
-        cos_tol = np.cos(np.deg2rad(angle_threshold_deg))
-        cos_plane_tol = np.cos(np.deg2rad(plane_normal_threshold_deg))
-        max_boss_gap = min(max_gap * 2.0, 1.0)  # relaxed threshold when boss stone in gap
-        antiparallel_max_gap = min(max_gap * 0.6, 0.25)
+        def record_rib_rejection(rib_id: str, reason: str) -> None:
+            by_reason = rib_rejection_counts.setdefault(rib_id, {})
+            by_reason[reason] = by_reason.get(reason, 0) + 1
 
-        # Pre-fit radii for traces with enough points so pairwise checks can
-        # apply the radius gate cheaply and consistently.
+        def reject_pair(reason: str, pair_payload: Optional[Dict[str, Any]] = None) -> None:
+            record_rejection(reason)
+            if not pair_payload:
+                return
+
+            rib_a = str(pair_payload.get("ribA", ""))
+            rib_b = str(pair_payload.get("ribB", ""))
+            if rib_a:
+                record_rib_rejection(rib_a, reason)
+            if rib_b:
+                record_rib_rejection(rib_b, reason)
+
+            if should_collect_pair(rib_a, rib_b):
+                pair_diagnostics.append({
+                    **pair_payload,
+                    "decision": "rejected",
+                    "reason": reason,
+                })
+
+        cos_tol = np.cos(np.deg2rad(angle_threshold_deg))
+        # Enforce near-collinearity of continuation direction across a split rib:
+        # endpoint tangents should oppose each other strongly (anti-parallel).
+        direction_match_deg = max(6.0, angle_threshold_deg * 0.85)
+        cos_direction_match = np.cos(np.deg2rad(direction_match_deg))
+        cos_plane_tol = np.cos(np.deg2rad(plane_normal_threshold_deg))
+        relaxed_plane_threshold_deg = min(45.0, plane_normal_threshold_deg + 8.0)
+        cos_plane_tol_relaxed = np.cos(np.deg2rad(relaxed_plane_threshold_deg))
+        max_boss_gap = min(max_gap * 2.0, 1.0)  # relaxed threshold when boss stone in gap
+        antiparallel_max_gap = min(max_gap * 0.8, 0.4)
+
+        # Pre-fit arc parameters to evaluate pair compatibility cheaply.
+        fit_by_rib: Dict[str, Dict[str, Any]] = {}
         radius_by_rib: Dict[str, float] = {}
         normal_by_rib: Dict[str, np.ndarray] = {}
+        fit_error_by_rib: Dict[str, float] = {}
+        reliable_fit_ribs: set = set()
         for rib_id in rib_ids:
             pts = self.traces.get(rib_id)
-            if pts is None or len(pts) < min_points_for_reliable_arc_fit:
+            if pts is None or len(pts) < 3:
                 continue
             try:
                 fit = self._fit_arc(pts)
+                fit_by_rib[rib_id] = fit
+
                 radius = float(fit.get("radius", 0.0))
                 if np.isfinite(radius) and radius > min_valid_radius:
                     radius_by_rib[rib_id] = radius
+
+                fit_error = float(fit.get("error", np.inf))
+                if np.isfinite(fit_error) and fit_error >= 0.0:
+                    fit_error_by_rib[rib_id] = fit_error
 
                 normal_raw = np.asarray(fit.get("normal", []), dtype=float)
                 if normal_raw.shape == (3,):
                     normal_len = float(np.linalg.norm(normal_raw))
                     if normal_len > 1e-9:
                         normal_by_rib[rib_id] = normal_raw / normal_len
+
+                if (
+                    len(pts) >= min_points_for_reliable_arc_fit
+                    and rib_id in radius_by_rib
+                    and rib_id in normal_by_rib
+                ):
+                    reliable_fit_ribs.add(rib_id)
             except Exception:
-                # Leave this rib uncached; the pairwise radius gate is skipped
-                # when either side lacks a reliable fit.
+                # Leave this rib uncached.
                 continue
+
+        merged_fit_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
+        def merged_fit_for_pair(
+            rib_a: str,
+            rib_b: str,
+            points_a: np.ndarray,
+            points_b: np.ndarray,
+        ) -> Optional[Dict[str, Any]]:
+            key = tuple(sorted((rib_a, rib_b)))
+            if key in merged_fit_cache:
+                return merged_fit_cache[key]
+            try:
+                merged_fit_cache[key] = self._fit_arc(np.vstack([points_a, points_b]))
+                return merged_fit_cache[key]
+            except Exception:
+                return None
 
         # Build undirected adjacency graph
         adj: Dict[str, set] = {rid: set() for rid in rib_ids}
-        candidate_edges: List[Tuple[float, str, str, bool, bool]] = []
+        candidate_edges: List[Tuple[float, float, str, str, bool, bool, Dict[str, Any]]] = []
         considered_pairs = 0
         n = len(rib_ids)
         for i in range(n):
@@ -604,31 +726,23 @@ class MeasurementService:
                 pts_a = self.traces.get(a)
                 pts_b = self.traces.get(b)
                 if pts_a is None or pts_b is None:
-                    record_rejection("missing_trace")
+                    reject_pair("missing_trace", {
+                        "passLabel": label,
+                        "ribA": a,
+                        "ribB": b,
+                    })
                     continue
                 if len(pts_a) < 3 or len(pts_b) < 3:
-                    record_rejection("insufficient_points")
+                    reject_pair("insufficient_points", {
+                        "passLabel": label,
+                        "ribA": a,
+                        "ribB": b,
+                        "pointCountA": len(pts_a),
+                        "pointCountB": len(pts_b),
+                    })
                     continue
 
                 considered_pairs += 1
-
-                # Gate 0 - curvature agreement (when both traces are reliable)
-                radius_a = radius_by_rib.get(a)
-                radius_b = radius_by_rib.get(b)
-                if radius_a is not None and radius_b is not None:
-                    relative_diff = abs(radius_a - radius_b) / max(radius_a, radius_b)
-                    if relative_diff > radius_tolerance:
-                        record_rejection("radius_mismatch")
-                        continue
-
-                # Gate 0b - fitted plane compatibility (when both normals exist)
-                normal_a = normal_by_rib.get(a)
-                normal_b = normal_by_rib.get(b)
-                if normal_a is not None and normal_b is not None:
-                    alignment = abs(float(np.dot(normal_a, normal_b)))
-                    if alignment < cos_plane_tol:
-                        record_rejection("plane_mismatch")
-                        continue
 
                 # Gate 1 - nearest endpoint pair and gap cap
                 # Endpoints: (first, last) for each rib
@@ -641,6 +755,14 @@ class MeasurementService:
                     (True,  True):  float(np.linalg.norm(a1 - b1)),
                 }
                 (a_end, b_end), min_dist = min(dists.items(), key=lambda x: x[1])
+                pair_payload: Dict[str, Any] = {
+                    "passLabel": label,
+                    "ribA": a,
+                    "ribB": b,
+                    "aEndpoint": "end" if a_end else "start",
+                    "bEndpoint": "end" if b_end else "start",
+                    "gapDistance": min_dist,
+                }
 
                 # Determine effective gap threshold: larger if a boss stone
                 # sits near the midpoint of the gap between the two endpoints
@@ -656,7 +778,72 @@ class MeasurementService:
                         effective_gap = max_boss_gap
 
                 if min_dist > effective_gap:
-                    record_rejection("gap_too_large")
+                    pair_payload["effectiveGap"] = effective_gap
+                    reject_pair("gap_too_large", pair_payload)
+                    continue
+
+                # Gate 2 - same best-fit arc compatibility
+                fit_a = fit_by_rib.get(a)
+                fit_b = fit_by_rib.get(b)
+                radius_a = radius_by_rib.get(a)
+                radius_b = radius_by_rib.get(b)
+                normal_a = normal_by_rib.get(a)
+                normal_b = normal_by_rib.get(b)
+                err_a = fit_error_by_rib.get(a, np.inf)
+                err_b = fit_error_by_rib.get(b, np.inf)
+
+                if (
+                    fit_a is None
+                    or fit_b is None
+                    or radius_a is None
+                    or radius_b is None
+                ):
+                    reject_pair("arc_fit_missing", pair_payload)
+                    continue
+
+                both_reliable = a in reliable_fit_ribs and b in reliable_fit_ribs
+                effective_radius_tolerance = (
+                    radius_tolerance
+                    if both_reliable
+                    else min(0.5, radius_tolerance * 1.5)
+                )
+                relative_diff = abs(radius_a - radius_b) / max(radius_a, radius_b)
+                pair_payload["radiusRelativeDiff"] = relative_diff
+                pair_payload["radiusTolerance"] = effective_radius_tolerance
+                if relative_diff > effective_radius_tolerance:
+                    reject_pair("radius_mismatch", pair_payload)
+                    continue
+
+                if normal_a is None or normal_b is None:
+                    reject_pair("plane_missing", pair_payload)
+                    continue
+
+                alignment = abs(float(np.dot(normal_a, normal_b)))
+                required_plane_alignment = cos_plane_tol if both_reliable else cos_plane_tol_relaxed
+                pair_payload["planeAlignment"] = alignment
+                pair_payload["planeThreshold"] = required_plane_alignment
+                if alignment < required_plane_alignment:
+                    reject_pair("plane_mismatch", pair_payload)
+                    continue
+
+                merged_fit = merged_fit_for_pair(a, b, pts_a, pts_b)
+                if merged_fit is None:
+                    reject_pair("merged_fit_failed", pair_payload)
+                    continue
+
+                merged_error = float(merged_fit.get("error", np.inf))
+                if not np.isfinite(merged_error):
+                    reject_pair("merged_error_invalid", pair_payload)
+                    continue
+
+                baseline_error = max(err_a, err_b, 1e-3)
+                allowed_merged_error = max(0.03, baseline_error * 2.6)
+                if not both_reliable:
+                    allowed_merged_error *= 1.35
+                pair_payload["mergedFitError"] = merged_error
+                pair_payload["mergedErrorAllowed"] = allowed_merged_error
+                if merged_error > allowed_merged_error:
+                    reject_pair("merged_arc_mismatch", pair_payload)
                     continue
 
                 # gap_vec: unit vector from A's junction point toward B's
@@ -664,57 +851,78 @@ class MeasurementService:
                 b_near = pts_b[-1] if b_end else pts_b[0]
                 gap_vec = b_near - a_near
                 gap_len = np.linalg.norm(gap_vec)
+                directional_penalty = 0.0
+                tan_a = self._tangent_at_endpoint(pts_a, at_end=a_end)
+                tan_b = self._tangent_at_endpoint(pts_b, at_end=b_end)
+
+                # Hard gate: ribs must have almost the same continuation direction.
+                # With outward tangents at both endpoints, this means near anti-parallel.
+                opposition = -float(np.dot(tan_a, tan_b))
+                pair_payload["directionOpposition"] = opposition
+                pair_payload["directionThreshold"] = cos_direction_match
+                if opposition < cos_direction_match:
+                    reject_pair("direction_mismatch", pair_payload)
+                    continue
+
                 if gap_len < 0.05:
                     # Endpoints practically coincident — gap vector is noise,
                     # but still check that the tangents are anti-parallel
                     # (continuations go "through" the junction; ribs springing
                     # from the same point diverge outward).
-                    tan_a = self._tangent_at_endpoint(pts_a, at_end=a_end)
-                    tan_b = self._tangent_at_endpoint(pts_b, at_end=b_end)
-                    if float(np.dot(tan_a, tan_b)) > -cos_tol:
-                        record_rejection("coincident_not_antiparallel")
+                    if float(np.dot(tan_a, tan_b)) > -cos_direction_match:
+                        reject_pair("coincident_not_antiparallel", pair_payload)
                         continue  # tangents not anti-parallel — different ribs
-                    candidate_edges.append((min_dist, a, b, bool(a_end), bool(b_end)))
-                    continue
-                gap_vec = gap_vec / gap_len
+                else:
+                    gap_vec = gap_vec / gap_len
 
-                # Gate 2 - handshake direction
-                tan_a = self._tangent_at_endpoint(pts_a, at_end=a_end)
-                tan_b = self._tangent_at_endpoint(pts_b, at_end=b_end)
+                    # Directionality is a tie-breaker only.
+                    handshake_ok = (
+                        float(np.dot(tan_a, gap_vec)) >= cos_tol
+                        and float(np.dot(tan_b, -gap_vec)) >= cos_tol
+                    )
+                    antiparallel_ok = (
+                        gap_len <= antiparallel_max_gap
+                        and float(np.dot(tan_a, tan_b)) < -cos_tol
+                    )
+                    if not handshake_ok and not antiparallel_ok:
+                        directional_penalty = 0.15
 
-                # Primary: each tangent should point toward the other endpoint
-                handshake_ok = (
-                    float(np.dot(tan_a, gap_vec)) >= cos_tol
-                    and float(np.dot(tan_b, -gap_vec)) >= cos_tol
+                arc_quality = (
+                    (merged_error / max(allowed_merged_error, 1e-6))
+                    + (relative_diff / max(effective_radius_tolerance, 1e-6))
                 )
-                # Fallback: tangents are anti-parallel (continuations through a
-                # curved gap where the chord direction diverges from the arc tangent)
-                antiparallel_ok = (
-                    gap_len <= antiparallel_max_gap
-                    and float(np.dot(tan_a, tan_b)) < -cos_tol
-                )
-
-                if not handshake_ok and not antiparallel_ok:
-                    record_rejection("handshake_failed")
-                    continue
-
-                candidate_edges.append((min_dist, a, b, bool(a_end), bool(b_end)))
+                score = arc_quality + directional_penalty
+                pair_payload["arcQuality"] = arc_quality
+                pair_payload["score"] = score
+                pair_payload["directionalPenalty"] = directional_penalty
+                if should_collect_pair(a, b):
+                    pair_diagnostics.append({
+                        **pair_payload,
+                        "decision": "candidate",
+                        "reason": None,
+                    })
+                candidate_edges.append((score, min_dist, a, b, bool(a_end), bool(b_end), pair_payload))
 
         # Keep only the best candidate per endpoint to prevent chain over-merging.
         used_endpoints: set = set()
-        candidate_edges.sort(key=lambda item: item[0])
+        candidate_edges.sort(key=lambda item: (item[0], item[1]))
         accepted_edges = 0
-        for _, a, b, a_end, b_end in candidate_edges:
+        for _, _, a, b, a_end, b_end, pair_payload in candidate_edges:
             endpoint_a = (a, a_end)
             endpoint_b = (b, b_end)
             if endpoint_a in used_endpoints or endpoint_b in used_endpoints:
-                record_rejection("endpoint_already_used")
+                reject_pair("endpoint_already_used", pair_payload)
                 continue
             used_endpoints.add(endpoint_a)
             used_endpoints.add(endpoint_b)
             adj[a].add(b)
             adj[b].add(a)
             accepted_edges += 1
+            accepted_pairs.append({
+                **pair_payload,
+                "decision": "accepted",
+                "reason": None,
+            })
 
         # Connected components via BFS
         visited: set = set()
@@ -748,6 +956,30 @@ class MeasurementService:
                 f"groups={len(groups)} rejected={rejected_total} top={top_repr}"
             )
 
+        if collect_diagnostics:
+            rejected_total = sum(rejection_counts.values())
+            top_rejections = [
+                {"reason": reason, "count": count}
+                for reason, count in sorted(
+                    rejection_counts.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+            ]
+            self.last_grouping_diagnostics = {
+                "passLabel": label,
+                "consideredPairs": considered_pairs,
+                "candidatePairs": len(candidate_edges),
+                "acceptedPairs": accepted_edges,
+                "rejectedPairs": rejected_total,
+                "topRejections": top_rejections,
+                "pairDiagnostics": pair_diagnostics,
+                "acceptedPairDiagnostics": accepted_pairs,
+                "perRibRejectionCounts": rib_rejection_counts,
+            }
+        else:
+            self.last_grouping_diagnostics = None
+
         return groups
 
     @staticmethod
@@ -758,11 +990,13 @@ class MeasurementService:
     def _validate_relaxed_group(
         self,
         group_ids: List[str],
-        max_gap_ratio: float = 0.35,
-        max_absolute_gap: float = 0.4,
-        high_radius_drift: float = 0.25,
-        min_plane_alignment_deg: float = 20.0,
-        min_points_for_fit: int = 8,
+        max_gap_ratio: float = 0.45,
+        max_absolute_gap: float = 0.5,
+        high_radius_drift: float = 0.30,
+        min_plane_alignment_deg: float = 16.0,
+        min_points_for_fit: int = 6,
+        max_merged_error_factor: float = 2.8,
+        min_merged_error_abs: float = 0.05,
     ) -> bool:
         """Apply conservative guards to relaxed second-pass candidate groups."""
         if len(group_ids) < 2:
@@ -837,6 +1071,23 @@ class MeasurementService:
                 if alignment < cos_plane_tol:
                     return False
 
+        # Guard 3: all members should still sit on one merged best-fit arc.
+        try:
+            individual_errors = [
+                float(fit_for(rid).get("error", np.inf))
+                for rid in valid_ids
+            ]
+            baseline_error = max(
+                [err for err in individual_errors if np.isfinite(err) and err >= 0.0] + [1e-3]
+            )
+            merged_points = np.vstack([self.traces[rid] for rid in valid_ids])
+            merged_error = float(self._fit_arc(merged_points).get("error", np.inf))
+            allowed_error = max(min_merged_error_abs, baseline_error * max_merged_error_factor)
+            if not np.isfinite(merged_error) or merged_error > allowed_error:
+                return False
+        except Exception:
+            return False
+
         return True
 
     def detect_rib_groups_two_pass(
@@ -847,10 +1098,13 @@ class MeasurementService:
         bosses: Optional[np.ndarray] = None,
         boss_gap_factor: float = 0.6,
         plane_normal_threshold_deg: float = 18.0,
+        diagnostics: bool = False,
+        diagnostics_focus_rib: Optional[str] = None,
     ) -> List[List[str]]:
-        """Run strict grouping first, then a guarded relaxed pass on remaining singletons."""
+        """Run strict grouping first, then a guarded relaxed pass on non-locked ribs."""
         rib_ids = list(self.traces.keys())
         if not rib_ids:
+            self.last_grouping_diagnostics = None
             return []
 
         pass1_groups = self.detect_rib_groups(
@@ -862,35 +1116,52 @@ class MeasurementService:
             plane_normal_threshold_deg=plane_normal_threshold_deg,
             min_points_for_reliable_arc_fit=15,
             debug_label="pass1",
+            diagnostics=diagnostics,
+            diagnostics_focus_rib=diagnostics_focus_rib,
         )
+        pass1_diag = self.last_grouping_diagnostics
+        pass1_groups = [sorted(group) for group in pass1_groups]
 
-        grouped_in_pass1 = {
+        # Keep larger strict groups fixed; allow small strict groups (e.g. pairs)
+        # to be refined in the relaxed pass.
+        locked_groups = [group for group in pass1_groups if len(group) >= 3]
+        locked_ribs = {
             rid
-            for group in pass1_groups
-            if len(group) > 1
+            for group in locked_groups
             for rid in group
         }
-        ungrouped = [rid for rid in rib_ids if rid not in grouped_in_pass1]
-        if len(ungrouped) < 2:
+        pass2_pool = [rid for rid in rib_ids if rid not in locked_ribs]
+        if len(pass2_pool) < 2:
+            if diagnostics:
+                self.last_grouping_diagnostics = {
+                    "mode": "two-pass",
+                    "passes": [pass1_diag] if pass1_diag else [],
+                    "lockedRibs": sorted(list(locked_ribs)),
+                    "pass2Pool": pass2_pool,
+                    "pass2AddedGroups": 0,
+                }
             return pass1_groups
 
         relaxed_service = MeasurementService()
         relaxed_service.traces = {
             rid: self.traces[rid]
-            for rid in ungrouped
+            for rid in pass2_pool
             if rid in self.traces
         }
 
         pass2_groups = relaxed_service.detect_rib_groups(
-            max_gap=max(max_gap, 0.5),
-            angle_threshold_deg=max(angle_threshold_deg, 18.0),
-            radius_tolerance=max(radius_tolerance, 0.2),
+            max_gap=max(max_gap, 0.6),
+            angle_threshold_deg=max(angle_threshold_deg, 22.0),
+            radius_tolerance=max(radius_tolerance, 0.25),
             bosses=bosses,
-            boss_gap_factor=max(boss_gap_factor, 0.65),
-            plane_normal_threshold_deg=max(plane_normal_threshold_deg, 22.0),
-            min_points_for_reliable_arc_fit=8,
+            boss_gap_factor=max(boss_gap_factor, 0.75),
+            plane_normal_threshold_deg=max(plane_normal_threshold_deg, 26.0),
+            min_points_for_reliable_arc_fit=6,
             debug_label="pass2",
+            diagnostics=diagnostics,
+            diagnostics_focus_rib=diagnostics_focus_rib,
         )
+        pass2_diag = relaxed_service.last_grouping_diagnostics
 
         pass2_accepted: List[List[str]] = []
         used_in_pass2: set = set()
@@ -906,11 +1177,7 @@ class MeasurementService:
             pass2_accepted.append(normalized_group)
             used_in_pass2.update(normalized_group)
 
-        final_groups: List[List[str]] = [
-            sorted(group)
-            for group in pass1_groups
-            if len(group) > 1
-        ]
+        final_groups: List[List[str]] = [group for group in locked_groups]
         final_groups.extend(pass2_accepted)
 
         grouped_final = {
@@ -918,6 +1185,17 @@ class MeasurementService:
             for group in final_groups
             for rid in group
         }
+
+        # Preserve strict-pass medium-confidence groups (mostly pairs) if they
+        # were not superseded by pass 2.
+        for group in pass1_groups:
+            if len(group) < 2 or len(group) >= 3:
+                continue
+            if any(rid in grouped_final for rid in group):
+                continue
+            final_groups.append(group)
+            grouped_final.update(group)
+
         for rid in rib_ids:
             if rid not in grouped_final:
                 final_groups.append([rid])
@@ -925,9 +1203,22 @@ class MeasurementService:
         if self._rib_grouping_debug_enabled():
             print(
                 f"[RibGrouping:two-pass] pass1={len(pass1_groups)} "
-                f"ungrouped={len(ungrouped)} pass2_added={len(pass2_accepted)} "
+                f"locked={len(locked_groups)} pass2_pool={len(pass2_pool)} "
+                f"pass2_added={len(pass2_accepted)} "
                 f"final={len(final_groups)}"
             )
+
+        if diagnostics:
+            self.last_grouping_diagnostics = {
+                "mode": "two-pass",
+                "passes": [diag for diag in [pass1_diag, pass2_diag] if diag],
+                "lockedRibs": sorted(list(locked_ribs)),
+                "pass2Pool": pass2_pool,
+                "pass2AddedGroups": len(pass2_accepted),
+                "finalGroupCount": len(final_groups),
+            }
+        else:
+            self.last_grouping_diagnostics = None
 
         return final_groups
 

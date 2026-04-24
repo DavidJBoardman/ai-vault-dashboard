@@ -1,7 +1,7 @@
 """Geometry analysis router for vault classification and measurements."""
 
 import hashlib
-from typing import List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter
@@ -300,11 +300,35 @@ class DetectRibGroupsRequest(BaseModel):
     bossGapFactor: float = 0.6
     planeNormalThresholdDeg: float = 18.0
     bosses: Optional[List[BossPosition]] = None
+    diagnostics: bool = False
+    diagnosticsRibId: Optional[str] = None
+
+
+class RibGroupPassDiagnostics(BaseModel):
+    passLabel: Optional[str] = None
+    consideredPairs: Optional[int] = None
+    candidatePairs: Optional[int] = None
+    acceptedPairs: Optional[int] = None
+    rejectedPairs: Optional[int] = None
+    topRejections: Optional[List[Dict[str, Any]]] = None
+    pairDiagnostics: Optional[List[Dict[str, Any]]] = None
+    acceptedPairDiagnostics: Optional[List[Dict[str, Any]]] = None
+    perRibRejectionCounts: Optional[Dict[str, Dict[str, int]]] = None
+
+
+class RibGroupingDiagnosticsPayload(BaseModel):
+    mode: Optional[str] = None
+    passes: Optional[List[RibGroupPassDiagnostics]] = None
+    lockedRibs: Optional[List[str]] = None
+    pass2Pool: Optional[List[str]] = None
+    pass2AddedGroups: Optional[int] = None
+    finalGroupCount: Optional[int] = None
 
 
 class DetectRibGroupsResponse(BaseModel):
     success: bool
     data: Optional[List[RibGroupResult]] = None
+    diagnostics: Optional[RibGroupingDiagnosticsPayload] = None
     error: Optional[str] = None
 
 
@@ -326,14 +350,16 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
             boss_positions = np.array([[b.x, b.y, b.z] for b in request.bosses])
 
         import asyncio as _asyncio
+        from functools import partial
+
         loop = _asyncio.get_event_loop()
         group_detector = (
             service.detect_rib_groups_two_pass
             if hasattr(service, "detect_rib_groups_two_pass")
             else service.detect_rib_groups
         )
-        groups = await loop.run_in_executor(
-            None,
+
+        detect_call = partial(
             group_detector,
             request.maxGap,
             request.angleThresholdDeg,
@@ -341,6 +367,13 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
             boss_positions,
             request.bossGapFactor,
             request.planeNormalThresholdDeg,
+            diagnostics=request.diagnostics,
+            diagnostics_focus_rib=request.diagnosticsRibId,
+        )
+
+        groups = await loop.run_in_executor(
+            None,
+            detect_call,
         )
 
         results = []
@@ -366,7 +399,31 @@ async def detect_rib_groups_endpoint(request: DetectRibGroupsRequest):
                 ),
             ))
 
-        return DetectRibGroupsResponse(success=True, data=results)
+        diagnostics_payload: Optional[RibGroupingDiagnosticsPayload] = None
+        if request.diagnostics and service.last_grouping_diagnostics:
+            raw_diag = service.last_grouping_diagnostics
+            if raw_diag.get("mode") == "two-pass":
+                pass_models = [
+                    RibGroupPassDiagnostics(**pass_diag)
+                    for pass_diag in raw_diag.get("passes", [])
+                    if isinstance(pass_diag, dict)
+                ]
+                diagnostics_payload = RibGroupingDiagnosticsPayload(
+                    mode="two-pass",
+                    passes=pass_models,
+                    lockedRibs=raw_diag.get("lockedRibs"),
+                    pass2Pool=raw_diag.get("pass2Pool"),
+                    pass2AddedGroups=raw_diag.get("pass2AddedGroups"),
+                    finalGroupCount=raw_diag.get("finalGroupCount"),
+                )
+            else:
+                diagnostics_payload = RibGroupingDiagnosticsPayload(
+                    mode="single-pass",
+                    passes=[RibGroupPassDiagnostics(**raw_diag)],
+                    finalGroupCount=len(results),
+                )
+
+        return DetectRibGroupsResponse(success=True, data=results, diagnostics=diagnostics_payload)
     except Exception as e:
         return DetectRibGroupsResponse(success=False, error=str(e))
 

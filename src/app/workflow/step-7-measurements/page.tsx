@@ -63,6 +63,8 @@ import {
   type RibPairing,
   type ImportedCurve,
   type SemicircularGroupInput,
+  type RibGroupingDiagnostics,
+  type RibGroupPairDiagnostic,
 } from "@/lib/api";
 import {
   coerceTraceSourceSelection,
@@ -123,6 +125,8 @@ interface MeasurementResponse {
   };
   error?: string;
 }
+
+type MeasurementData = NonNullable<MeasurementResponse["data"]>;
 
 interface DisplayGroup extends RibGroup {
   source: "custom" | "auto" | "single";
@@ -281,6 +285,39 @@ function median(values: number[]): number {
  * R > 10 * L means the sagitta is ~1.25% of L — visually imperceptible curvature.
  */
 const STRAIGHT_LINE_RATIO = 10;
+const HEATMAP_UPPER_QUANTILE = 0.95;
+
+function computeQuantile(sortedValues: number[], q: number): number {
+  if (sortedValues.length === 0) return 0;
+  if (sortedValues.length === 1) return sortedValues[0];
+
+  const clampedQ = Math.max(0, Math.min(1, q));
+  const index = clampedQ * (sortedValues.length - 1);
+  const lo = Math.floor(index);
+  const hi = Math.ceil(index);
+  if (lo === hi) return sortedValues[lo];
+  const t = index - lo;
+  return sortedValues[lo] * (1 - t) + sortedValues[hi] * t;
+}
+
+function computeGlobalHeatmapScaleMax(distanceSets: number[][]): number {
+  const values = distanceSets
+    .flatMap((distances) => distances)
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b);
+
+  if (values.length === 0) {
+    return 1;
+  }
+
+  const quantileCap = computeQuantile(values, HEATMAP_UPPER_QUANTILE);
+  if (quantileCap > 1e-9) {
+    return quantileCap;
+  }
+
+  // Fallback for nearly-flat inputs.
+  return values[values.length - 1] > 0 ? values[values.length - 1] : 1;
+}
 
 function formatRadius(r: number | undefined | null, ribLength?: number | null): string {
   if (r == null || r <= 0) return "N/A";
@@ -347,16 +384,17 @@ function createColoredTraceLines(
   segmentPoints: Point3D[],
   pointDistances: number[],
   traceId: string,
-  isSelected: boolean = false
+  isSelected: boolean = false,
+  scaleMaxDistance?: number,
 ): Line3D[] {
   if (segmentPoints.length < 2 || pointDistances.length === 0) {
     return [];
   }
   
-  // Find min and max distances for normalization
-  const minDist = Math.min(...pointDistances);
-  const maxDist = Math.max(...pointDistances);
-  const range = maxDist - minDist || 1;
+  const localMaxDist = Math.max(...pointDistances.map((value) => Math.max(0, value)));
+  const normalizer = (scaleMaxDistance ?? localMaxDist) > 0
+    ? (scaleMaxDistance ?? localMaxDist)
+    : 1;
   
   // Create line segments between consecutive points
   const lines: Line3D[] = [];
@@ -365,10 +403,10 @@ function createColoredTraceLines(
     // Use average of the two endpoints' errors for the segment color
     const error1 = pointDistances[i];
     const error2 = pointDistances[i + 1];
-    const avgError = (error1 + error2) / 2;
+    const avgError = Math.max(0, (error1 + error2) / 2);
     
     // Normalize error to 0-1 range
-    const normalizedError = Math.abs((avgError - minDist) / range);
+    const normalizedError = Math.min(1, avgError / normalizer);
     
     // If selected, use full color gradient; otherwise use neutral gray
     const color = isSelected ? "rgb(180, 180, 180)" : errorToColor(normalizedError);
@@ -576,6 +614,7 @@ export default function Step7MeasurementsPage() {
 
   // Rib grouping state
   const [ribGroups, setRibGroups] = useState<RibGroup[] | null>(null);
+  const [ribGroupingDiagnostics, setRibGroupingDiagnostics] = useState<RibGroupingDiagnostics | null>(null);
   const [customGroupMetrics, setCustomGroupMetrics] = useState<Record<string, RibGroup["combinedMeasurements"]>>({});
   const [measurementConfig, setMeasurementConfig] = useState<MeasurementConfig>(EMPTY_MEASUREMENT_CONFIG);
   const [selectedForGrouping, setSelectedForGrouping] = useState<Set<string>>(new Set());
@@ -813,6 +852,7 @@ export default function Step7MeasurementsPage() {
     const detectGroups = async () => {
       if (intradosLines.length === 0) {
         setRibGroups(null);
+        setRibGroupingDiagnostics(null);
         return;
       }
       setIsDetectingGroups(true);
@@ -824,15 +864,20 @@ export default function Step7MeasurementsPage() {
           radiusTolerance: 0.1,
           bossGapFactor: 0.4,
           planeNormalThresholdDeg: 15,
+          diagnostics: true,
           bosses: bossStoneMarkers
             .filter(m => m.groupId !== "roi_corner")
             .map(m => ({ x: m.x, y: m.y, z: m.z })),
         });
         if (response.success && response.data) {
           setRibGroups(response.data);
+          setRibGroupingDiagnostics(response.diagnostics ?? null);
+        } else {
+          setRibGroupingDiagnostics(null);
         }
       } catch (err) {
         console.error("Error detecting rib groups:", err);
+        setRibGroupingDiagnostics(null);
       } finally {
         setIsDetectingGroups(false);
       }
@@ -1425,6 +1470,54 @@ export default function Step7MeasurementsPage() {
     [selectedGroupId, displayGroups]
   );
 
+  const selectedRibGroupingDetails = useMemo(() => {
+    if (!selectedRib || !ribGroupingDiagnostics?.passes?.length) {
+      return null;
+    }
+
+    const allPairDiagnostics: RibGroupPairDiagnostic[] = ribGroupingDiagnostics.passes.flatMap(pass =>
+      (pass.pairDiagnostics ?? []).map(pair => ({
+        ...pair,
+        passLabel: pair.passLabel ?? pass.passLabel,
+      }))
+    );
+
+    const involvingSelected = allPairDiagnostics.filter(pair =>
+      pair.ribA === selectedRib || pair.ribB === selectedRib
+    );
+
+    const decisionRank = (decision?: string) => {
+      if (decision === "accepted") return 0;
+      if (decision === "candidate") return 1;
+      return 2;
+    };
+
+    const topPairs = [...involvingSelected]
+      .sort((left, right) => {
+        const decisionDelta = decisionRank(left.decision) - decisionRank(right.decision);
+        if (decisionDelta !== 0) return decisionDelta;
+        return (left.score ?? Number.POSITIVE_INFINITY) - (right.score ?? Number.POSITIVE_INFINITY);
+      })
+      .slice(0, 8);
+
+    const rejectionCounts: Record<string, number> = {};
+    ribGroupingDiagnostics.passes.forEach(pass => {
+      const perRib = pass.perRibRejectionCounts?.[selectedRib] ?? {};
+      Object.entries(perRib).forEach(([reason, count]) => {
+        rejectionCounts[reason] = (rejectionCounts[reason] ?? 0) + count;
+      });
+    });
+
+    return {
+      mode: ribGroupingDiagnostics.mode,
+      totalPairs: involvingSelected.length,
+      topPairs,
+      rejectionCounts: Object.entries(rejectionCounts)
+        .sort(([, left], [, right]) => right - left)
+        .slice(0, 6),
+    };
+  }, [selectedRib, ribGroupingDiagnostics]);
+
   const selectedViewerRibIds = useMemo(() => {
     if (selectedGroupId && selectedGroup) {
       return selectedGroup.ribIds;
@@ -1548,47 +1641,58 @@ export default function Step7MeasurementsPage() {
             throw new Error(response.error || `Failed to compute trace ${line.id}`);
           }
 
-          let lineTraces: Line3D[] = [];
-
-          if (viewMode === "bestFitArc") {
-            lineTraces = createBestFitArcLines(
-              response.data.segmentPoints,
-              response.data.arcCenter,
-              response.data.arcRadius,
-              line.id,
-              response.data.arcBasisU,
-              response.data.arcBasisV,
-              response.data.arcStartAngle,
-              response.data.arcEndAngle,
-            );
-          } else {
-            const decimated = decimateSegmentsForDisplay(
-              response.data.segmentPoints,
-              response.data.pointDistances,
-              MAX_DISPLAY_TRACE_POINTS,
-            );
-            lineTraces = createColoredTraceLines(
-              decimated.points,
-              decimated.distances,
-              line.id,
-              false
-            );
-          }
-
           return {
             traceId: line.id,
-            data: response.data,
-            lineTraces,
+            data: response.data as MeasurementData,
           };
         })
       );
+
+      const successfulTraceData = traceResults
+        .filter((result): result is PromiseFulfilledResult<{ traceId: string; data: MeasurementData }> => result.status === "fulfilled")
+        .map((result) => result.value);
+
+      const sharedHeatmapScaleMax =
+        viewMode === "errorHeatmap"
+          ? computeGlobalHeatmapScaleMax(
+              successfulTraceData.map((result) => result.data.pointDistances)
+            )
+          : undefined;
 
       const allTraces: Line3D[] = [];
       traceResults.forEach((result, index) => {
         const line = intradosLines[index];
         if (result.status === "fulfilled") {
           measurementCacheRef.current.set(result.value.traceId, result.value.data);
-          allTraces.push(...result.value.lineTraces);
+
+          let lineTraces: Line3D[] = [];
+          if (viewMode === "bestFitArc") {
+            lineTraces = createBestFitArcLines(
+              result.value.data.segmentPoints,
+              result.value.data.arcCenter,
+              result.value.data.arcRadius,
+              result.value.traceId,
+              result.value.data.arcBasisU,
+              result.value.data.arcBasisV,
+              result.value.data.arcStartAngle,
+              result.value.data.arcEndAngle,
+            );
+          } else {
+            const decimated = decimateSegmentsForDisplay(
+              result.value.data.segmentPoints,
+              result.value.data.pointDistances,
+              MAX_DISPLAY_TRACE_POINTS,
+            );
+            lineTraces = createColoredTraceLines(
+              decimated.points,
+              decimated.distances,
+              result.value.traceId,
+              false,
+              sharedHeatmapScaleMax,
+            );
+          }
+
+          allTraces.push(...lineTraces);
           return;
         }
 
@@ -3197,6 +3301,68 @@ export default function Step7MeasurementsPage() {
 
 
                         </>
+                      )}
+
+                      {selectedRib && selectedRibGroupingDetails && (
+                        <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label className="text-xs text-muted-foreground">Grouping Diagnostics</Label>
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              {selectedRibGroupingDetails.mode ?? "unknown"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            {selectedRibGroupingDetails.totalPairs} candidate pair
+                            {selectedRibGroupingDetails.totalPairs === 1 ? "" : "s"} involved this rib.
+                          </p>
+
+                          {selectedRibGroupingDetails.rejectionCounts.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {selectedRibGroupingDetails.rejectionCounts.map(([reason, count]) => (
+                                <span
+                                  key={reason}
+                                  className="rounded bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                >
+                                  {reason}: {count}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {selectedRibGroupingDetails.topPairs.length > 0 ? (
+                            <div className="space-y-1">
+                              {selectedRibGroupingDetails.topPairs.map((pair, index) => {
+                                const otherRibId = pair.ribA === selectedRib ? pair.ribB : pair.ribA;
+                                const statusColor = pair.decision === "accepted"
+                                  ? "text-emerald-500"
+                                  : pair.decision === "candidate"
+                                  ? "text-amber-500"
+                                  : "text-muted-foreground";
+
+                                return (
+                                  <div
+                                    key={`${pair.passLabel ?? "pass"}-${pair.ribA}-${pair.ribB}-${index}`}
+                                    className="rounded bg-background/70 px-2 py-1 text-[11px]"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="truncate">
+                                        {getRibDisplayName(otherRibId)} ({pair.passLabel ?? "pass"})
+                                      </span>
+                                      <span className={cn("shrink-0", statusColor)}>{pair.decision ?? "unknown"}</span>
+                                    </div>
+                                    <div className="text-muted-foreground">
+                                      gap: {pair.gapDistance != null ? `${pair.gapDistance.toFixed(3)}m` : "n/a"}
+                                      {pair.score != null && <> · score: {pair.score.toFixed(3)}</>}
+                                      {pair.reason && <> · {pair.reason}</>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-muted-foreground">No diagnostics available for this rib yet.</p>
+                          )}
+                        </div>
                       )}
                     </CardContent>
                   </Card>
