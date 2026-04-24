@@ -320,12 +320,16 @@ function computeGlobalHeatmapScaleMax(distanceSets: number[][]): number {
 }
 
 function formatRadius(r: number | undefined | null, ribLength?: number | null): string {
-  if (r == null || r <= 0) return "N/A";
+  if (!hasDisplayableRadius(r, ribLength)) return "N/A";
+  return `${r.toFixed(2)}m`;
+}
+
+function hasDisplayableRadius(r: number | undefined | null, ribLength?: number | null): r is number {
+  if (r == null || r <= 0) return false;
   const threshold = (ribLength != null && ribLength > 0)
     ? STRAIGHT_LINE_RATIO * ribLength
     : 500;
-  if (r > threshold) return "N/A";
-  return `${r.toFixed(2)}m`;
+  return r <= threshold;
 }
 
 /**
@@ -2973,27 +2977,19 @@ export default function Step7MeasurementsPage() {
                                       </span>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
-                                      <span className="text-xs font-mono text-muted-foreground">
-                                        R: {formatRadius(group.combinedMeasurements.arc_radius, group.combinedMeasurements.rib_length)}
-                                      </span>
                                       {isExpanded
                                         ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
                                         : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
                                     </div>
                                   </div>
                                   <div className="mt-1 text-xs text-muted-foreground">
-                                    L: {group.combinedMeasurements.rib_length.toFixed(2)}m
-                                    {" · "}Err: {group.combinedMeasurements.fit_error.toFixed(4)}m
-                                    {impostLineData && group.combinedMeasurements.arc_center_z !== 0 && (
-                                      <>{" I: "}{(group.combinedMeasurements.arc_center_z - impostLineData.impost_height).toFixed(2)}m</>
-                                    )}
+                                    Err: {group.combinedMeasurements.fit_error.toFixed(4)}m
                                   </div>
                                 </div>
                                 {isExpanded && (
                                   <div className="border-t border-amber-500/30 divide-y divide-amber-500/20">
                                     {group.ribIds.map(ribId => {
                                       const m = measurements.find(x => x.id === ribId);
-                                      const cached = measurementCacheRef.current.get(ribId);
                                       return (
                                         <div
                                           key={ribId}
@@ -3003,11 +2999,8 @@ export default function Step7MeasurementsPage() {
                                           )}
                                           onClick={() => { setSelectedRib(ribId); setSelectedGroupId(null); }}
                                         >
-                                          <div className="flex items-center justify-between">
+                                          <div className="flex items-center">
                                             <span className="text-sm truncate">{m?.name ?? getRibDisplayName(ribId)}</span>
-                                            <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                                              {cached?.arcRadius ? `R: ${formatRadius(cached.arcRadius, cached.ribLength)}` : ""}
-                                            </span>
                                           </div>
                                         </div>
                                       );
@@ -3019,7 +3012,6 @@ export default function Step7MeasurementsPage() {
                           }
 
                           const m = measurements.find(x => x.id === primaryId);
-                          const cached = measurementCacheRef.current.get(primaryId);
                           return (
                             <div
                               ref={(el) => { dataRibRowRefs.current[primaryId] = el; }}
@@ -3032,14 +3024,8 @@ export default function Step7MeasurementsPage() {
                               )}
                               onClick={() => { setSelectedRib(primaryId); setSelectedGroupId(null); }}
                             >
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center">
                                 <span className="font-medium truncate">{m?.name ?? group.groupName ?? getRibDisplayName(primaryId)}</span>
-                                <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                                  {cached?.arcRadius ? `R: ${formatRadius(cached.arcRadius, cached?.ribLength)}` : ""}
-                                  {impostLineData?.ribs[primaryId]?.arc_center_z != null && (
-                                    <>{" I: "}{(impostLineData.ribs[primaryId].arc_center_z - impostLineData.impost_height).toFixed(2)}m</>
-                                  )}
-                                </span>
                               </div>
                             </div>
                           );
@@ -3088,6 +3074,9 @@ export default function Step7MeasurementsPage() {
                             {(() => {
                               // Hide regular span when the group is semicircular (Semi Span shown instead)
                               if ((measurementConfig.semicircularIds ?? []).includes(selectedGroup.groupId)) return null;
+                              if (!hasDisplayableRadius(selectedGroup.combinedMeasurements.arc_radius, selectedGroup.combinedMeasurements.rib_length)) {
+                                return null;
+                              }
                               const groupSpan = selectedGroup.ribIds
                                 .map(rid => apexSpanResult?.ribs[rid])
                                 .find(r => r != null);
@@ -3207,6 +3196,12 @@ export default function Step7MeasurementsPage() {
                                       .map(rid => {
                                         const ribSpan = apexSpanResult.ribs[rid];
                                         const ribName = measurements.find(x => x.id === rid)?.name ?? rid;
+                                        const measurement = measurementCacheRef.current.get(rid) ?? measurements.find(x => x.id === rid);
+                                        const hasRadius = hasDisplayableRadius(
+                                          measurement?.arcRadius,
+                                          measurement?.ribLength
+                                        );
+                                        if (!hasRadius) return null;
                                         return (
                                           <div key={rid} className="flex items-center justify-between text-xs px-1">
                                             <span className="truncate text-muted-foreground">{ribName}</span>
@@ -3224,17 +3219,13 @@ export default function Step7MeasurementsPage() {
                             <Label className="text-xs text-muted-foreground">Individual Ribs</Label>
                             {selectedGroup.ribIds.map(ribId => {
                               const m = measurements.find(x => x.id === ribId);
-                              const cached = measurementCacheRef.current.get(ribId);
                               return (
                                 <button
                                   key={ribId}
-                                  className="w-full text-left px-2 py-1 rounded text-xs hover:bg-muted/60 flex items-center justify-between"
+                                  className="w-full text-left px-2 py-1 rounded text-xs hover:bg-muted/60 flex items-center"
                                   onClick={() => { setSelectedRib(ribId); setSelectedGroupId(null); }}
                                 >
                                   <span className="truncate">{m?.name ?? getRibDisplayName(ribId)}</span>
-                                  <span className="text-muted-foreground shrink-0 ml-2">
-                                    {cached?.arcRadius ? `R: ${formatRadius(cached.arcRadius, cached?.ribLength)}` : ""}
-                                  </span>
                                 </button>
                               );
                             })}
@@ -3260,7 +3251,10 @@ export default function Step7MeasurementsPage() {
                                 <p className="text-xs text-muted-foreground">Impost Dist</p>
                               </div>
                             )}
-                            {apexSpanResult?.ribs[selectedRib!] && (
+                            {apexSpanResult?.ribs[selectedRib!] && hasDisplayableRadius(
+                              measurementData?.arcRadius ?? selectedMeasurement!.arcRadius,
+                              measurementData?.ribLength ?? selectedMeasurement!.ribLength
+                            ) && (
                               <div className="p-2 rounded-lg bg-muted/50 text-center">
                                 <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
                                 <p className="text-sm font-bold">{apexSpanResult.ribs[selectedRib!].span.toFixed(2)}m</p>
