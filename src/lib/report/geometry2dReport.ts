@@ -1,3 +1,4 @@
+import JSZip from "jszip";
 import type { Project } from "@/lib/store";
 
 export interface BayProportionCandidate {
@@ -155,4 +156,52 @@ export function toCsv(
   const header = cols.join(",");
   const body = rows.map((row) => cols.map((c) => escape(row[c])).join(",")).join("\n");
   return header + "\n" + body + "\n";
+}
+
+export interface BundleInputs {
+  reportHtml: string;
+  bayPlanPng: Blob | null;
+  data: ReportData;
+}
+
+export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
+  const { reportHtml, bayPlanPng, data } = inputs;
+  const zip = new JSZip();
+
+  zip.file("report.html", reportHtml);
+
+  zip.file(
+    "bay-proportion.csv",
+    toCsv(
+      data.bayProportion.candidates.map((c) => ({
+        rank: c.rank,
+        label: c.label,
+        error: c.err.toFixed(6),
+        deltaFromBest: c.deltaFromBest.toFixed(6),
+      })),
+      ["rank", "label", "error", "deltaFromBest"]
+    )
+  );
+
+  zip.file(
+    "cut-typology.csv",
+    toCsv(
+      data.cutTypology.rows,
+      data.cutTypology.columns.length > 0 ? data.cutTypology.columns : undefined
+    )
+  );
+
+  zip.file(
+    "bay-plan.csv",
+    toCsv(
+      data.referencePoints.map((p) => ({ letter: p.letter, u: p.u.toFixed(6), v: p.v.toFixed(6) })),
+      ["letter", "u", "v"]
+    )
+  );
+
+  if (bayPlanPng) {
+    zip.file("bay-plan.png", bayPlanPng);
+  }
+
+  return zip.generateAsync({ type: "blob" });
 }
