@@ -49,7 +49,6 @@ import {
   type MatchCsvRow,
 } from "@/components/geometry2d/stages/template/cutTypologyMatchingUtils";
 
-export type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
 
 interface Step4NodesState {
   points?: Geometry2DTemplateBossPoint[];
@@ -641,7 +640,6 @@ export function useStep4Geometry2DController() {
   const templateStateRequestIdRef = useRef(0);
   const reconstructionStateRequestIdRef = useRef(0);
 
-  const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   const [overlayOpacity, setOverlayOpacity] = useState(0.6);
   const [showMaskOverlay, setShowMaskOverlay] = useState(false);
 
@@ -702,8 +700,8 @@ export function useStep4Geometry2DController() {
 
   const currentImage = useMemo(() => {
     if (!selectedProjection?.images) return null;
-    return selectedProjection.images[selectedImageType] || selectedProjection.images.colour;
-  }, [selectedProjection, selectedImageType]);
+    return selectedProjection.images.colour || null;
+  }, [selectedProjection]);
 
   const segmentations = useMemo(() => currentProject?.segmentations || [], [currentProject?.segmentations]);
 
@@ -1224,7 +1222,6 @@ export function useStep4Geometry2DController() {
     setActiveSection("roi");
     setShowAdvancedLayers(true);
     setShowReconstructLayers(false);
-    setSelectedImageType("colour");
     setOverlayOpacity(0.6);
     setShowMaskOverlay(false);
 
@@ -2370,8 +2367,6 @@ export function useStep4Geometry2DController() {
     showAdvancedLayers,
     showReconstructLayers,
 
-    selectedImageType,
-    setSelectedImageType,
     overlayOpacity,
     setOverlayOpacity,
     showMaskOverlay,

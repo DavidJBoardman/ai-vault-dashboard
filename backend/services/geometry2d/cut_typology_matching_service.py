@@ -504,6 +504,7 @@ class CutTypologyMatchingService:
         csv_path = cls._matching_csv_path(project_dir)
         fieldnames = [
             "boss_id",
+            "point_label",
             "point_type",
             "variant_label",
             "template_type",
@@ -521,6 +522,7 @@ class CutTypologyMatchingService:
         rows: List[Dict[str, Any]] = []
         for point in per_boss_rows:
             boss_id = point.get("id")
+            point_label = str(point.get("label") or "").strip() or str(boss_id)
             boss_uv = [point.get("u"), point.get("v")]
             boss_xy = [int(round(float(point.get("x", 0.0)))), int(round(float(point.get("y", 0.0))))]
             matches = point.get("matches")
@@ -528,6 +530,7 @@ class CutTypologyMatchingService:
                 rows.append(
                     {
                         "boss_id": boss_id,
+                        "point_label": point_label,
                         "point_type": str(point.get("pointType", "boss")),
                         "variant_label": "None",
                         "template_type": "None",
@@ -563,6 +566,7 @@ class CutTypologyMatchingService:
             rows.append(
                 {
                     "boss_id": boss_id,
+                    "point_label": point_label,
                     "point_type": str(point.get("pointType", "boss")),
                     "variant_label": variant_label,
                     "template_type": str(match.get("templateType") or "None"),

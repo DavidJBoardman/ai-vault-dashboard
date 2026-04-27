@@ -43,9 +43,9 @@ export function RoiControls({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-medium flex items-center gap-2">
-          <Square className="w-4 h-4" />
-          1. ROI (Bay Frame)
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <Square className="h-4 w-4" />
+          A • ROI (Bay Frame)
         </CardTitle>
         <CardDescription className="text-xs">
           Edit and save the working ROI before running the analysis.

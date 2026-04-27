@@ -22,7 +22,7 @@ import {
   Geometry2DBayPlanRunResult,
 } from "@/lib/api";
 import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
-import { ChevronDown, ChevronUp, CircleHelp, Plus, RefreshCw, RotateCcw, Settings2, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleHelp, Network, Plus, RefreshCw, RotateCcw, Settings2, Trash2 } from "lucide-react";
 
 const RECONSTRUCTION_PARAM_FALLBACKS = {
   reconstructionMode: "current" as const,
@@ -52,6 +52,10 @@ interface BayPlanReconstructionPanelProps {
   onRun: () => void;
   onSaveManualEdges: (edges: Geometry2DBayPlanEdge[]) => void;
   onSelectEdge: (edgeKey: string | null) => void;
+  // Which slice of this panel to render. "controls" = the bay-plan setup card,
+  // "manualEdit" = the rib edit table card. Splitting them lets step 4D show
+  // each as its own tab in the left rail without nuking shared internal state.
+  view?: "controls" | "manualEdit";
 }
 
 function asNumber(value: unknown, fallback: number): number {
@@ -175,10 +179,15 @@ export function BayPlanReconstructionPanel({
   onRun,
   onSaveManualEdges,
   onSelectEdge,
+  view = "controls",
 }: BayPlanReconstructionPanelProps) {
+  const showControls = view === "controls";
+  const showManualEdit = view === "manualEdit";
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(false);
-  const [showManualRibEdits, setShowManualRibEdits] = useState(false);
+  // Default expanded — the parent step gates this card behind a dedicated
+  // "Manual edit" tab now, so collapsing it again from inside is redundant.
+  const [showManualRibEdits, setShowManualRibEdits] = useState(true);
   const [manualEdges, setManualEdges] = useState<Geometry2DBayPlanEdge[]>([]);
   const [manualEdgeStart, setManualEdgeStart] = useState<string>("");
   const [manualEdgeEnd, setManualEdgeEnd] = useState<string>("");
@@ -432,9 +441,13 @@ export function BayPlanReconstructionPanel({
   return (
     <TooltipProvider delayDuration={180}>
       <>
+      {showControls && (
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium">D • Bay Plan</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base font-medium">
+            <Network className="h-4 w-4" />
+            D • Bay Plan
+          </CardTitle>
           <CardDescription className="text-xs">
             Run the reconstruction, then review the current bay-plan result before making any manual edits.
           </CardDescription>
@@ -708,7 +721,9 @@ export function BayPlanReconstructionPanel({
           </Button>
         </CardContent>
       </Card>
+      )}
 
+      {showManualEdit && (
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-3">
@@ -921,6 +936,7 @@ export function BayPlanReconstructionPanel({
           </CardContent>
         )}
       </Card>
+      )}
       </>
     </TooltipProvider>
   );

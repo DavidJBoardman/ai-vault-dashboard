@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -21,7 +21,14 @@ export function SegmentedClassesList({
   onToggleGroup,
   onToggleSegmentation,
 }: SegmentedClassesListProps) {
-  const classLabels = Object.keys(groupVisibility);
+  // Stable key for memoisation — avoids re-running the cleanup effect every
+  // render just because Object.keys() returns a new array each time.
+  const classLabelsKey = Object.keys(groupVisibility).sort().join("|");
+  const classLabels = useMemo(
+    () => Object.keys(groupVisibility),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [classLabelsKey]
+  );
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {

@@ -26,6 +26,7 @@ import {
   type MatchCsvRow,
   variantLabelToTitle,
 } from "./cutTypologyMatchingUtils";
+import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 
 const RESET_TEMPLATE_PARAMS: Geometry2DCutTypologyParams = {
   starcutMin: 2,
@@ -251,7 +252,8 @@ export function CutTypologyMatchingPanel({
     <>
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium">
+          <CardTitle className="flex items-center gap-2 text-base font-medium">
+            <Sparkles className="h-4 w-4" />
             {headingPrefix ? `${headingPrefix} Cut-Typology Match` : "Cut-Typology Match"}
           </CardTitle>
         </CardHeader>
@@ -642,6 +644,27 @@ export function CutTypologyMatchingPanel({
                               <Badge variant={String(row[column] || "").toLowerCase() === "true" ? "secondary" : "destructive"}>
                                 {String(row[column] || "")}
                               </Badge>
+                            ) : column === "boss_id" ? (
+                              <span className="text-muted-foreground">#{row.boss_id}</span>
+                            ) : column === "point_label" ? (
+                              (() => {
+                                const isCorner =
+                                  String(row.point_type || "boss").toLowerCase() === "corner";
+                                const tag = getCompactNodeLabel(row.point_label || row.boss_id);
+                                const tagIsNumeric = !tag || tag === String(row.boss_id ?? "");
+                                if (tagIsNumeric) {
+                                  return <span className="text-muted-foreground">{row.point_label || ""}</span>;
+                                }
+                                return (
+                                  <span
+                                    className={`text-xs font-semibold uppercase tracking-wide ${
+                                      isCorner ? "text-cyan-300" : "text-amber-300"
+                                    }`}
+                                  >
+                                    {tag}
+                                  </span>
+                                );
+                              })()
                             ) : column === "xy_error" ? (
                               <div className="inline-flex items-center gap-1.5">
                                 <span>{row[column] || ""}</span>

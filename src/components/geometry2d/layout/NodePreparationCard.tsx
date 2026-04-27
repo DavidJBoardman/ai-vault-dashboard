@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
+import { MapPin, Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
 import { getNodePointTag } from "@/components/geometry2d/projectionCanvasUtils";
 
 export type NodePointFilter = "all" | "inside" | "outside";
@@ -90,7 +90,10 @@ export function NodePreparationCard({
       <CardHeader className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base font-medium">{titlePrefix ? `${titlePrefix} Reference Points` : "Reference Points"}</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base font-medium">
+              <MapPin className="h-4 w-4" />
+              {titlePrefix ? `${titlePrefix} Reference Points` : "Reference Points"}
+            </CardTitle>
             <Badge variant="secondary" className="text-xs">
               {totalPointsCount} {totalPointsCount === 1 ? "point" : "points"}
             </Badge>
@@ -163,7 +166,7 @@ export function NodePreparationCard({
               <div>Point</div>
               <div className="whitespace-nowrap">X px</div>
               <div className="whitespace-nowrap">Y px</div>
-              <div className="text-center whitespace-nowrap">Type / ROI</div>
+              <div className="text-center whitespace-nowrap">Source / ROI</div>
               <div />
             </div>
             {points.map((point) => (
@@ -244,9 +247,6 @@ export function NodePreparationCard({
                   }}
                 />
                 <div className="flex items-center justify-center gap-1">
-                  <span className="rounded border border-border px-1 py-0.5 text-[10px] uppercase text-muted-foreground">
-                    {point.pointType === "corner" ? "C" : "B"}
-                  </span>
                   <span className="rounded border border-border px-1 py-0.5 text-[10px] uppercase text-muted-foreground">
                     {point.source === "manual" ? "M" : "A"}
                   </span>

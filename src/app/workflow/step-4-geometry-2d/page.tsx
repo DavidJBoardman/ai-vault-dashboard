@@ -28,7 +28,7 @@ export default function Step4Geometry2DPage() {
   const router = useRouter();
   const controller = useStep4Geometry2DController();
   const [selectedReconstructionEdgeKey, setSelectedReconstructionEdgeKey] = useState<string | null>(null);
-  const [stageToolTab, setStageToolTab] = useState<"controls" | "overlays">("controls");
+  const [stageToolTab, setStageToolTab] = useState<"controls" | "manualEdit" | "overlays">("controls");
   const hasInitialisedRoiEvidenceLayers = useRef(false);
   const hasInitialisedNodeLayers = useRef(false);
   const hasInitialisedMatchingLayers = useRef(false);
@@ -159,7 +159,11 @@ export default function Step4Geometry2DPage() {
 
   const handleSelectReconstructionEdge = (edgeKey: string | null) => {
     setSelectedReconstructionEdgeKey(edgeKey);
-    if (edgeKey) {
+    // If the user is on the Overlays tab, surface the inspector so they can
+    // see the selected edge's details. If they are already on Controls or
+    // Manual edit (both render the inspector), leave the tab alone — selecting
+    // a rib row should not bounce them out of the Manual edit table.
+    if (edgeKey && stageToolTab === "overlays") {
       setStageToolTab("controls");
     }
   };
@@ -212,20 +216,35 @@ export default function Step4Geometry2DPage() {
               {(isRoiStage || isNodesStage || isMatchingStage || isReconstructStage) && (
                 <Card>
                   <CardContent className="p-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["controls", "overlays"] as const).map((tab) => (
-                        <Button
-                          key={tab}
-                          type="button"
-                          size="sm"
-                          variant={stageToolTab === tab ? "default" : "outline"}
-                          className="h-8"
-                          onClick={() => setStageToolTab(tab)}
+                    {/* 4D adds a "Manual edit" tab between Controls and Overlays
+                        because rib editing has its own scroll budget. The
+                        other stages stay on the two-tab layout. */}
+                    {(() => {
+                      const tabs = isReconstructStage
+                        ? (["controls", "manualEdit", "overlays"] as const)
+                        : (["controls", "overlays"] as const);
+                      const labelFor = (tab: typeof tabs[number]) =>
+                        tab === "controls" ? "Controls" : tab === "manualEdit" ? "Manual edit" : "Overlays";
+                      return (
+                        <div
+                          className="grid gap-2"
+                          style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
                         >
-                          {tab === "controls" ? "Controls" : "Overlays"}
-                        </Button>
-                      ))}
-                    </div>
+                          {tabs.map((tab) => (
+                            <Button
+                              key={tab}
+                              type="button"
+                              size="sm"
+                              variant={stageToolTab === tab ? "default" : "outline"}
+                              className="h-8"
+                              onClick={() => setStageToolTab(tab)}
+                            >
+                              {labelFor(tab)}
+                            </Button>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
               )}
@@ -271,8 +290,9 @@ export default function Step4Geometry2DPage() {
                   onResetToDetected={controller.handleResetTemplatePoints}
                   onGoToRoi={() => controller.handleWorkflowSectionChange("roi")}
                 />
-              ) : stageToolTab === "controls" ? (
+              ) : (stageToolTab === "controls" || (stageToolTab === "manualEdit" && isReconstructStage)) ? (
                 <Geometry2DInspectorPanel
+                  reconstructView={stageToolTab === "manualEdit" ? "manualEdit" : "controls"}
                   activeSection={controller.activeSection}
                   isAnalysing={controller.isAnalysing}
                   hasSegmentations={controller.hasSegmentations}

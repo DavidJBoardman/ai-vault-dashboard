@@ -44,7 +44,9 @@ export function getReconstructionBossStyle(source: string): ReconstructionBossSt
     return { fill: "#ffffff", stroke: "#0ea5e9", label: "Ideal match" };
   }
   if (source === "anchor") {
-    return { fill: "#f472b6", stroke: "#ffffff", label: "Corner anchor" };
+    // Match the cyan styling used for corner reference points in steps 4B / 4C
+    // so the same four nodes look consistent across the workflow.
+    return { fill: "#ffffff", stroke: "#0ea5e9", label: "Corner anchor" };
   }
   if (source === "manual") {
     return { fill: "#facc15", stroke: "#78350f", label: "Manual node" };

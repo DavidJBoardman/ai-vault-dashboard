@@ -114,12 +114,13 @@ export default function WorkflowLayout({
           </aside>
           
           {/* Main Content Area */}
-          <main className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full">
-              <div className="p-6 max-w-6xl mx-auto">
-                {children}
-              </div>
-            </ScrollArea>
+          {/* Native overflow-y-auto (rather than Radix ScrollArea) so that
+              `position: sticky` inside the page works — Radix wraps its
+              viewport content in a display:table element which breaks sticky. */}
+          <main className="flex-1 overflow-y-auto">
+            <div className="p-6 max-w-6xl mx-auto">
+              {children}
+            </div>
           </main>
         </div>
       </div>
