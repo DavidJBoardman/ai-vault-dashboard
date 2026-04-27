@@ -57,6 +57,7 @@ import {
   calculateApexSpan,
   getMeasurementConfig,
   saveMeasurementConfig,
+  saveStep7bSummary,
   type RibImpostData,
   type ImpostLineResult,
   type ImpostLineRequest,
@@ -66,6 +67,7 @@ import {
   type ApexSpanResult,
   type RibPairing,
   type ImportedCurve,
+  type Step7bSummarySnapshot,
   type SemicircularGroupInput,
   type RibGroupingDiagnostics,
   type RibGroupPairDiagnostic,
@@ -359,6 +361,21 @@ function metricValueForExport(metric: MetricTileModel | undefined): string {
 
 function toCsvCell(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
+}
+
+function parseMetersText(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toUpperCase() === "N/A") {
+    return null;
+  }
+  const normalized = trimmed.endsWith("m") ? trimmed.slice(0, -1) : trimmed;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function averageOrNull(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 type MetricDisplayState = "value" | "loading" | "not-applicable" | "unavailable";
@@ -2860,6 +2877,113 @@ export default function Step7MeasurementsPage() {
       setExportingBossStones(false);
     }
   };
+
+  const buildStep7bSummarySnapshot = useCallback((): Step7bSummarySnapshot => {
+    const ribs: Step7bSummarySnapshot["ribs"] = displayGroups.map((group) => {
+      const metricsByKey = new Map(buildGroupMetricTiles(group).map(metric => [metric.key, metric]));
+
+      const arcRadiusText = metricValueForExport(metricsByKey.get("arc-radius"));
+      const lengthText = metricValueForExport(metricsByKey.get("length"));
+      const impostDistanceText = metricValueForExport(metricsByKey.get("impost-distance"));
+      const spanText = metricValueForExport(metricsByKey.get("span"));
+      const apexHeightText = metricValueForExport(metricsByKey.get("apex-height"));
+      const fitErrorText = metricValueForExport(metricsByKey.get("fit-error"));
+
+      return {
+        id: group.groupId,
+        name: group.groupName ?? group.groupId,
+        source: group.source,
+        ribCount: group.ribIds.length,
+        arcRadius: parseMetersText(arcRadiusText),
+        arcRadiusText,
+        length: parseMetersText(lengthText),
+        lengthText,
+        impostDistance: parseMetersText(impostDistanceText),
+        impostDistanceText,
+        span: parseMetersText(spanText),
+        spanText,
+        apexHeight: parseMetersText(apexHeightText),
+        apexHeightText,
+        fitError: parseMetersText(fitErrorText),
+        fitErrorText,
+      };
+    });
+
+    const impostHeight = impostLineData?.impost_height ?? 0;
+    const bosses: Step7bSummarySnapshot["bosses"] = bossStoneMarkers.map((marker) => {
+      const displayName = measurementConfig.bossStoneNameById[marker.id] ?? marker.label;
+      const bossApex = apexSpanResult?.bosses.find((boss) => boss.bossId === marker.id);
+
+      const bossPairingResults = (measurementConfig.ribPairings ?? [])
+        .filter((pairing) =>
+          pairingApexInputs
+            .find((input) => input.pairingId === pairing.id)
+            ?.sides.flatMap((side) => side.ribIds)
+            .some((ribId) => ribToBossMap.get(ribId)?.high === marker.id)
+        )
+        .map((pairing) => apexSpanResult?.pairingApex?.find((result) => result.pairingId === pairing.id))
+        .filter((result): result is NonNullable<typeof result> => result?.status === "ok" && typeof result.apexHeight === "number");
+
+      const pairingApexHeights = bossPairingResults.map((result) => result.apexHeight as number);
+      const medianApexZ = pairingApexHeights.length > 0 ? median(pairingApexHeights) : bossApex?.apex.z;
+      const heightFromImpost = medianApexZ != null && Number.isFinite(medianApexZ)
+        ? medianApexZ - impostHeight
+        : null;
+
+      const connectedRibCount = intradosLines.filter((line) => {
+        const mapping = ribToBossMap.get(line.id);
+        return mapping?.high === marker.id || mapping?.low === marker.id;
+      }).length;
+
+      return {
+        id: marker.id,
+        name: displayName,
+        groupId: marker.groupId,
+        x: marker.x,
+        y: marker.y,
+        z: marker.z,
+        heightFromImpost,
+        heightFromImpostText: heightFromImpost == null ? "N/A" : formatMeters(heightFromImpost, 2),
+        connectedRibCount,
+        apexPairCount: bossApex?.ribPairs.length ?? 0,
+        source: pairingApexHeights.length > 0 ? "pairings" : bossApex ? "boss-apex" : "n/a",
+      };
+    });
+
+    const radiusValues = ribs.map((row) => row.arcRadius).filter(hasFiniteNumber);
+    const fitErrorValues = ribs.map((row) => row.fitError).filter(hasFiniteNumber);
+    const heightValues = bosses.map((row) => row.heightFromImpost).filter(hasFiniteNumber);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      activeTraceSource,
+      activeTraceSummary,
+      ribs,
+      bosses,
+      ribStats: {
+        groupedRows: ribs.filter((row) => row.ribCount > 1).length,
+        averageRadius: averageOrNull(radiusValues),
+        averageFitError: averageOrNull(fitErrorValues),
+      },
+      bossStats: {
+        bossesWithHeights: heightValues.length,
+        averageHeight: averageOrNull(heightValues),
+      },
+    };
+  }, [
+    activeTraceSource,
+    activeTraceSummary,
+    apexSpanResult,
+    bossStoneMarkers,
+    buildGroupMetricTiles,
+    displayGroups,
+    impostLineData?.impost_height,
+    intradosLines,
+    measurementConfig.bossStoneNameById,
+    measurementConfig.ribPairings,
+    pairingApexInputs,
+    ribToBossMap,
+  ]);
   
   const handleContinueToData = async () => {
     await saveConfigNow();
@@ -2869,6 +2993,19 @@ export default function Step7MeasurementsPage() {
 
   const handleContinue = async () => {
     await saveConfigNow();
+
+    if (currentProject?.id) {
+      try {
+        const snapshot = buildStep7bSummarySnapshot();
+        const response = await saveStep7bSummary(currentProject.id, snapshot);
+        if (!response.success) {
+          console.error("Failed to persist Step 7B summary snapshot:", response.error);
+        }
+      } catch (err) {
+        console.error("Error persisting Step 7B summary snapshot:", err);
+      }
+    }
+
     completeStep(7, { measurements });
     router.push("/workflow/step-8-analysis");
   };
