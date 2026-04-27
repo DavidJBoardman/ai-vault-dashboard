@@ -18,6 +18,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   captureRegion: (rect: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.invoke('capture:region', rect),
 
+  // Report exports
+  report: {
+    printToPdf: (): Promise<Uint8Array> => ipcRenderer.invoke('report:print-to-pdf'),
+  },
+
   // Platform info
   platform: process.platform,
 });
@@ -37,6 +42,9 @@ declare global {
       getPythonPort: () => Promise<number>;
       isPythonRunning: () => Promise<boolean>;
       captureRegion: (rect: { x: number; y: number; width: number; height: number }) => Promise<string>;
+      report: {
+        printToPdf: () => Promise<Uint8Array>;
+      };
       platform: NodeJS.Platform;
     };
   }

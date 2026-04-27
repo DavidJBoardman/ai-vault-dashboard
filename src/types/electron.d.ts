@@ -23,6 +23,9 @@ declare global {
       getPythonPort: () => Promise<number>;
       isPythonRunning: () => Promise<boolean>;
       captureRegion: (rect: { x: number; y: number; width: number; height: number }) => Promise<string>;
+      report: {
+        printToPdf: () => Promise<Uint8Array>;
+      };
       platform: NodeJS.Platform;
     };
   }
