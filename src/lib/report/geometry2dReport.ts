@@ -10,16 +10,26 @@ export interface BayProportionCandidate {
 
 export interface ReferencePoint {
   letter: string;
+  // Absolute pixel coordinates in the projection image space.
+  x: number;
+  y: number;
+  // ROI-relative normalised coordinates, retained for CSV export.
   u: number;
   v: number;
 }
 
 export interface RoiBox {
+  // Top-left + size in projection-image pixel space.
   x: number;
   y: number;
   width: number;
   height: number;
   rotation: number;
+}
+
+export interface ImageSize {
+  width: number;
+  height: number;
 }
 
 export interface CutTypologyData {
@@ -47,6 +57,7 @@ export interface ReportData {
   };
   referencePoints: ReferencePoint[];
   roi: RoiBox | null;
+  imageSize: ImageSize;
 }
 
 interface PrepData {
@@ -54,15 +65,99 @@ interface PrepData {
   vaultRatioSuggestions?: Array<{ label: string; err: number }>;
 }
 
+interface PersistedNodePoint {
+  label?: string;
+  x?: number;
+  y?: number;
+  u?: number;
+  v?: number;
+}
+
 interface NodesData {
-  points?: Array<{ label?: string; u?: number; v?: number }>;
+  points?: PersistedNodePoint[];
+}
+
+// ROI may be persisted in two shapes:
+//   - legacy: { x, y, width, height, rotation }
+//   - controller: { cx, cy, w, h, rotation_deg, scale }
+interface PersistedRoi {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+  cx?: number;
+  cy?: number;
+  w?: number;
+  h?: number;
+  rotation_deg?: number;
+  scale?: number;
 }
 
 interface Geometry2DPersisted {
   prep?: PrepData;
   nodes?: NodesData;
   template?: NodesData;
-  roi?: RoiBox;
+  roi?: PersistedRoi;
+}
+
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+function pickResolution(projection: {
+  settings?: { resolution?: number };
+} | null): number {
+  return projection?.settings?.resolution ?? 2048;
+}
+
+function normaliseRoi(raw: PersistedRoi | undefined, resolution: number): RoiBox | null {
+  if (!raw) return null;
+
+  // Centre/size form: { cx, cy, w, h, rotation_deg }
+  if (typeof raw.cx === "number" && typeof raw.cy === "number" && typeof raw.w === "number" && typeof raw.h === "number") {
+    let { cx, cy, w, h } = raw;
+    const looksUnit = cx <= 1.01 && cy <= 1.01 && w <= 1.01 && h <= 1.01;
+    if (looksUnit) {
+      cx *= resolution;
+      cy *= resolution;
+      w *= resolution;
+      h *= resolution;
+    }
+    return {
+      x: cx - w / 2,
+      y: cy - h / 2,
+      width: w,
+      height: h,
+      rotation: raw.rotation_deg ?? 0,
+    };
+  }
+
+  // Top-left/size form: { x, y, width, height }
+  if (typeof raw.x === "number" && typeof raw.y === "number" && typeof raw.width === "number" && typeof raw.height === "number") {
+    let { x, y, width, height } = raw;
+    const looksUnit = x <= 1.01 && y <= 1.01 && width <= 1.01 && height <= 1.01;
+    if (looksUnit) {
+      x *= resolution;
+      y *= resolution;
+      width *= resolution;
+      height *= resolution;
+    }
+    return { x, y, width, height, rotation: raw.rotation ?? 0 };
+  }
+
+  return null;
+}
+
+function pointToPixel(p: PersistedNodePoint, roi: RoiBox | null, resolution: number): { x: number; y: number } | null {
+  // Prefer absolute x, y when available.
+  if (typeof p.x === "number" && typeof p.y === "number") {
+    const looksUnit = p.x <= 1.01 && p.y <= 1.01;
+    return looksUnit ? { x: p.x * resolution, y: p.y * resolution } : { x: p.x, y: p.y };
+  }
+  // Fall back to ROI-relative u,v.
+  if (typeof p.u === "number" && typeof p.v === "number" && roi) {
+    return { x: roi.x + p.u * roi.width, y: roi.y + p.v * roi.height };
+  }
+  return null;
 }
 
 function ensureDataUrl(value: string | undefined): string | null {
@@ -92,15 +187,27 @@ export function selectReportData(
     deltaFromBest: s.err - bestErr,
   }));
 
-  const nodePoints = (geom.nodes?.points ?? geom.template?.points ?? []).filter(
-    (p): p is { label?: string; u: number; v: number } =>
-      typeof p?.u === "number" && typeof p?.v === "number"
-  );
-  const referencePoints: ReferencePoint[] = nodePoints.map((p, i) => ({
-    letter: p.label && p.label.length > 0 ? p.label : String.fromCharCode(65 + i),
-    u: p.u,
-    v: p.v,
-  }));
+  const selectedProjection =
+    project.projections.find((p) => p.id === project.selectedProjectionId) ??
+    project.projections[0] ??
+    null;
+  const resolution = pickResolution(selectedProjection);
+  const roi = normaliseRoi(geom.roi, resolution);
+
+  const nodePoints = geom.nodes?.points ?? geom.template?.points ?? [];
+  const referencePoints: ReferencePoint[] = nodePoints
+    .map((p, i): ReferencePoint | null => {
+      const pixel = pointToPixel(p, roi, resolution);
+      if (!pixel) return null;
+      return {
+        letter: LETTERS[i] ?? `P${i + 1}`,
+        x: pixel.x,
+        y: pixel.y,
+        u: typeof p.u === "number" ? p.u : 0,
+        v: typeof p.v === "number" ? p.v : 0,
+      };
+    })
+    .filter((p): p is ReferencePoint => p !== null);
 
   const matchColumns = cutTypology?.columns ?? [];
   const matchRows = cutTypology?.rows ?? [];
@@ -109,11 +216,6 @@ export function selectReportData(
       .map((r) => r["matchedVariantLabel"] || r["matched_variant_label"] || "")
       .filter((v) => v.length > 0)
   ).size;
-
-  const selectedProjection =
-    project.projections.find((p) => p.id === project.selectedProjectionId) ??
-    project.projections[0] ??
-    null;
 
   const projectionImageDataUrl =
     ensureDataUrl(selectedProjection?.images?.colour) ??
@@ -139,7 +241,8 @@ export function selectReportData(
       variantsMatched,
     },
     referencePoints,
-    roi: geom.roi ?? null,
+    roi,
+    imageSize: { width: resolution, height: resolution },
   };
 }
 
@@ -194,8 +297,14 @@ export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
   zip.file(
     "bay-plan.csv",
     toCsv(
-      data.referencePoints.map((p) => ({ letter: p.letter, u: p.u.toFixed(6), v: p.v.toFixed(6) })),
-      ["letter", "u", "v"]
+      data.referencePoints.map((p) => ({
+        letter: p.letter,
+        x_px: p.x.toFixed(2),
+        y_px: p.y.toFixed(2),
+        u: p.u.toFixed(6),
+        v: p.v.toFixed(6),
+      })),
+      ["letter", "x_px", "y_px", "u", "v"]
     )
   );
 
