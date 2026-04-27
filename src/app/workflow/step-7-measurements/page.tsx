@@ -17,8 +17,11 @@ import {
   ChevronLeft, 
   ChevronRight,
   Ruler,
+  Route,
   Target,
   Circle,
+  ArrowUpDown,
+  Mountain,
   Download,
   RefreshCw,
   Loader2,
@@ -374,7 +377,7 @@ interface MetricTileModel {
 function MetricTile({ metric }: { metric: MetricTileModel }) {
   const Icon = metric.icon;
   const tileToneClass = metric.tone === "semi" ? "bg-violet-500/10" : "bg-muted/50";
-  const iconToneClass = metric.tone === "semi" ? "text-violet-400" : "text-primary";
+  const iconToneClass = "text-primary";
 
   let primaryContent: React.ReactNode;
   if (metric.state === "loading") {
@@ -387,7 +390,7 @@ function MetricTile({ metric }: { metric: MetricTileModel }) {
   } else if (metric.state === "value") {
     primaryContent = <p className="text-sm font-bold">{metric.valueText ?? "--"}</p>;
   } else {
-    const statusTextClass = metric.state === "not-applicable" ? "text-amber-500" : "text-muted-foreground";
+    const statusTextClass = "text-muted-foreground";
     const reasonText = metric.reason ?? (metric.state === "not-applicable" ? "Not applicable" : "Unavailable");
     primaryContent = (
       <div className="space-y-0.5">
@@ -1863,7 +1866,7 @@ export default function Step7MeasurementsPage() {
     const lengthMetric: MetricTileModel = {
       key: "length",
       label: "Length",
-      icon: Ruler,
+      icon: Route,
       state: "value",
       valueText: formatMeters(hasFiniteNumber(ribLength) ? ribLength : 0, 2),
     };
@@ -1873,14 +1876,14 @@ export default function Step7MeasurementsPage() {
       ? {
           key: "impost-distance",
           label: "Impost Distance",
-          icon: Ruler,
+          icon: ArrowUpDown,
           state: "loading",
         }
       : !impostLineData
       ? {
           key: "impost-distance",
           label: "Impost Distance",
-          icon: Ruler,
+          icon: ArrowUpDown,
           state: "unavailable",
           reason: "Impost line unavailable",
         }
@@ -1888,14 +1891,14 @@ export default function Step7MeasurementsPage() {
       ? {
           key: "impost-distance",
           label: "Impost Distance",
-          icon: Ruler,
+          icon: ArrowUpDown,
           state: "unavailable",
           reason: "No arc center",
         }
       : {
           key: "impost-distance",
           label: "Impost Distance",
-          icon: Ruler,
+          icon: ArrowUpDown,
           state: "value",
           valueText: formatMeters(groupImpostDistance, 3),
         };
@@ -1905,14 +1908,14 @@ export default function Step7MeasurementsPage() {
       spanMetric = {
         key: "span",
         label: "Span",
-        icon: Ruler,
+        icon: ArrowLeftRight,
         state: "loading",
       };
     } else if (!hasArcInputs) {
       spanMetric = {
         key: "span",
         label: "Span",
-        icon: Ruler,
+        icon: ArrowLeftRight,
         state: "unavailable",
         reason: "Insufficient data",
       };
@@ -1920,7 +1923,7 @@ export default function Step7MeasurementsPage() {
       spanMetric = {
         key: "span",
         label: "Span",
-        icon: Ruler,
+        icon: ArrowLeftRight,
         state: "not-applicable",
         reason: "Straight rib",
       };
@@ -1929,7 +1932,7 @@ export default function Step7MeasurementsPage() {
         spanMetric = {
           key: "span",
           label: "Span",
-          icon: Ruler,
+          icon: ArrowLeftRight,
           state: "value",
           valueText: formatMeters(groupSemicircularResult.span, 2),
           note: "Semi",
@@ -1939,7 +1942,7 @@ export default function Step7MeasurementsPage() {
         spanMetric = {
           key: "span",
           label: "Span",
-          icon: Ruler,
+          icon: ArrowLeftRight,
           state: "not-applicable",
           reason: "No apex intersection",
           note: "Semi",
@@ -1949,7 +1952,7 @@ export default function Step7MeasurementsPage() {
         spanMetric = {
           key: "span",
           label: "Span",
-          icon: Ruler,
+          icon: ArrowLeftRight,
           state: "unavailable",
           reason: "Insufficient data",
           note: "Semi",
@@ -1965,7 +1968,7 @@ export default function Step7MeasurementsPage() {
         spanMetric = {
           key: "span",
           label: "Span",
-          icon: Ruler,
+          icon: ArrowLeftRight,
           state: "value",
           valueText: formatMeters(groupSpan.span, 2),
         };
@@ -1973,7 +1976,7 @@ export default function Step7MeasurementsPage() {
         spanMetric = {
           key: "span",
           label: "Span",
-          icon: Ruler,
+          icon: ArrowLeftRight,
           state: "unavailable",
           reason: "No boss apex",
         };
@@ -1981,7 +1984,7 @@ export default function Step7MeasurementsPage() {
         spanMetric = {
           key: "span",
           label: "Span",
-          icon: Ruler,
+          icon: ArrowLeftRight,
           state: "unavailable",
           reason: "Insufficient data",
         };
@@ -1993,7 +1996,7 @@ export default function Step7MeasurementsPage() {
       apexHeightMetric = {
         key: "apex-height",
         label: "Apex Height",
-        icon: ArrowLeftRight,
+        icon: Mountain,
         state: "loading",
       };
     } else if (groupIsSemicircular) {
@@ -2001,7 +2004,7 @@ export default function Step7MeasurementsPage() {
         apexHeightMetric = {
           key: "apex-height",
           label: "Apex Height",
-          icon: ArrowLeftRight,
+          icon: Mountain,
           state: "value",
           valueText: formatMeters(groupSemicircularResult.apexHeight - impostHeight, 3),
           note: "Semi",
@@ -2011,7 +2014,7 @@ export default function Step7MeasurementsPage() {
         apexHeightMetric = {
           key: "apex-height",
           label: "Apex Height",
-          icon: ArrowLeftRight,
+          icon: Mountain,
           state: "not-applicable",
           reason: "No apex intersection",
           note: "Semi",
@@ -2021,7 +2024,7 @@ export default function Step7MeasurementsPage() {
         apexHeightMetric = {
           key: "apex-height",
           label: "Apex Height",
-          icon: ArrowLeftRight,
+          icon: Mountain,
           state: "unavailable",
           reason: "Insufficient data",
           note: "Semi",
@@ -2032,7 +2035,7 @@ export default function Step7MeasurementsPage() {
       apexHeightMetric = {
         key: "apex-height",
         label: "Apex Height",
-        icon: ArrowLeftRight,
+        icon: Mountain,
         state: "not-applicable",
         reason: "Requires pairing",
       };
@@ -2042,7 +2045,7 @@ export default function Step7MeasurementsPage() {
         apexHeightMetric = {
           key: "apex-height",
           label: "Apex Height",
-          icon: ArrowLeftRight,
+          icon: Mountain,
           state: "value",
           valueText: formatMeters(pairingResult.apexHeight - impostHeight, 3),
           note: groupPairing.name,
@@ -2051,7 +2054,7 @@ export default function Step7MeasurementsPage() {
         apexHeightMetric = {
           key: "apex-height",
           label: "Apex Height",
-          icon: ArrowLeftRight,
+          icon: Mountain,
           state: "not-applicable",
           reason: "No apex intersection",
           note: groupPairing.name,
@@ -2060,7 +2063,7 @@ export default function Step7MeasurementsPage() {
         apexHeightMetric = {
           key: "apex-height",
           label: "Apex Height",
-          icon: ArrowLeftRight,
+          icon: Mountain,
           state: "unavailable",
           reason: "Insufficient data",
           note: groupPairing.name,
@@ -2160,13 +2163,13 @@ export default function Step7MeasurementsPage() {
       ? {
           key: "length",
           label: "Length",
-          icon: Ruler,
+          icon: Route,
           state: "loading",
         }
       : {
           key: "length",
           label: "Length",
-          icon: Ruler,
+          icon: Route,
           state: "value",
           valueText: formatMeters(hasFiniteNumber(ribLength) ? ribLength : 0, 2),
         };
@@ -2180,14 +2183,14 @@ export default function Step7MeasurementsPage() {
       ? {
           key: "impost-distance",
           label: "Impost Distance",
-          icon: Ruler,
+          icon: ArrowUpDown,
           state: "loading",
         }
       : !impostLineData
       ? {
           key: "impost-distance",
           label: "Impost Distance",
-          icon: Ruler,
+          icon: ArrowUpDown,
           state: "unavailable",
           reason: "Impost line unavailable",
         }
@@ -2195,14 +2198,14 @@ export default function Step7MeasurementsPage() {
       ? {
           key: "impost-distance",
           label: "Impost Distance",
-          icon: Ruler,
+          icon: ArrowUpDown,
           state: "unavailable",
           reason: "No arc center",
         }
       : {
           key: "impost-distance",
           label: "Impost Distance",
-          icon: Ruler,
+          icon: ArrowUpDown,
           state: "value",
           valueText: formatMeters(selectedRibImpostDistance, 3),
         };
@@ -2212,14 +2215,14 @@ export default function Step7MeasurementsPage() {
       spanMetric = {
         key: "span",
         label: "Span",
-        icon: Ruler,
+        icon: ArrowLeftRight,
         state: "loading",
       };
     } else if (!hasArcInputs) {
       spanMetric = {
         key: "span",
         label: "Span",
-        icon: Ruler,
+        icon: ArrowLeftRight,
         state: "unavailable",
         reason: "Insufficient data",
       };
@@ -2227,7 +2230,7 @@ export default function Step7MeasurementsPage() {
       spanMetric = {
         key: "span",
         label: "Span",
-        icon: Ruler,
+        icon: ArrowLeftRight,
         state: "not-applicable",
         reason: "Straight rib",
       };
@@ -2235,7 +2238,7 @@ export default function Step7MeasurementsPage() {
       spanMetric = {
         key: "span",
         label: "Span",
-        icon: Ruler,
+        icon: ArrowLeftRight,
         state: "value",
         valueText: formatMeters(apexSpanResult.ribs[selectedRib].span, 2),
       };
@@ -2243,7 +2246,7 @@ export default function Step7MeasurementsPage() {
       spanMetric = {
         key: "span",
         label: "Span",
-        icon: Ruler,
+        icon: ArrowLeftRight,
         state: "unavailable",
         reason: "No boss apex",
       };
@@ -2251,7 +2254,7 @@ export default function Step7MeasurementsPage() {
       spanMetric = {
         key: "span",
         label: "Span",
-        icon: Ruler,
+        icon: ArrowLeftRight,
         state: "unavailable",
         reason: "Insufficient data",
       };
@@ -2262,14 +2265,14 @@ export default function Step7MeasurementsPage() {
       apexHeightMetric = {
         key: "apex-height",
         label: "Apex Height",
-        icon: ArrowLeftRight,
+        icon: Mountain,
         state: "loading",
       };
     } else if (!selectedRibPairing) {
       apexHeightMetric = {
         key: "apex-height",
         label: "Apex Height",
-        icon: ArrowLeftRight,
+        icon: Mountain,
         state: "not-applicable",
         reason: "Requires pairing",
       };
@@ -2279,7 +2282,7 @@ export default function Step7MeasurementsPage() {
         apexHeightMetric = {
           key: "apex-height",
           label: "Apex Height",
-          icon: ArrowLeftRight,
+          icon: Mountain,
           state: "value",
           valueText: formatMeters(pairingResult.apexHeight - impostHeight, 3),
           note: selectedRibPairing.name,
@@ -2288,7 +2291,7 @@ export default function Step7MeasurementsPage() {
         apexHeightMetric = {
           key: "apex-height",
           label: "Apex Height",
-          icon: ArrowLeftRight,
+          icon: Mountain,
           state: "not-applicable",
           reason: "No apex intersection",
           note: selectedRibPairing.name,
@@ -2297,7 +2300,7 @@ export default function Step7MeasurementsPage() {
         apexHeightMetric = {
           key: "apex-height",
           label: "Apex Height",
-          icon: ArrowLeftRight,
+          icon: Mountain,
           state: "unavailable",
           reason: "Insufficient data",
           note: selectedRibPairing.name,

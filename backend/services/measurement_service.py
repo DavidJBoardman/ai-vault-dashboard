@@ -65,6 +65,7 @@ class MeasurementService:
 
         # Calculate point distances from arc for visualization
         point_distances = self._calculate_point_distances_from_arc(segment, arc_params)
+        fit_error = self._calculate_fit_error_from_distances(point_distances)
         
         # Calculate rib length
         rib_length = self._calculate_length(segment)
@@ -81,7 +82,7 @@ class MeasurementService:
             "rib_length": rib_length,
             "apex_point": apex,
             "springing_points": springing,
-            "fit_error": arc_params["error"],
+            "fit_error": fit_error,
             "point_distances": point_distances.tolist(),
             "segment_points": segment_points,
             "arc_center": arc_params["center"],
@@ -289,6 +290,10 @@ class MeasurementService:
             norm_len = np.linalg.norm(normal)
             normal = normal / norm_len if norm_len > 1e-9 else normal
             start_angle, end_angle = compute_angle_span(float(x_mean), float(z_mean))
+            fallback_residuals = np.sqrt((x - x_mean)**2 + (z - z_mean)**2) - r_guess
+            fallback_error = float(np.sqrt(np.mean(fallback_residuals**2)))
+            if not np.isfinite(fallback_error):
+                fallback_error = 0.0
             return {
                 "radius": float(r_guess),
                 "center": {"x": float(center_3d[0]), "y": float(center_3d[1]), "z": float(center_3d[2])},
@@ -298,7 +303,7 @@ class MeasurementService:
                 "basis_v": {"x": float(v[0]), "y": float(v[1]), "z": float(v[2])},
                 "start_angle": start_angle,
                 "end_angle": end_angle,
-                "error": 0.5
+                "error": fallback_error
             }
     
     def _calculate_length(self, points: np.ndarray) -> float:
@@ -417,6 +422,18 @@ class MeasurementService:
       )
 
       return np.linalg.norm(points - closest_points, axis=1)
+
+    @staticmethod
+    def _calculate_fit_error_from_distances(point_distances: np.ndarray) -> float:
+      """Aggregate per-point arc distances into a single fit error metric."""
+      if point_distances.size == 0:
+          return 0.0
+
+      finite = point_distances[np.isfinite(point_distances)]
+      if finite.size == 0:
+          return 0.0
+
+      return float(np.sqrt(np.mean(finite**2)))
     
     async def chord_method_analysis(self, hypothesis_id: str) -> Dict[str, Any]:
         """Perform three-circle chord method analysis."""
@@ -1244,6 +1261,8 @@ class MeasurementService:
 
         merged_points = np.vstack([self.traces[rid] for rid in valid_ids])
         arc_params = self._fit_arc(merged_points)
+        point_distances = self._calculate_point_distances_from_arc(merged_points, arc_params)
+        fit_error = self._calculate_fit_error_from_distances(point_distances)
         rib_length = sum(
             self._calculate_length(self.traces[rid]) for rid in valid_ids
         )
@@ -1255,7 +1274,7 @@ class MeasurementService:
             "rib_length": float(rib_length),
             "apex_point": apex,
             "springing_points": springing,
-            "fit_error": arc_params["error"],
+            "fit_error": fit_error,
             "arc_center": arc_params["center"],
             "arc_center_z": float(arc_params["center"]["z"]),
         }
