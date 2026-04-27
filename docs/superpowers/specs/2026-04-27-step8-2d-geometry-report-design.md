@@ -104,10 +104,12 @@ The report component is a pure view: it reads from the Zustand store (`useProjec
   bay-proportion.csv
   cut-typology.csv
   bay-plan.csv             (reference points: letter, u, v)
-  projection.png
+  bay-plan.png             (rasterised bay-plan: projection clipped to ROI + labelled reference points)
 ```
 
 `buildBundleZip` uses JSZip in the renderer. The HTML is rendered to a string with `react-dom/server` from the same component tree, so on-screen and exported HTML do not drift.
+
+`bay-plan.png` is produced by serialising the in-DOM `<BayPlanSvg>` element to an SVG string, drawing it onto an offscreen `<canvas>` (with the projection image as the base layer + labelled reference-point overlays), and exporting `canvas.toBlob('image/png')`. This guarantees the standalone PNG matches the report's bay-plan figure exactly.
 
 ## PDF export
 
@@ -140,7 +142,7 @@ The report always renders all 4 section headings — missing data shows a one-li
 ## Risks & mitigations
 
 - **Print/screen drift** — single component tree rendered server-side for HTML export and triggered via `?print=1` for PDF; no separate templates.
-- **Large projection images bloating the bundle** — projection PNG is included once; if size becomes an issue, downscale to 2048 px wide before embedding.
+- **Large bay-plan rasterisation bloating the bundle** — the bay-plan PNG is rendered once at the ROI's natural pixel size; if it exceeds ~2 MB, downscale to 2048 px on the longer edge before embedding.
 - **Pagination logic complexity** — keep it dumb: client-side slice of the rows array, no virtualisation.
 - **Project location field migration** — making it optional avoids any migration needed for existing projects.
 
