@@ -126,6 +126,21 @@ Targets `@media print` and `body.print-mode` (the latter set when `?print=1`):
 - Forces page breaks before each major section heading.
 - Removes hover states / background tints that print poorly.
 
+## UX & visual style
+
+The report should read like a printable academic figure, not an app dashboard. Concretely:
+
+- **Typography** — use the project's display font for section headings, sans-serif body, and tabular-figure numerics for all measurements. Generous line-height (~1.5).
+- **Hierarchy** — one large section heading per part (1–4), a short caption underneath each, then content. Section numbers prefix each heading so a reader can refer to "§2 Bay proportion".
+- **Whitespace** — ample padding inside cards; clear separation between sections with a thin top border or extra vertical space rather than heavy dividers.
+- **Tables** — striped rows, right-aligned numerics with fixed decimal places, monospace for ratios/errors, units on column headers (not in every cell).
+- **Colour** — restrained: muted greys for body text, a single accent colour for the "best match" highlight and headings. No segmentation-style multi-colour palettes.
+- **Best-match emphasis** — the top bay-proportion card uses a subtle bordered/filled accent (consistent with the existing chord-method-result card on the 3D tab) so the key answer is immediately visible.
+- **Bay-plan figure** — labels (A, B, C…) rendered with a small white halo for legibility on any background; circle markers sized proportionally to the ROI.
+- **Export buttons** — placed top-right of the report, secondary-button style; not competing visually with the report content.
+- **Consistency with existing UI** — re-use shadcn `Card`, `Button`, `Table` primitives already used on the 3D tab so the two tabs feel like siblings.
+- **Print parity** — the print stylesheet keeps the same typography and spacing; only chrome and pagination controls are stripped.
+
 ## Empty / partial states
 
 The report always renders all 4 section headings — missing data shows a one-line muted message under the heading. This keeps the structure consistent across projects at different completion stages and makes "what's missing" visible at a glance.
