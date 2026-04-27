@@ -80,6 +80,7 @@ export interface StepState {
 export interface Project {
   id: string;
   name: string;
+  location?: string;
   path: string;
   createdAt: Date;
   updatedAt: Date;
@@ -203,6 +204,7 @@ interface ProjectStore {
   }) => void;
   saveProject: () => Promise<void>;
   closeProject: () => void;
+  setProjectLocation: (location: string) => void;
   
   // Step navigation
   setCurrentStep: (step: number) => void;
@@ -539,6 +541,14 @@ export const useProjectStore = create<ProjectStore>()(
 
       closeProject: () => {
         set({ currentProject: null });
+      },
+
+      setProjectLocation: (location: string) => {
+        set((state) => ({
+          currentProject: state.currentProject
+            ? { ...state.currentProject, location }
+            : null,
+        }));
       },
 
       setCurrentStep: (step: number) => {
