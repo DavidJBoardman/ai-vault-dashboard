@@ -9,10 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { GroupVisibilityInfo } from "@/components/geometry2d/types";
 import { ChevronDown, ChevronUp, EyeOff, Layers } from "lucide-react";
+import type { Segmentation } from "@/lib/store";
+import { SegmentedClassesList } from "./SegmentedClassesList";
 
 interface RoiEvidenceLayersCardProps {
   hasSegmentations: boolean;
   groupVisibility: Record<string, GroupVisibilityInfo>;
+  groupedSegmentations?: Record<string, Segmentation[]>;
+  onToggleSegmentation?: (segmentationId: string) => void;
   showBaseImage: boolean;
   onShowBaseImageChange: (checked: boolean) => void;
   editRoiEnabled: boolean;
@@ -33,6 +37,8 @@ interface RoiEvidenceLayersCardProps {
 export function RoiEvidenceLayersCard({
   hasSegmentations,
   groupVisibility,
+  groupedSegmentations,
+  onToggleSegmentation,
   showBaseImage,
   onShowBaseImageChange,
   editRoiEnabled,
@@ -111,23 +117,12 @@ export function RoiEvidenceLayersCard({
           </div>
 
           {hasSegmentations ? (
-            <div className="space-y-1.5">
-              {Object.entries(groupVisibility).map(([label, info]) => (
-                <Label
-                  key={label}
-                  className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-border/70 bg-background/40 px-3 py-2"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: info.color }} />
-                    <span className="truncate text-sm">{label}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-muted-foreground">{info.total}</span>
-                    <Checkbox checked={info.visible > 0} onCheckedChange={() => onToggleGroup(label)} />
-                  </div>
-                </Label>
-              ))}
-            </div>
+            <SegmentedClassesList
+              groupVisibility={groupVisibility}
+              groupedSegmentations={groupedSegmentations}
+              onToggleGroup={onToggleGroup}
+              onToggleSegmentation={onToggleSegmentation}
+            />
           ) : (
             <div className="rounded-md border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
               No segmented classes available.

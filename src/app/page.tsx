@@ -442,16 +442,54 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="border-t border-border/40 py-6">
         <div className="container mx-auto px-6 flex flex-col items-center gap-4">
-          <div className="flex items-center gap-6">
-            <a href="https://www.liverpool.ac.uk/" target="_blank" rel="noopener noreferrer">
-              <img src="/logo-uol.svg" alt="University of Liverpool" className="h-8 opacity-70 hover:opacity-100 transition-opacity" />
+          <div className="flex items-center gap-4">
+            <a
+              href="https://www.ukri.org/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-14 w-40 items-center justify-center rounded-md bg-white px-3 opacity-80 hover:opacity-100 transition-opacity"
+            >
+              <img
+                src="/logo-ukri.png"
+                alt="UK Research and Innovation"
+                className="max-h-9 max-w-full object-contain"
+              />
             </a>
-            <a href="https://www.virtualengineeringcentre.com/" target="_blank" rel="noopener noreferrer">
-              <img src="/logo-vec.png" alt="Virtual Engineering Centre" className="h-8 opacity-70 hover:opacity-100 transition-opacity" />
+            <a
+              href="https://www.liverpool.ac.uk/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-14 w-40 items-center justify-center rounded-md bg-white px-3 opacity-80 hover:opacity-100 transition-opacity"
+            >
+              <img
+                src="/logo-uol.png"
+                alt="University of Liverpool"
+                className="max-h-9 max-w-full object-contain"
+              />
+            </a>
+            <a
+              href="https://www.virtualengineeringcentre.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-14 w-40 items-center justify-center rounded-md bg-white px-3 opacity-80 hover:opacity-100 transition-opacity"
+            >
+              <img
+                src="/logo-vec.png"
+                alt="Virtual Engineering Centre"
+                className="max-h-9 max-w-full object-contain"
+              />
             </a>
           </div>
           <p className="text-sm text-muted-foreground">
-            Vault Analyser v0.1.0 • Medieval Architecture Analysis Platform
+            Vault Analyser v0.1.0 • Medieval Architecture Analysis Platform •{" "}
+            <a
+              href="https://www.tracingthepast.org.uk/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:text-primary/80 transition-colors"
+            >
+              Tracing the Past
+            </a>
           </p>
         </div>
       </footer>

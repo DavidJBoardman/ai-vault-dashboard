@@ -13,9 +13,9 @@ Others
     * fixed on building, but need to discuss if this is okay
 [Done] logo 
 [x] UKRI logo on documentation
-[] UKRI logo on app
+[x] UKRI logo on app
 [] Collect users info before they download the install files
-[] Change the red colour
+<del> [] Change the red colour </del>
 <del> [?] app icon </del>
 
 
@@ -40,13 +40,16 @@ Remove Analysis page - David
 
 
 
-[ ] 2d geometry - load segmentation labels for boss stone points (abc lettering) - yang
+[x] 2d geometry - load segmentation labels for boss stone points (abc lettering) - yang
 
-remove depth and plasma from ui viewer all pages - yang
+[x] remove depth and plasma from ui viewer all pages - yang
 
 Add warning when navigating to cut typology saying to make sure all boss stones are labelled because they're used in future steps - yang
 
-[] add logo  ukri or whatever - yang
+[x] add logo  ukri or whatever - yang
+[x] removed setting buttons on the top right corner
+[?] anyway I can reset the segmentation?
+
 
 
 
@@ -68,4 +71,4 @@ Analysis page, show a quick summary of the vault results 2d + 3d anaylsis with c
 
 Build
 [?] Add NSIS installer if required.Need a vote.
-[] Add uninstall doc
+[x] Add uninstall doc

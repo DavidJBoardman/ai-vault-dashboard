@@ -21,7 +21,8 @@ import {
   Geometry2DBayPlanRunParams,
   Geometry2DBayPlanRunResult,
 } from "@/lib/api";
-import { ChevronDown, ChevronUp, CircleHelp, Plus, RefreshCw, RotateCcw, Settings2, Trash2 } from "lucide-react";
+import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import { ChevronDown, ChevronUp, CircleHelp, Network, Plus, RefreshCw, RotateCcw, Settings2, Trash2 } from "lucide-react";
 
 const RECONSTRUCTION_PARAM_FALLBACKS = {
   reconstructionMode: "current" as const,
@@ -51,6 +52,10 @@ interface BayPlanReconstructionPanelProps {
   onRun: () => void;
   onSaveManualEdges: (edges: Geometry2DBayPlanEdge[]) => void;
   onSelectEdge: (edgeKey: string | null) => void;
+  // Which slice of this panel to render. "controls" = the bay-plan setup card,
+  // "manualEdit" = the rib edit table card. Splitting them lets step 4D show
+  // each as its own tab in the left rail without nuking shared internal state.
+  view?: "controls" | "manualEdit";
 }
 
 function asNumber(value: unknown, fallback: number): number {
@@ -174,10 +179,15 @@ export function BayPlanReconstructionPanel({
   onRun,
   onSaveManualEdges,
   onSelectEdge,
+  view = "controls",
 }: BayPlanReconstructionPanelProps) {
+  const showControls = view === "controls";
+  const showManualEdit = view === "manualEdit";
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(false);
-  const [showManualRibEdits, setShowManualRibEdits] = useState(false);
+  // Default expanded — the parent step gates this card behind a dedicated
+  // "Manual edit" tab now, so collapsing it again from inside is redundant.
+  const [showManualRibEdits, setShowManualRibEdits] = useState(true);
   const [manualEdges, setManualEdges] = useState<Geometry2DBayPlanEdge[]>([]);
   const [manualEdgeStart, setManualEdgeStart] = useState<string>("");
   const [manualEdgeEnd, setManualEdgeEnd] = useState<string>("");
@@ -210,7 +220,8 @@ export function BayPlanReconstructionPanel({
   const availableNodeIds = useMemo(() => {
     return (result?.nodes || []).map((node, index) => ({
       index,
-      label: String(node.bossId || node.id || index),
+      label: getCompactNodeLabel(node.bossId || node.id || index),
+      fullLabel: String(node.bossId || node.id || index),
     }));
   }, [result?.nodes]);
   const nodeLabelByIndex = useMemo(
@@ -274,12 +285,16 @@ export function BayPlanReconstructionPanel({
       if (!query) return true;
       const startLabel = nodeLabelByIndex.get(edge.a) || String(edge.a);
       const endLabel = nodeLabelByIndex.get(edge.b) || String(edge.b);
+      const startFullLabel = availableNodeIds.find((node) => node.index === edge.a)?.fullLabel || startLabel;
+      const endFullLabel = availableNodeIds.find((node) => node.index === edge.b)?.fullLabel || endLabel;
       const typeLabel = getEdgeTypeLabel(edge);
       return (
         `node ${startLabel}`.toLowerCase().includes(query) ||
         `node ${endLabel}`.toLowerCase().includes(query) ||
         startLabel.toLowerCase().includes(query) ||
         endLabel.toLowerCase().includes(query) ||
+        startFullLabel.toLowerCase().includes(query) ||
+        endFullLabel.toLowerCase().includes(query) ||
         typeLabel.includes(query)
       );
     });
@@ -313,7 +328,7 @@ export function BayPlanReconstructionPanel({
         edgeLabelCollator.compare(leftTo, rightTo);
       return edgeSort.direction === "asc" ? fallback : -fallback;
     });
-  }, [displayedManualEdges, edgeLabelCollator, edgeSearchQuery, edgeSort, nodeLabelByIndex, selectedEdgeKey]);
+  }, [availableNodeIds, displayedManualEdges, edgeLabelCollator, edgeSearchQuery, edgeSort, nodeLabelByIndex, selectedEdgeKey]);
 
   useEffect(() => {
     if (!selectedEdgeKey) return;
@@ -426,9 +441,13 @@ export function BayPlanReconstructionPanel({
   return (
     <TooltipProvider delayDuration={180}>
       <>
+      {showControls && (
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium">D • Bay Plan</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base font-medium">
+            <Network className="h-4 w-4" />
+            D • Bay Plan
+          </CardTitle>
           <CardDescription className="text-xs">
             Run the reconstruction, then review the current bay-plan result before making any manual edits.
           </CardDescription>
@@ -702,7 +721,9 @@ export function BayPlanReconstructionPanel({
           </Button>
         </CardContent>
       </Card>
+      )}
 
+      {showManualEdit && (
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-3">
@@ -741,7 +762,7 @@ export function BayPlanReconstructionPanel({
                       <SelectContent>
                         {availableNodeIds.map((node) => (
                           <SelectItem key={`start-${node.index}`} value={String(node.index)}>
-                            Node {node.label}
+                            {node.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -757,7 +778,7 @@ export function BayPlanReconstructionPanel({
                       <SelectContent>
                         {availableNodeIds.map((node) => (
                           <SelectItem key={`end-${node.index}`} value={String(node.index)}>
-                            Node {node.label}
+                            {node.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -789,7 +810,7 @@ export function BayPlanReconstructionPanel({
                     <Input
                       value={edgeSearchQuery}
                       onChange={(event) => setEdgeSearchQuery(event.target.value)}
-                      placeholder="Search by node ID"
+                      placeholder="Search by node label"
                       className="h-8 flex-1 text-xs sm:min-w-[180px]"
                     />
                     <span className="text-[11px] text-muted-foreground">Click a row or rib to link both views.</span>
@@ -841,10 +862,10 @@ export function BayPlanReconstructionPanel({
                                 onClick={() => onSelectEdge(isSelected ? null : currentEdgeKey)}
                               >
                                 <td className="px-3 py-2.5">
-                                  <div className="font-medium text-foreground">Node {startLabel}</div>
+                                  <div className="font-medium text-foreground">{startLabel}</div>
                                 </td>
                                 <td className="px-3 py-2.5">
-                                  <div className="font-medium text-foreground">Node {endLabel}</div>
+                                  <div className="font-medium text-foreground">{endLabel}</div>
                                 </td>
                                 <td className="px-3 py-2.5">
                                   <Badge
@@ -866,7 +887,7 @@ export function BayPlanReconstructionPanel({
                                     size="sm"
                                     className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                                     title="Remove rib"
-                                    aria-label={`Remove rib from node ${startLabel} to node ${endLabel}`}
+                                    aria-label={`Remove rib from ${startLabel} to ${endLabel}`}
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       handleRemoveManualEdge(edge);
@@ -915,6 +936,7 @@ export function BayPlanReconstructionPanel({
           </CardContent>
         )}
       </Card>
+      )}
       </>
     </TooltipProvider>
   );

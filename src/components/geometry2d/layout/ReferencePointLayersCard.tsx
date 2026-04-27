@@ -9,9 +9,13 @@ import { Label } from "@/components/ui/label";
 import { GroupVisibilityInfo } from "@/components/geometry2d/types";
 import { ChevronDown, ChevronUp, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { Segmentation } from "@/lib/store";
+import { SegmentedClassesList } from "./SegmentedClassesList";
 
 interface ReferencePointLayersCardProps {
   groupVisibility: Record<string, GroupVisibilityInfo>;
+  groupedSegmentations?: Record<string, Segmentation[]>;
+  onToggleSegmentation?: (segmentationId: string) => void;
   showBaseImage: boolean;
   onShowBaseImageChange: (checked: boolean) => void;
   roiLabel: string;
@@ -29,6 +33,8 @@ interface ReferencePointLayersCardProps {
 
 export function ReferencePointLayersCard({
   groupVisibility,
+  groupedSegmentations,
+  onToggleSegmentation,
   showBaseImage,
   onShowBaseImageChange,
   roiLabel,
@@ -106,18 +112,12 @@ export function ReferencePointLayersCard({
 
           <div className="space-y-1.5 border-t border-border/70 pt-3">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Step 3 Segmented Classes</p>
-            {Object.entries(groupVisibility).map(([label, info]) => (
-              <Label
-                key={label}
-                className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-border/70 bg-background/40 px-3 py-2"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: info.color }} />
-                  <span className="truncate text-sm">{label}</span>
-                </div>
-                <Checkbox checked={info.visible > 0} onCheckedChange={() => onToggleGroup(label)} />
-              </Label>
-            ))}
+            <SegmentedClassesList
+              groupVisibility={groupVisibility}
+              groupedSegmentations={groupedSegmentations}
+              onToggleGroup={onToggleGroup}
+              onToggleSegmentation={onToggleSegmentation}
+            />
           </div>
         </CardContent>
       )}

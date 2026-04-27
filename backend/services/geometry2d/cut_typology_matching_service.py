@@ -25,14 +25,18 @@ DEFAULT_TEMPLATE_PARAMS: Dict[str, Any] = {
     "includeInner": True,
     "includeOuter": True,
     "allowCrossTemplate": True,
-    "tolerance": 0.01,
+    "tolerance": 0.015,
 }
 ROI_INSIDE_MARGIN_UV = 0.02
 CORNER_REFERENCE_SPECS: List[Tuple[str, Tuple[float, float]]] = [
-    ("NW", (0.0, 0.0)),
-    ("NE", (1.0, 0.0)),
-    ("SE", (1.0, 1.0)),
-    ("SW", (0.0, 1.0)),
+    # Labels mirror the step-3 corner segmentation tags so the reference
+    # points carry the same letter as the step-3 masks. The mapping follows
+    # the convention used in step-3 (getROICorners returns [TL, TR, BR, BL]
+    # which are mapped to [C, A, B, D]).
+    ("Corner C", (0.0, 0.0)),  # TL / NW
+    ("Corner A", (1.0, 0.0)),  # TR / NE
+    ("Corner B", (1.0, 1.0)),  # BR / SE
+    ("Corner D", (0.0, 1.0)),  # BL / SW
 ]
 
 PARAMETER_SCHEMA: List[Dict[str, Any]] = [
@@ -90,7 +94,7 @@ PARAMETER_SCHEMA: List[Dict[str, Any]] = [
         "min": 0.001,
         "max": 0.1,
         "step": 0.001,
-        "default": 0.01,
+        "default": 0.015,
         "description": "Maximum absolute ratio distance for a matched coordinate.",
     },
 ]
@@ -198,6 +202,16 @@ class CutTypologyMatchingService:
 
     def _reset_points_sync(self, project_id: str) -> Dict[str, Any]:
         project_dir = get_project_dir(project_id)
+        # Rebuild boss_report.json from the latest segmentation index so the
+        # detected reference points pick up the current step-3 labels (e.g.
+        # "boss stone A"). Falls back silently if the regeneration is not
+        # possible — _load_base_points will then use whatever is on disk.
+        try:
+            from services.geometry2d.prepare_bosses import prepare_bosses_for_geometry2d
+            roi_params = self._load_roi_params(project_dir)
+            prepare_bosses_for_geometry2d(project_dir, roi_payload={"params": roi_params})
+        except Exception as exc:  # noqa: BLE001 — best-effort refresh
+            print(f"[reset_points] boss_report regeneration skipped: {exc}")
         base_points = self._load_base_points(project_dir)
         self._persist_points(project_dir, base_points)
 
@@ -490,6 +504,7 @@ class CutTypologyMatchingService:
         csv_path = cls._matching_csv_path(project_dir)
         fieldnames = [
             "boss_id",
+            "point_label",
             "point_type",
             "variant_label",
             "template_type",
@@ -507,6 +522,7 @@ class CutTypologyMatchingService:
         rows: List[Dict[str, Any]] = []
         for point in per_boss_rows:
             boss_id = point.get("id")
+            point_label = str(point.get("label") or "").strip() or str(boss_id)
             boss_uv = [point.get("u"), point.get("v")]
             boss_xy = [int(round(float(point.get("x", 0.0)))), int(round(float(point.get("y", 0.0))))]
             matches = point.get("matches")
@@ -514,6 +530,7 @@ class CutTypologyMatchingService:
                 rows.append(
                     {
                         "boss_id": boss_id,
+                        "point_label": point_label,
                         "point_type": str(point.get("pointType", "boss")),
                         "variant_label": "None",
                         "template_type": "None",
@@ -549,6 +566,7 @@ class CutTypologyMatchingService:
             rows.append(
                 {
                     "boss_id": boss_id,
+                    "point_label": point_label,
                     "point_type": str(point.get("pointType", "boss")),
                     "variant_label": variant_label,
                     "template_type": str(match.get("templateType") or "None"),
@@ -614,10 +632,14 @@ class CutTypologyMatchingService:
             if "x" not in centroid or "y" not in centroid:
                 continue
             boss_id = int(boss.get("id", idx))
+            # Prefer the segmentation-derived label (e.g. "boss stone A") so the
+            # detected reference points stay aligned with the step-3 tags.
+            label_raw = str(boss.get("label") or "").strip()
+            label = label_raw if label_raw else str(boss_id)
             points.append(
                 {
                     "id": boss_id,
-                    "label": str(boss_id),
+                    "label": label,
                     "x": float(centroid["x"]),
                     "y": float(centroid["y"]),
                     "source": "auto",
@@ -707,12 +729,22 @@ class CutTypologyMatchingService:
             )
         return out
 
-    @staticmethod
-    def _corner_uv_by_label(label: str) -> Optional[Tuple[float, float]]:
+    # Compass labels are still recognised so corner reference points saved
+    # before the segmentation-aligned naming continue to match correctly.
+    _LEGACY_CORNER_UV: Dict[str, Tuple[float, float]] = {
+        "NW": (0.0, 0.0),
+        "NE": (1.0, 0.0),
+        "SE": (1.0, 1.0),
+        "SW": (0.0, 1.0),
+    }
+
+    @classmethod
+    def _corner_uv_by_label(cls, label: str) -> Optional[Tuple[float, float]]:
+        normalised = label.strip().upper()
         for corner_label, uv in CORNER_REFERENCE_SPECS:
-            if corner_label == label:
+            if corner_label.upper() == normalised:
                 return uv
-        return None
+        return cls._LEGACY_CORNER_UV.get(normalised)
 
     @classmethod
     def _build_corner_match(cls, point: Dict[str, Any]) -> Optional[Dict[str, Any]]:

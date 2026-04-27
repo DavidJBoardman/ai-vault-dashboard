@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Play, RefreshCw } from "lucide-react";
+import { Activity, Play, RefreshCw } from "lucide-react";
 
 interface RoiBayProportionPanelProps {
   isAnalysing: boolean;
@@ -77,7 +77,10 @@ export function RoiBayProportionPanel({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-medium">2. Analyse Bay Proportion</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <Activity className="h-4 w-4" />
+          A • Bay Proportion
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 pt-1 px-5 pb-5">
         <div className="rounded-md border border-border p-3.5 space-y-3">

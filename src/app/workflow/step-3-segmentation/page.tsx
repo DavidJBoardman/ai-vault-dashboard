@@ -57,8 +57,6 @@ import {
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
-// Image type for viewing projections
-type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
 type Tool = "polygon" | "box" | "roi" | "eraser";
 
 // ── Labelling helpers ────────────────────────────────────────────────────────
@@ -75,16 +73,27 @@ function getBaseLabel(label: string): string {
 
 // Vault plan labelling convention (skips I, O, and Z which is reserved for bay centre)
 const UPPER_LABELS = "ABCDEFGHJKLMNPQRSTUVWXY"; // 23 uppercase letters
-const LOWER_LABELS = "abcdefghjklmnpqrstuvwxyz"; // 24 lowercase letters
 
 /**
  * Convert a 0-based index to a vault plan label.
- * 0→A … 7→H, 8→J (skips I), … 13→N, 14→P (skips O) … 22→Y, 23→a …
+ * 0→A … 7→H, 8→J (skips I), … 13→N, 14→P (skips O) … 22→Y, 23→AA, 24→AB,
+ * 45→AY, 46→BA, … (Excel-style fall-through on the same 23-letter alphabet).
  * Z is reserved for the bay centre and is never assigned here.
  */
 function getAlphabeticalLabel(index: number): string {
-  if (index < UPPER_LABELS.length) return UPPER_LABELS[index];
-  return LOWER_LABELS[(index - UPPER_LABELS.length) % LOWER_LABELS.length];
+  const base = UPPER_LABELS.length; // 23
+  if (index < 0) return UPPER_LABELS[0];
+  if (index < base) return UPPER_LABELS[index];
+  const two = index - base;
+  if (two < base * base) {
+    return UPPER_LABELS[Math.floor(two / base)] + UPPER_LABELS[two % base];
+  }
+  const three = two - base * base;
+  return (
+    UPPER_LABELS[Math.floor(three / (base * base))] +
+    UPPER_LABELS[Math.floor((three % (base * base)) / base)] +
+    UPPER_LABELS[three % base]
+  );
 }
 
 /**
@@ -148,7 +157,6 @@ export default function Step3SegmentationPage() {
   const [selectedProjectionId, setSelectedProjectionId] = useState<string | null>(
     currentProject?.projections?.[0]?.id || null
   );
-  const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   
   // Tools
   const [activeTool, setActiveTool] = useState<Tool>("roi");
@@ -230,11 +238,11 @@ export default function Step3SegmentationPage() {
     return currentProject.projections.find(p => p.id === selectedProjectionId) || null;
   }, [selectedProjectionId, currentProject?.projections]);
   
-  // Get current image based on type
+  // Step 3 segmentation always previews the colour projection.
   const currentImage = useMemo(() => {
     if (!selectedProjection?.images) return null;
-    return selectedProjection.images[selectedImageType] || selectedProjection.images.colour;
-  }, [selectedProjection, selectedImageType]);
+    return selectedProjection.images.colour;
+  }, [selectedProjection]);
   
   // Load existing segmentations from store when project is loaded
   useEffect(() => {
@@ -2477,22 +2485,6 @@ export default function Step3SegmentationPage() {
                         : "Click 'Run SAM Segmentation' to detect features"}
                     </CardDescription>
                   </div>
-                  
-                  {/* Image Type Selector */}
-                  {selectedProjection && (
-                    <div className="flex gap-1">
-                      {(["colour", "depthGrayscale", "depthPlasma"] as const).map((type) => (
-                        <Button
-                          key={type}
-                          variant={selectedImageType === type ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setSelectedImageType(type)}
-                        >
-                          {type === "colour" ? "Colour" : type === "depthGrayscale" ? "Depth" : "Plasma"}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </CardHeader>
               <CardContent>

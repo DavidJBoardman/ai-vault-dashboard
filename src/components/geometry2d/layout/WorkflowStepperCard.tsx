@@ -116,9 +116,9 @@ export function WorkflowStepperCard({
         </div>
 
         {allComplete && onContinue && (
-          <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-2.5">
-            <div className="flex items-center gap-2 text-sm text-emerald-200">
-              <Check className="h-4 w-4 text-emerald-400" />
+          <div className="mt-2 flex items-center justify-end gap-3">
+            <div className="flex items-center gap-1.5 text-xs text-emerald-300/80">
+              <Check className="h-3.5 w-3.5 text-emerald-400/80" />
               All sub-stages complete
             </div>
             <Button size="sm" onClick={onContinue} className="gap-1.5">
