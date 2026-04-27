@@ -26,6 +26,7 @@ import {
   type MatchCsvRow,
   variantLabelToTitle,
 } from "./cutTypologyMatchingUtils";
+import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 
 const RESET_TEMPLATE_PARAMS: Geometry2DCutTypologyParams = {
   starcutMin: 2,
@@ -34,7 +35,7 @@ const RESET_TEMPLATE_PARAMS: Geometry2DCutTypologyParams = {
   includeInner: true,
   includeOuter: true,
   allowCrossTemplate: true,
-  tolerance: 0.01,
+  tolerance: 0.015,
 };
 
 interface CutTypologyMatchingPanelProps {
@@ -153,15 +154,29 @@ export function CutTypologyMatchingPanel({
   }, [filteredDisplayMatchCsvRows, sortConfig]);
   const matchSummary = useMemo(() => {
     const total = displayMatchCsvRows.length;
+    const isCornerRow = (row: MatchCsvRow) =>
+      String(row.point_type || "boss").toLowerCase() === "corner";
+    // Corners overlay the template by construction, so we exclude them from
+    // the matched-rate denominator and report them separately. The counters
+    // for the All/Matched/Unmatched/High-error filter buttons keep counting
+    // every row so the row totals still add up across the table.
+    const bossRows = displayMatchCsvRows.filter((row) => !isCornerRow(row));
+    const cornerRows = displayMatchCsvRows.filter(isCornerRow);
     const matched = displayMatchCsvRows.filter((row) => String(row.matched || "").toLowerCase() === "true").length;
     const unmatched = total - matched;
     const highError = displayMatchCsvRows.filter((row) => parseXyErrorScore(row.xy_error) > 0.005).length;
+    const bossTotal = bossRows.length;
+    const bossMatched = bossRows.filter((row) => String(row.matched || "").toLowerCase() === "true").length;
+    const cornerCount = cornerRows.length;
     return {
       total,
       matched,
       unmatched,
       highError,
-      matchedRate: total > 0 ? ((matched / total) * 100).toFixed(1) : "0.0",
+      bossTotal,
+      bossMatched,
+      cornerCount,
+      matchedRate: bossTotal > 0 ? ((bossMatched / bossTotal) * 100).toFixed(1) : "0.0",
     };
   }, [displayMatchCsvRows]);
   const perBossSummary = useMemo(() => buildPerBossTypologySummary(displayMatchCsvRows), [displayMatchCsvRows]);
@@ -237,7 +252,8 @@ export function CutTypologyMatchingPanel({
     <>
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium">
+          <CardTitle className="flex items-center gap-2 text-base font-medium">
+            <Sparkles className="h-4 w-4" />
             {headingPrefix ? `${headingPrefix} Cut-Typology Match` : "Cut-Typology Match"}
           </CardTitle>
         </CardHeader>
@@ -522,7 +538,8 @@ export function CutTypologyMatchingPanel({
                 </span>
               </span>
               <span className="shrink-0 rounded-full border border-border/70 bg-background/50 px-2 py-0.5 text-[11px] text-muted-foreground">
-                {matchSummary.matched}/{matchSummary.total}
+                {matchSummary.bossMatched}/{matchSummary.bossTotal}
+                {matchSummary.cornerCount > 0 ? ` +${matchSummary.cornerCount}c` : ""}
               </span>
             </Button>
           </div>
@@ -542,7 +559,14 @@ export function CutTypologyMatchingPanel({
           <div className="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-3 px-5 pb-5">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">{matchSummary.total} rows</Badge>
-              <Badge variant="outline">{matchSummary.matched}/{matchSummary.total} matched ({matchSummary.matchedRate}%)</Badge>
+              <Badge variant="outline">
+                {matchSummary.bossMatched}/{matchSummary.bossTotal} boss matched ({matchSummary.matchedRate}%)
+              </Badge>
+              {matchSummary.cornerCount > 0 && (
+                <Badge variant="outline" className="text-cyan-300 border-cyan-500/40">
+                  +{matchSummary.cornerCount} corner{matchSummary.cornerCount === 1 ? "" : "s"} (reference)
+                </Badge>
+              )}
               <Badge variant="outline" className="ml-auto">
                 Sorted by {sortConfig.column} {sortConfig.direction === "desc" ? "↓" : "↑"}
               </Badge>
@@ -620,6 +644,27 @@ export function CutTypologyMatchingPanel({
                               <Badge variant={String(row[column] || "").toLowerCase() === "true" ? "secondary" : "destructive"}>
                                 {String(row[column] || "")}
                               </Badge>
+                            ) : column === "boss_id" ? (
+                              <span className="text-muted-foreground">#{row.boss_id}</span>
+                            ) : column === "point_label" ? (
+                              (() => {
+                                const isCorner =
+                                  String(row.point_type || "boss").toLowerCase() === "corner";
+                                const tag = getCompactNodeLabel(row.point_label || row.boss_id);
+                                const tagIsNumeric = !tag || tag === String(row.boss_id ?? "");
+                                if (tagIsNumeric) {
+                                  return <span className="text-muted-foreground">{row.point_label || ""}</span>;
+                                }
+                                return (
+                                  <span
+                                    className={`text-xs font-semibold uppercase tracking-wide ${
+                                      isCorner ? "text-cyan-300" : "text-amber-300"
+                                    }`}
+                                  >
+                                    {tag}
+                                  </span>
+                                );
+                              })()
                             ) : column === "xy_error" ? (
                               <div className="inline-flex items-center gap-1.5">
                                 <span>{row[column] || ""}</span>

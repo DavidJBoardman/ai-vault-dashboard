@@ -7,11 +7,9 @@ import { StepNavigation } from "@/components/workflow/step-navigation";
 import { useProjectStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  Building2, 
-  Home, 
-  Save, 
-  Settings,
+import {
+  Building2,
+  Save,
   ChevronLeft
 } from "lucide-react";
 import {
@@ -20,6 +18,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useToast } from "@/components/ui/use-toast";
 
 export default function WorkflowLayout({
   children,
@@ -28,6 +27,7 @@ export default function WorkflowLayout({
 }) {
   const router = useRouter();
   const { currentProject, saveProject } = useProjectStore();
+  const { toast } = useToast();
 
   // Redirect to home if no project is loaded
   useEffect(() => {
@@ -45,7 +45,19 @@ export default function WorkflowLayout({
   }
 
   const handleSave = async () => {
-    await saveProject();
+    try {
+      await saveProject();
+      toast({
+        title: "Project saved",
+        description: `${currentProject.name || "Untitled Project"} saved successfully.`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "Could not save project.",
+      });
+    }
   };
 
   return (
@@ -79,15 +91,6 @@ export default function WorkflowLayout({
               </TooltipTrigger>
               <TooltipContent>Save Project</TooltipContent>
             </Tooltip>
-            
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <Settings className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Settings</TooltipContent>
-            </Tooltip>
           </div>
         </header>
         
@@ -111,12 +114,13 @@ export default function WorkflowLayout({
           </aside>
           
           {/* Main Content Area */}
-          <main className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full">
-              <div className="p-6 max-w-6xl mx-auto">
-                {children}
-              </div>
-            </ScrollArea>
+          {/* Native overflow-y-auto (rather than Radix ScrollArea) so that
+              `position: sticky` inside the page works — Radix wraps its
+              viewport content in a display:table element which breaks sticky. */}
+          <main className="flex-1 overflow-y-auto">
+            <div className="p-6 max-w-6xl mx-auto">
+              {children}
+            </div>
           </main>
         </div>
       </div>

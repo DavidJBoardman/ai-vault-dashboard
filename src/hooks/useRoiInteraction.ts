@@ -11,6 +11,7 @@ export interface ROIState {
 }
 
 type InteractionMode = "none" | "moving" | "resizing" | "rotating";
+type ResizeHandle = "n" | "e" | "s" | "w" | "nw" | "ne" | "se" | "sw";
 
 interface UseRoiInteractionParams {
   canvasRef: RefObject<HTMLDivElement>;
@@ -58,7 +59,65 @@ function getResizeHandle(pos: { x: number; y: number }, r: ROIState): string | n
   const rotateHandle = [topCenter[0] - rotateHandleOffset * sin, topCenter[1] - rotateHandleOffset * cos];
   const rotDist = Math.hypot(pos.x - rotateHandle[0], pos.y - rotateHandle[1]);
   if (rotDist < threshold) return "rotate";
+
+  const edgeHandles: Array<[string, number[]]> = [
+    ["n", topCenter],
+    ["e", [(corners[1][0] + corners[2][0]) / 2, (corners[1][1] + corners[2][1]) / 2]],
+    ["s", [(corners[2][0] + corners[3][0]) / 2, (corners[2][1] + corners[3][1]) / 2]],
+    ["w", [(corners[3][0] + corners[0][0]) / 2, (corners[3][1] + corners[0][1]) / 2]],
+  ];
+  for (const [name, point] of edgeHandles) {
+    const dist = Math.hypot(pos.x - point[0], pos.y - point[1]);
+    if (dist < threshold) return name;
+  }
   return null;
+}
+
+export function resizeRoiFromHandle(
+  roi: ROIState,
+  handle: ResizeHandle,
+  localDx: number,
+  localDy: number,
+  minSize = 0.1
+): ROIState {
+  let left = -roi.width / 2;
+  let right = roi.width / 2;
+  let top = -roi.height / 2;
+  let bottom = roi.height / 2;
+
+  if (handle.includes("e")) right += localDx;
+  if (handle.includes("w")) left += localDx;
+  if (handle.includes("s")) bottom += localDy;
+  if (handle.includes("n")) top += localDy;
+
+  if (right - left < minSize) {
+    if (handle.includes("w")) {
+      left = right - minSize;
+    } else {
+      right = left + minSize;
+    }
+  }
+  if (bottom - top < minSize) {
+    if (handle.includes("n")) {
+      top = bottom - minSize;
+    } else {
+      bottom = top + minSize;
+    }
+  }
+
+  const centreLocalX = (left + right) / 2;
+  const centreLocalY = (top + bottom) / 2;
+  const angle = (roi.rotation * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  return {
+    ...roi,
+    x: roi.x + centreLocalX * cos - centreLocalY * sin,
+    y: roi.y + centreLocalX * sin + centreLocalY * cos,
+    width: right - left,
+    height: bottom - top,
+  };
 }
 
 export function useRoiInteraction({ canvasRef, showROI, roi, setRoi }: UseRoiInteractionParams) {
@@ -124,15 +183,7 @@ export function useRoiInteraction({ canvasRef, showROI, roi, setRoi }: UseRoiInt
       const localDx = dx * cos - dy * sin;
       const localDy = dx * sin + dy * cos;
 
-      let newWidth = dragStart.roi.width;
-      let newHeight = dragStart.roi.height;
-
-      if (resizeHandle.includes("e")) newWidth = Math.max(0.1, dragStart.roi.width + localDx * 2);
-      if (resizeHandle.includes("w")) newWidth = Math.max(0.1, dragStart.roi.width - localDx * 2);
-      if (resizeHandle.includes("s")) newHeight = Math.max(0.1, dragStart.roi.height + localDy * 2);
-      if (resizeHandle.includes("n")) newHeight = Math.max(0.1, dragStart.roi.height - localDy * 2);
-
-      setRoi({ ...dragStart.roi, width: newWidth, height: newHeight, x: dragStart.roi.x, y: dragStart.roi.y });
+      setRoi(resizeRoiFromHandle(dragStart.roi, resizeHandle as ResizeHandle, localDx, localDy));
     }
   };
 

@@ -33,6 +33,17 @@ import {
 import { cn, toImageSrc } from "@/lib/utils";
 
 type Perspective = "top" | "bottom" | "north" | "south" | "east" | "west";
+type ProjectionImageType = "colour" | "depthGrayscale" | "depthPlasma";
+
+const PROJECTION_IMAGE_OPTIONS: Array<{
+  value: ProjectionImageType;
+  label: string;
+  apiType: "colour" | "depth_grayscale" | "depth_plasma";
+}> = [
+  { value: "colour", label: "Colour", apiType: "colour" },
+  { value: "depthGrayscale", label: "Depth", apiType: "depth_grayscale" },
+  { value: "depthPlasma", label: "Plasma", apiType: "depth_plasma" },
+];
 
 const PERSPECTIVE_OPTIONS: { value: Perspective; label: string; icon: React.ReactNode; description: string }[] = [
   { value: "bottom", label: "Bottom Up", icon: <ArrowUp className="w-4 h-4" />, description: "Looking up from below" },
@@ -334,9 +345,6 @@ function Projection2DPreview({
   );
 }
 
-// Image type for viewing projections
-type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
-
 export default function Step2ProjectionPage() {
   const router = useRouter();
   const { currentProject, addProjection, updateProjection, removeProjection, completeStep, saveProject } = useProjectStore();
@@ -357,7 +365,6 @@ export default function Step2ProjectionPage() {
   const [activeTab, setActiveTab] = useState("3d");
   const [selectedProjectionId, setSelectedProjectionId] = useState<string | null>(null);
   const [viewingPreview, setViewingPreview] = useState(false); // Track if user wants to view preview
-  const [selectedImageType, setSelectedImageType] = useState<ImageViewType>("colour");
   const [totalPointCount, setTotalPointCount] = useState(0);
   const [displayPointCount, setDisplayPointCount] = useState(100000);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -365,6 +372,7 @@ export default function Step2ProjectionPage() {
   const [showMorePerspectives, setShowMorePerspectives] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isLoadingSelectedImage, setIsLoadingSelectedImage] = useState(false);
+  const [selectedImageType, setSelectedImageType] = useState<ProjectionImageType>("colour");
   
   // Get selected projection for display
   const selectedProjection = useMemo(() => {
@@ -372,11 +380,11 @@ export default function Step2ProjectionPage() {
     return currentProject.projections.find(p => p.id === selectedProjectionId) || null;
   }, [selectedProjectionId, currentProject?.projections]);
   
-  // Get current image based on selected type
+  // Step 2 keeps all generated projection render modes available for inspection.
   const currentImage = useMemo(() => {
     if (!selectedProjection?.images) return null;
-    return selectedProjection.images[selectedImageType] || selectedProjection.images.colour;
-  }, [selectedProjection, selectedImageType]);
+    return selectedProjection.images[selectedImageType] || null;
+  }, [selectedImageType, selectedProjection]);
   
   // Load point cloud data
   const initialDisplayPointCountRef = useRef(displayPointCount);
@@ -480,31 +488,22 @@ export default function Step2ProjectionPage() {
     const selectedProjectionForImage = currentProject?.projections.find((proj) => proj.id === selectedProjectionId);
     if (!selectedProjectionForImage) return;
 
-    const imageKeyMap: Record<ImageViewType, "colour" | "depth_grayscale" | "depth_plasma"> = {
-      colour: "colour",
-      depthGrayscale: "depth_grayscale",
-      depthPlasma: "depth_plasma",
-    };
-    const storeKeyMap: Record<ImageViewType, keyof NonNullable<typeof selectedProjectionForImage.images>> = {
-      colour: "colour",
-      depthGrayscale: "depthGrayscale",
-      depthPlasma: "depthPlasma",
-    };
+    if (selectedProjectionForImage.images?.[selectedImageType]) return;
 
-    const storeKey = storeKeyMap[selectedImageType];
-    if (selectedProjectionForImage.images?.[storeKey]) return;
+    const imageOption = PROJECTION_IMAGE_OPTIONS.find((option) => option.value === selectedImageType);
+    if (!imageOption) return;
 
     let cancelled = false;
     const loadImage = async () => {
       setIsLoadingSelectedImage(true);
       try {
-        const image = await getProjectionImageUrl(selectedProjectionId, imageKeyMap[selectedImageType]);
+        const image = await getProjectionImageUrl(selectedProjectionId, imageOption.apiType);
         if (!cancelled && image) {
           updateProjection(selectedProjectionId, {
             images: {
-              [storeKey]: image,
+              [selectedImageType]: image,
             },
-            ...(storeKey === "colour" ? { previewImage: image } : {}),
+            previewImage: selectedImageType === "colour" ? image : selectedProjectionForImage.previewImage,
           });
         }
       } finally {
@@ -982,33 +981,22 @@ export default function Step2ProjectionPage() {
                   </div>
                 </div>
               ) : selectedProjection?.images ? (
-                // Show selected generated projection with image type selector
+                // Show selected generated projection with selectable render modes.
                 <div className="space-y-4">
-                  {/* Image Type Selector */}
-                  <div className="flex justify-center gap-2">
-                    <Button
-                      variant={selectedImageType === "colour" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedImageType("colour")}
-                    >
-                      Colour
-                    </Button>
-                    <Button
-                      variant={selectedImageType === "depthGrayscale" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedImageType("depthGrayscale")}
-                    >
-                      Depth (Gray)
-                    </Button>
-                    <Button
-                      variant={selectedImageType === "depthPlasma" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedImageType("depthPlasma")}
-                    >
-                      Depth (Plasma)
-                    </Button>
+                  <div className="flex justify-center gap-1">
+                    {PROJECTION_IMAGE_OPTIONS.map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        variant={selectedImageType === option.value ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setSelectedImageType(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
                   </div>
-                  
+
                   <div className="aspect-square max-w-lg mx-auto rounded-lg overflow-hidden bg-[#0a0f1a] relative">
                     {currentImage ? (
                       <img 
@@ -1039,8 +1027,7 @@ export default function Step2ProjectionPage() {
                         Gaussian Splatting
                       </div>
                       <div className="bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] capitalize">
-                        {selectedImageType === "depthGrayscale" ? "Depth" : 
-                         selectedImageType === "depthPlasma" ? "Plasma" : "Colour"}
+                        {PROJECTION_IMAGE_OPTIONS.find((option) => option.value === selectedImageType)?.label || "Colour"}
                       </div>
                     </div>
                   </div>
