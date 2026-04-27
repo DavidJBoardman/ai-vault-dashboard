@@ -665,6 +665,7 @@ export default function Step7MeasurementsPage() {
   const [selectedRib, setSelectedRib] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [exportingRibs, setExportingRibs] = useState(false);
+  const [exportingBossStones, setExportingBossStones] = useState(false);
   
   // Data loading states
   const [pointCloudData, setPointCloudData] = useState<ReprojectionPoint[] | null>(null);
@@ -2759,52 +2760,105 @@ export default function Step7MeasurementsPage() {
     a.click();
   };
 
-  // Export all ribs: query measurements for each intrados line and download CSV
-  const handleExportAllRibs = async () => {
+  // Export rib metrics as CSV
+  const handleExportRibs = async () => {
     if (!intradosLines || intradosLines.length === 0) return;
     setExportingRibs(true);
 
-    const rows: string[] = [];
-    // Header
-    rows.push([
-      "Name",
-      "ArcRadius",
-      "Length",
-      "ImpostDistance",
-      "Span",
-      "ApexHeight",
-      "FitError",
-    ].join(","));
+    try {
+      const ribRows: string[] = [];
+      ribRows.push([
+        "Name",
+        "ArcRadius",
+        "Length",
+        "ImpostDistance",
+        "Span",
+        "ApexHeight",
+        "FitError",
+      ].join(","));
 
-    for (const group of displayGroups) {
-      try {
-        const metricsByKey = new Map(buildGroupMetricTiles(group).map(metric => [metric.key, metric]));
+      for (const group of displayGroups) {
+        try {
+          const metricsByKey = new Map(buildGroupMetricTiles(group).map(metric => [metric.key, metric]));
 
-        const label = group.groupName ?? group.groupId;
-        rows.push([
-          toCsvCell(label),
-          toCsvCell(metricValueForExport(metricsByKey.get("arc-radius"))),
-          toCsvCell(metricValueForExport(metricsByKey.get("length"))),
-          toCsvCell(metricValueForExport(metricsByKey.get("impost-distance"))),
-          toCsvCell(metricValueForExport(metricsByKey.get("span"))),
-          toCsvCell(metricValueForExport(metricsByKey.get("apex-height"))),
-          toCsvCell(metricValueForExport(metricsByKey.get("fit-error"))),
-        ].join(","));
-      } catch (err) {
-        console.error(`Error exporting group ${group.groupId}:`, err);
+          const label = group.groupName ?? group.groupId;
+          ribRows.push([
+            toCsvCell(label),
+            toCsvCell(metricValueForExport(metricsByKey.get("arc-radius"))),
+            toCsvCell(metricValueForExport(metricsByKey.get("length"))),
+            toCsvCell(metricValueForExport(metricsByKey.get("impost-distance"))),
+            toCsvCell(metricValueForExport(metricsByKey.get("span"))),
+            toCsvCell(metricValueForExport(metricsByKey.get("apex-height"))),
+            toCsvCell(metricValueForExport(metricsByKey.get("fit-error"))),
+          ].join(","));
+        } catch (err) {
+          console.error(`Error exporting group ${group.groupId}:`, err);
+        }
       }
+
+      const ribCsv = ribRows.join("\n");
+      const ribBlob = new Blob([ribCsv], { type: "text/csv" });
+      const ribUrl = URL.createObjectURL(ribBlob);
+      const ribLink = document.createElement("a");
+      ribLink.href = ribUrl;
+      ribLink.download = `ribs_export_${Date.now()}.csv`;
+      ribLink.click();
+      URL.revokeObjectURL(ribUrl);
+    } finally {
+      setExportingRibs(false);
     }
+  };
 
-    const csv = rows.join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `ribs_export_${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Export boss stone heights as CSV
+  const handleExportBossStones = async () => {
+    if (!bossStoneMarkers || bossStoneMarkers.length === 0) return;
+    setExportingBossStones(true);
 
-    setExportingRibs(false);
+    try {
+      const bossRows: string[] = [];
+      bossRows.push([
+        "BossStone",
+        "HeightFromImpost",
+      ].join(","));
+
+      const impostH = impostLineData?.impost_height ?? 0;
+      for (const marker of bossStoneMarkers) {
+        const displayName = measurementConfig.bossStoneNameById[marker.id] ?? marker.label;
+        const bossApex = apexSpanResult?.bosses.find(b => b.bossId === marker.id);
+
+        const bossPairingResults = (measurementConfig.ribPairings ?? [])
+          .filter(pairing =>
+            pairingApexInputs
+              .find(p => p.pairingId === pairing.id)
+              ?.sides.flatMap(s => s.ribIds)
+              .some(rid => ribToBossMap.get(rid)?.high === marker.id)
+          )
+          .map(pairing => apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id))
+          .filter((result): result is NonNullable<typeof result> => result?.status === "ok" && typeof result.apexHeight === "number");
+
+        const pairingApexHeights = bossPairingResults.map(result => result.apexHeight as number);
+        const medianApexZ = pairingApexHeights.length > 0 ? median(pairingApexHeights) : bossApex?.apex.z;
+        const bossHeight = medianApexZ != null && Number.isFinite(medianApexZ)
+          ? formatMeters(medianApexZ - impostH, 2)
+          : "N/A";
+
+        bossRows.push([
+          toCsvCell(displayName),
+          toCsvCell(bossHeight),
+        ].join(","));
+      }
+
+      const bossCsv = bossRows.join("\n");
+      const bossBlob = new Blob([bossCsv], { type: "text/csv" });
+      const bossUrl = URL.createObjectURL(bossBlob);
+      const bossLink = document.createElement("a");
+      bossLink.href = bossUrl;
+      bossLink.download = `boss_stones_export_${Date.now()}.csv`;
+      bossLink.click();
+      URL.revokeObjectURL(bossUrl);
+    } finally {
+      setExportingBossStones(false);
+    }
   };
   
   const handleContinueToData = async () => {
@@ -3764,13 +3818,13 @@ export default function Step7MeasurementsPage() {
                         <CardTitle className="text-lg font-display">Rib Measurements</CardTitle>
                         <CardDescription>Click a rib or boss to view details</CardDescription>
                       </div>
-                      <Button size="sm" onClick={handleExportAllRibs} disabled={exportingRibs} className="gap-2">
+                      <Button size="sm" onClick={handleExportRibs} disabled={exportingRibs} className="gap-2">
                         {exportingRibs ? (
                           <RefreshCw className="w-4 h-4 animate-spin" />
                         ) : (
                           <Download className="w-4 h-4" />
                         )}
-                        Export
+                        Export Ribs
                       </Button>
                     </div>
                   </CardHeader>
@@ -4042,10 +4096,25 @@ export default function Step7MeasurementsPage() {
                 {(previewLoading || bossStoneMarkers.length > 0) && (
                   <Card>
                     <CardHeader className="pb-2 shrink-0">
-                      <CardTitle className="text-base font-display flex items-center gap-2">
-                        <Circle className="w-4 h-4 text-blue-400" />
-                        Boss Stones
-                      </CardTitle>
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="text-base font-display flex items-center gap-2">
+                          <Circle className="w-4 h-4 text-blue-400" />
+                          Boss Stones
+                        </CardTitle>
+                        <Button
+                          size="sm"
+                          onClick={handleExportBossStones}
+                          disabled={exportingBossStones || bossStoneMarkers.length === 0}
+                          className="gap-2"
+                        >
+                          {exportingBossStones ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          Export Bosses
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent className="pt-0 px-4 pb-4">
                       {previewLoading && bossStoneMarkers.length === 0 ? (
