@@ -38,7 +38,8 @@ import {
   EyeOff,
   Trash2,
   ArrowLeftRight,
-  AlertTriangle
+  AlertTriangle,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -327,17 +328,83 @@ function computeGlobalHeatmapScaleMax(distanceSets: number[][]): number {
   return values[values.length - 1] > 0 ? values[values.length - 1] : 1;
 }
 
-function formatRadius(r: number | undefined | null, ribLength?: number | null): string {
-  if (!hasDisplayableRadius(r, ribLength)) return "N/A";
-  return `${r.toFixed(2)}m`;
-}
-
 function hasDisplayableRadius(r: number | undefined | null, ribLength?: number | null): r is number {
   if (r == null || r <= 0) return false;
   const threshold = (ribLength != null && ribLength > 0)
     ? STRAIGHT_LINE_RATIO * ribLength
     : 500;
   return r <= threshold;
+}
+
+function hasFiniteNumber(value: number | undefined | null): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatMeters(value: number, digits: number = 2): string {
+  return `${value.toFixed(digits)}m`;
+}
+
+function metricValueForExport(metric: MetricTileModel | undefined): string {
+  if (!metric) {
+    return "N/A";
+  }
+  if (metric.state === "value") {
+    return metric.valueText ?? "N/A";
+  }
+  return "N/A";
+}
+
+function toCsvCell(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+type MetricDisplayState = "value" | "loading" | "not-applicable" | "unavailable";
+
+interface MetricTileModel {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  state: MetricDisplayState;
+  valueText?: string;
+  reason?: string;
+  note?: string;
+  tone?: "default" | "semi";
+}
+
+function MetricTile({ metric }: { metric: MetricTileModel }) {
+  const Icon = metric.icon;
+  const tileToneClass = metric.tone === "semi" ? "bg-violet-500/10" : "bg-muted/50";
+  const iconToneClass = metric.tone === "semi" ? "text-violet-400" : "text-primary";
+
+  let primaryContent: React.ReactNode;
+  if (metric.state === "loading") {
+    primaryContent = (
+      <div className="flex items-center justify-center gap-1 text-sm font-bold text-muted-foreground">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        <span>Loading...</span>
+      </div>
+    );
+  } else if (metric.state === "value") {
+    primaryContent = <p className="text-sm font-bold">{metric.valueText ?? "--"}</p>;
+  } else {
+    const statusTextClass = metric.state === "not-applicable" ? "text-amber-500" : "text-muted-foreground";
+    const reasonText = metric.reason ?? (metric.state === "not-applicable" ? "Not applicable" : "Unavailable");
+    primaryContent = (
+      <div className="space-y-0.5">
+        <p className={cn("text-sm font-bold", statusTextClass)}>N/A</p>
+        <p className="text-[10px] leading-tight text-muted-foreground">{reasonText}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("p-2 rounded-lg text-center", tileToneClass)}>
+      <Icon className={cn("w-3.5 h-3.5 mx-auto mb-0.5", iconToneClass)} />
+      {primaryContent}
+      <p className="text-xs text-muted-foreground">{metric.label}</p>
+      {metric.note && <p className="text-[9px] text-muted-foreground truncate">{metric.note}</p>}
+    </div>
+  );
 }
 
 /**
@@ -745,7 +812,9 @@ export default function Step7MeasurementsPage() {
   }, [composeGroupName]);
   
   const selectedMeasurement = measurements.find(m => m.id === selectedRib);
-  const selectedRibImpostData = selectedRib && impostLineData?.ribs[selectedRib] as RibImpostData | undefined;
+  const selectedRibImpostData = selectedRib
+    ? (impostLineData?.ribs[selectedRib] as RibImpostData | undefined)
+    : undefined;
   
   // Load 3D preview and available traces on mount or when project changes
   useEffect(() => {
@@ -1714,6 +1783,573 @@ export default function Step7MeasurementsPage() {
     [selectedGroupId, displayGroups]
   );
 
+  const findPairingForRibIds = useCallback((ribIds: string[]): RibPairing | undefined => {
+    return (measurementConfig.ribPairings ?? []).find(pairing =>
+      pairing.sides.some(sideId => {
+        const group = displayGroupById.get(sideId);
+        const sideRibIds = group ? group.ribIds : [sideId];
+        return sideRibIds.some(ribId => ribIds.includes(ribId));
+      })
+    );
+  }, [displayGroupById, measurementConfig.ribPairings]);
+
+  const selectedRibPairing = useMemo(() => {
+    if (!selectedRib) return undefined;
+    return findPairingForRibIds([selectedRib]);
+  }, [findPairingForRibIds, selectedRib]);
+
+  const resolveGroupImpostDistance = useCallback((group: DisplayGroup): number | null => {
+    if (!impostLineData) return null;
+
+    const center = group.combinedMeasurements.arc_center;
+    const combinedCenterLooksDerived =
+      hasFiniteNumber(group.combinedMeasurements.arc_center_z) &&
+      (Math.abs(center.x) > 1e-9 || Math.abs(center.y) > 1e-9 || Math.abs(center.z) > 1e-9);
+
+    if (combinedCenterLooksDerived) {
+      return group.combinedMeasurements.arc_center_z - impostLineData.impost_height;
+    }
+
+    const ribCenterValues = group.ribIds
+      .map(ribId => impostLineData.ribs[ribId]?.arc_center_z)
+      .filter(hasFiniteNumber);
+
+    if (ribCenterValues.length === 0) {
+      return null;
+    }
+
+    const averageCenterZ = ribCenterValues.reduce((sum, value) => sum + value, 0) / ribCenterValues.length;
+    return averageCenterZ - impostLineData.impost_height;
+  }, [impostLineData]);
+
+  const buildGroupMetricTiles = useCallback((group: DisplayGroup): MetricTileModel[] => {
+    const arcRadius = group.combinedMeasurements.arc_radius;
+    const ribLength = group.combinedMeasurements.rib_length;
+    const fitError = group.combinedMeasurements.fit_error;
+    const impostHeight = impostLineData?.impost_height ?? 0;
+    const groupIsSemicircular = group.ribIds.length > 0 && group.ribIds.every(ribId =>
+      (measurementConfig.semicircularIds ?? []).includes(ribId)
+    );
+    const groupPairing = findPairingForRibIds(group.ribIds);
+    const groupSemicircularResult = apexSpanResult?.semicircularApex?.find(result => result.groupId === group.groupId);
+
+    const hasArcInputs = hasFiniteNumber(arcRadius) && arcRadius > 0 && hasFiniteNumber(ribLength) && ribLength > 0;
+    const isStraightRib = hasArcInputs && !hasDisplayableRadius(arcRadius, ribLength);
+
+    const arcRadiusMetric: MetricTileModel = !hasArcInputs
+      ? {
+          key: "arc-radius",
+          label: "Arc Radius",
+          icon: Circle,
+          state: "unavailable",
+          reason: "Insufficient data",
+        }
+      : isStraightRib
+      ? {
+          key: "arc-radius",
+          label: "Arc Radius",
+          icon: Circle,
+          state: "not-applicable",
+          reason: "Straight rib",
+        }
+      : {
+          key: "arc-radius",
+          label: "Arc Radius",
+          icon: Circle,
+          state: "value",
+          valueText: formatMeters(arcRadius, 2),
+        };
+
+    const lengthMetric: MetricTileModel = {
+      key: "length",
+      label: "Length",
+      icon: Ruler,
+      state: "value",
+      valueText: formatMeters(hasFiniteNumber(ribLength) ? ribLength : 0, 2),
+    };
+
+    const groupImpostDistance = resolveGroupImpostDistance(group);
+    const impostMetric: MetricTileModel = isLoadingImpost
+      ? {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: Ruler,
+          state: "loading",
+        }
+      : !impostLineData
+      ? {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: Ruler,
+          state: "unavailable",
+          reason: "Impost line unavailable",
+        }
+      : groupImpostDistance == null
+      ? {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: Ruler,
+          state: "unavailable",
+          reason: "No arc center",
+        }
+      : {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: Ruler,
+          state: "value",
+          valueText: formatMeters(groupImpostDistance, 3),
+        };
+
+    let spanMetric: MetricTileModel;
+    if (isLoadingApexSpan) {
+      spanMetric = {
+        key: "span",
+        label: "Span",
+        icon: Ruler,
+        state: "loading",
+      };
+    } else if (!hasArcInputs) {
+      spanMetric = {
+        key: "span",
+        label: "Span",
+        icon: Ruler,
+        state: "unavailable",
+        reason: "Insufficient data",
+      };
+    } else if (isStraightRib) {
+      spanMetric = {
+        key: "span",
+        label: "Span",
+        icon: Ruler,
+        state: "not-applicable",
+        reason: "Straight rib",
+      };
+    } else if (groupIsSemicircular) {
+      if (groupSemicircularResult?.status === "ok" && hasFiniteNumber(groupSemicircularResult.span)) {
+        spanMetric = {
+          key: "span",
+          label: "Span",
+          icon: Ruler,
+          state: "value",
+          valueText: formatMeters(groupSemicircularResult.span, 2),
+          note: "Semi",
+          tone: "semi",
+        };
+      } else if (groupSemicircularResult?.status === "no-intersection") {
+        spanMetric = {
+          key: "span",
+          label: "Span",
+          icon: Ruler,
+          state: "not-applicable",
+          reason: "No apex intersection",
+          note: "Semi",
+          tone: "semi",
+        };
+      } else {
+        spanMetric = {
+          key: "span",
+          label: "Span",
+          icon: Ruler,
+          state: "unavailable",
+          reason: "Insufficient data",
+          note: "Semi",
+          tone: "semi",
+        };
+      }
+    } else {
+      const groupSpan = group.ribIds
+        .map(ribId => apexSpanResult?.ribs[ribId])
+        .find(result => result != null);
+
+      if (groupSpan && hasFiniteNumber(groupSpan.span)) {
+        spanMetric = {
+          key: "span",
+          label: "Span",
+          icon: Ruler,
+          state: "value",
+          valueText: formatMeters(groupSpan.span, 2),
+        };
+      } else if (!apexSpanResult || apexSpanResult.bosses.length === 0) {
+        spanMetric = {
+          key: "span",
+          label: "Span",
+          icon: Ruler,
+          state: "unavailable",
+          reason: "No boss apex",
+        };
+      } else {
+        spanMetric = {
+          key: "span",
+          label: "Span",
+          icon: Ruler,
+          state: "unavailable",
+          reason: "Insufficient data",
+        };
+      }
+    }
+
+    let apexHeightMetric: MetricTileModel;
+    if (isLoadingApexSpan) {
+      apexHeightMetric = {
+        key: "apex-height",
+        label: "Apex Height",
+        icon: ArrowLeftRight,
+        state: "loading",
+      };
+    } else if (groupIsSemicircular) {
+      if (groupSemicircularResult?.status === "ok" && hasFiniteNumber(groupSemicircularResult.apexHeight)) {
+        apexHeightMetric = {
+          key: "apex-height",
+          label: "Apex Height",
+          icon: ArrowLeftRight,
+          state: "value",
+          valueText: formatMeters(groupSemicircularResult.apexHeight - impostHeight, 3),
+          note: "Semi",
+          tone: "semi",
+        };
+      } else if (groupSemicircularResult?.status === "no-intersection") {
+        apexHeightMetric = {
+          key: "apex-height",
+          label: "Apex Height",
+          icon: ArrowLeftRight,
+          state: "not-applicable",
+          reason: "No apex intersection",
+          note: "Semi",
+          tone: "semi",
+        };
+      } else {
+        apexHeightMetric = {
+          key: "apex-height",
+          label: "Apex Height",
+          icon: ArrowLeftRight,
+          state: "unavailable",
+          reason: "Insufficient data",
+          note: "Semi",
+          tone: "semi",
+        };
+      }
+    } else if (!groupPairing) {
+      apexHeightMetric = {
+        key: "apex-height",
+        label: "Apex Height",
+        icon: ArrowLeftRight,
+        state: "not-applicable",
+        reason: "Requires pairing",
+      };
+    } else {
+      const pairingResult = apexSpanResult?.pairingApex?.find(result => result.pairingId === groupPairing.id);
+      if (pairingResult?.status === "ok" && hasFiniteNumber(pairingResult.apexHeight)) {
+        apexHeightMetric = {
+          key: "apex-height",
+          label: "Apex Height",
+          icon: ArrowLeftRight,
+          state: "value",
+          valueText: formatMeters(pairingResult.apexHeight - impostHeight, 3),
+          note: groupPairing.name,
+        };
+      } else if (pairingResult?.status === "no-intersection") {
+        apexHeightMetric = {
+          key: "apex-height",
+          label: "Apex Height",
+          icon: ArrowLeftRight,
+          state: "not-applicable",
+          reason: "No apex intersection",
+          note: groupPairing.name,
+        };
+      } else {
+        apexHeightMetric = {
+          key: "apex-height",
+          label: "Apex Height",
+          icon: ArrowLeftRight,
+          state: "unavailable",
+          reason: "Insufficient data",
+          note: groupPairing.name,
+        };
+      }
+    }
+
+    const fitErrorMetric: MetricTileModel = hasFiniteNumber(fitError)
+      ? {
+          key: "fit-error",
+          label: "Fit Error",
+          icon: Target,
+          state: "value",
+          valueText: formatMeters(fitError, 4),
+        }
+      : {
+          key: "fit-error",
+          label: "Fit Error",
+          icon: Target,
+          state: "unavailable",
+          reason: "Insufficient data",
+        };
+
+    return [
+      arcRadiusMetric,
+      lengthMetric,
+      impostMetric,
+      spanMetric,
+      apexHeightMetric,
+      fitErrorMetric,
+    ];
+  }, [
+    apexSpanResult,
+    findPairingForRibIds,
+    impostLineData,
+    isLoadingApexSpan,
+    isLoadingImpost,
+    measurementConfig.semicircularIds,
+    resolveGroupImpostDistance,
+  ]);
+
+  const selectedGroupMetricTiles = useMemo((): MetricTileModel[] => {
+    if (!selectedGroup) return [];
+    return buildGroupMetricTiles(selectedGroup);
+  }, [
+    selectedGroup,
+    buildGroupMetricTiles,
+  ]);
+
+  const selectedRibMetricTiles = useMemo((): MetricTileModel[] => {
+    if (!selectedRib || !selectedMeasurement) return [];
+
+    const cachedMeasurement = measurementCacheRef.current.get(selectedRib);
+    const ribMeasurement = measurementData ?? cachedMeasurement;
+    const impostHeight = impostLineData?.impost_height ?? 0;
+
+    const arcRadius = ribMeasurement?.arcRadius ?? selectedMeasurement.arcRadius;
+    const ribLength = ribMeasurement?.ribLength ?? selectedMeasurement.ribLength;
+    const fitError = ribMeasurement?.fitError;
+
+    const isRibMeasurementLoading = isCalculating && !ribMeasurement;
+    const hasArcInputs = hasFiniteNumber(arcRadius) && arcRadius > 0 && hasFiniteNumber(ribLength) && ribLength > 0;
+    const isStraightRib = hasArcInputs && !hasDisplayableRadius(arcRadius, ribLength);
+
+    const arcRadiusMetric: MetricTileModel = isRibMeasurementLoading
+      ? {
+          key: "arc-radius",
+          label: "Arc Radius",
+          icon: Circle,
+          state: "loading",
+        }
+      : !hasArcInputs
+      ? {
+          key: "arc-radius",
+          label: "Arc Radius",
+          icon: Circle,
+          state: "unavailable",
+          reason: "Insufficient data",
+        }
+      : isStraightRib
+      ? {
+          key: "arc-radius",
+          label: "Arc Radius",
+          icon: Circle,
+          state: "not-applicable",
+          reason: "Straight rib",
+        }
+      : {
+          key: "arc-radius",
+          label: "Arc Radius",
+          icon: Circle,
+          state: "value",
+          valueText: formatMeters(arcRadius, 2),
+        };
+
+    const lengthMetric: MetricTileModel = isRibMeasurementLoading
+      ? {
+          key: "length",
+          label: "Length",
+          icon: Ruler,
+          state: "loading",
+        }
+      : {
+          key: "length",
+          label: "Length",
+          icon: Ruler,
+          state: "value",
+          valueText: formatMeters(hasFiniteNumber(ribLength) ? ribLength : 0, 2),
+        };
+
+    const selectedRibImpostDistance =
+      impostLineData && hasFiniteNumber(selectedRibImpostData?.arc_center_z)
+        ? selectedRibImpostData.arc_center_z - impostLineData.impost_height
+        : null;
+
+    const impostMetric: MetricTileModel = isLoadingImpost
+      ? {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: Ruler,
+          state: "loading",
+        }
+      : !impostLineData
+      ? {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: Ruler,
+          state: "unavailable",
+          reason: "Impost line unavailable",
+        }
+      : selectedRibImpostDistance == null
+      ? {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: Ruler,
+          state: "unavailable",
+          reason: "No arc center",
+        }
+      : {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: Ruler,
+          state: "value",
+          valueText: formatMeters(selectedRibImpostDistance, 3),
+        };
+
+    let spanMetric: MetricTileModel;
+    if (isLoadingApexSpan || isRibMeasurementLoading) {
+      spanMetric = {
+        key: "span",
+        label: "Span",
+        icon: Ruler,
+        state: "loading",
+      };
+    } else if (!hasArcInputs) {
+      spanMetric = {
+        key: "span",
+        label: "Span",
+        icon: Ruler,
+        state: "unavailable",
+        reason: "Insufficient data",
+      };
+    } else if (isStraightRib) {
+      spanMetric = {
+        key: "span",
+        label: "Span",
+        icon: Ruler,
+        state: "not-applicable",
+        reason: "Straight rib",
+      };
+    } else if (apexSpanResult?.ribs[selectedRib] && hasFiniteNumber(apexSpanResult.ribs[selectedRib].span)) {
+      spanMetric = {
+        key: "span",
+        label: "Span",
+        icon: Ruler,
+        state: "value",
+        valueText: formatMeters(apexSpanResult.ribs[selectedRib].span, 2),
+      };
+    } else if (!apexSpanResult || apexSpanResult.bosses.length === 0) {
+      spanMetric = {
+        key: "span",
+        label: "Span",
+        icon: Ruler,
+        state: "unavailable",
+        reason: "No boss apex",
+      };
+    } else {
+      spanMetric = {
+        key: "span",
+        label: "Span",
+        icon: Ruler,
+        state: "unavailable",
+        reason: "Insufficient data",
+      };
+    }
+
+    let apexHeightMetric: MetricTileModel;
+    if (isLoadingApexSpan) {
+      apexHeightMetric = {
+        key: "apex-height",
+        label: "Apex Height",
+        icon: ArrowLeftRight,
+        state: "loading",
+      };
+    } else if (!selectedRibPairing) {
+      apexHeightMetric = {
+        key: "apex-height",
+        label: "Apex Height",
+        icon: ArrowLeftRight,
+        state: "not-applicable",
+        reason: "Requires pairing",
+      };
+    } else {
+      const pairingResult = apexSpanResult?.pairingApex?.find(result => result.pairingId === selectedRibPairing.id);
+      if (pairingResult?.status === "ok" && hasFiniteNumber(pairingResult.apexHeight)) {
+        apexHeightMetric = {
+          key: "apex-height",
+          label: "Apex Height",
+          icon: ArrowLeftRight,
+          state: "value",
+          valueText: formatMeters(pairingResult.apexHeight - impostHeight, 3),
+          note: selectedRibPairing.name,
+        };
+      } else if (pairingResult?.status === "no-intersection") {
+        apexHeightMetric = {
+          key: "apex-height",
+          label: "Apex Height",
+          icon: ArrowLeftRight,
+          state: "not-applicable",
+          reason: "No apex intersection",
+          note: selectedRibPairing.name,
+        };
+      } else {
+        apexHeightMetric = {
+          key: "apex-height",
+          label: "Apex Height",
+          icon: ArrowLeftRight,
+          state: "unavailable",
+          reason: "Insufficient data",
+          note: selectedRibPairing.name,
+        };
+      }
+    }
+
+    const fitErrorMetric: MetricTileModel = isRibMeasurementLoading
+      ? {
+          key: "fit-error",
+          label: "Fit Error",
+          icon: Target,
+          state: "loading",
+        }
+      : hasFiniteNumber(fitError)
+      ? {
+          key: "fit-error",
+          label: "Fit Error",
+          icon: Target,
+          state: "value",
+          valueText: formatMeters(fitError, 4),
+        }
+      : {
+          key: "fit-error",
+          label: "Fit Error",
+          icon: Target,
+          state: "unavailable",
+          reason: "Insufficient data",
+        };
+
+    return [
+      arcRadiusMetric,
+      lengthMetric,
+      impostMetric,
+      spanMetric,
+      apexHeightMetric,
+      fitErrorMetric,
+    ];
+  }, [
+    apexSpanResult,
+    baseTraceLines,
+    impostLineData,
+    isCalculating,
+    isLoadingApexSpan,
+    isLoadingImpost,
+    measurementData,
+    selectedMeasurement,
+    selectedRib,
+    selectedRibImpostData,
+    selectedRibPairing,
+  ]);
+
   const selectedRibGroupingDetails = useMemo(() => {
     if (!selectedRib || !ribGroupingDiagnostics?.passes?.length) {
       return null;
@@ -2125,92 +2761,31 @@ export default function Step7MeasurementsPage() {
     if (!intradosLines || intradosLines.length === 0) return;
     setExportingRibs(true);
 
-    const impostH = impostLineData?.impost_height ?? 0;
     const rows: string[] = [];
     // Header
     rows.push([
       "Name",
       "ArcRadius",
-      "ArcLength",
+      "Length",
       "ImpostDistance",
-      "ApexHeight",
       "Span",
+      "ApexHeight",
+      "FitError",
     ].join(","));
 
     for (const group of displayGroups) {
       try {
-        const cm = group.combinedMeasurements;
-
-        // Arc radius — from combined measurements
-        const arcRadius = cm.arc_radius;
-
-        // Arc length — sum of rib lengths in the group
-        const arcLength = cm.rib_length;
-
-        // Impost distance — arc center Z minus impost height
-        // For grouped ribs use the combined arc_center_z if available, else average
-        let impostDistance = 0;
-        if (impostLineData) {
-          if (cm.arc_center_z !== 0) {
-            impostDistance = cm.arc_center_z - impostH;
-          } else {
-            // Average over all ribs in the group
-            const vals = group.ribIds
-              .map(rid => impostLineData.ribs[rid]?.arc_center_z)
-              .filter((v): v is number => typeof v === "number");
-            if (vals.length > 0) {
-              impostDistance = (vals.reduce((a, b) => a + b, 0) / vals.length) - impostH;
-            }
-          }
-        }
-
-        // Apex height — from semicircular or pairingApex result (normalized)
-        let apexHeight = "";
-        let span = "";
-        const isSemiGroup = group.ribIds.every(rid => (measurementConfig.semicircularIds ?? []).includes(rid));
-        const semiResult = isSemiGroup
-          ? apexSpanResult?.semicircularApex?.find(r => r.groupId === group.groupId)
-          : undefined;
-
-        if (semiResult?.status === "ok") {
-          if (typeof semiResult.apexHeight === "number") {
-            apexHeight = (semiResult.apexHeight - impostH).toFixed(4);
-          }
-          if (typeof semiResult.span === "number") {
-            span = semiResult.span.toFixed(4);
-          }
-        } else {
-          const pairing = (measurementConfig.ribPairings ?? []).find(p =>
-            p.sides.some(sideId => {
-              const dg = displayGroupById.get(sideId);
-              const sideRibIds = dg ? dg.ribIds : [sideId];
-              return sideRibIds.some(rid => group.ribIds.includes(rid));
-            })
-          );
-          if (pairing) {
-            const pr = apexSpanResult?.pairingApex?.find(r => r.pairingId === pairing.id);
-            if (pr?.status === "ok" && typeof pr.apexHeight === "number") {
-              apexHeight = (pr.apexHeight - impostH).toFixed(4);
-            }
-          }
-
-          // Span — from apexSpanResult.ribs, same value stored on every rib in the group
-          const ribSpan = group.ribIds
-            .map(rid => apexSpanResult?.ribs[rid])
-            .find(r => r != null);
-          if (ribSpan) {
-            span = ribSpan.span.toFixed(4);
-          }
-        }
+        const metricsByKey = new Map(buildGroupMetricTiles(group).map(metric => [metric.key, metric]));
 
         const label = group.groupName ?? group.groupId;
         rows.push([
-          `"${label}"`,
-          arcRadius.toFixed(4),
-          arcLength.toFixed(4),
-          impostDistance.toFixed(4),
-          apexHeight,
-          span,
+          toCsvCell(label),
+          toCsvCell(metricValueForExport(metricsByKey.get("arc-radius"))),
+          toCsvCell(metricValueForExport(metricsByKey.get("length"))),
+          toCsvCell(metricValueForExport(metricsByKey.get("impost-distance"))),
+          toCsvCell(metricValueForExport(metricsByKey.get("span"))),
+          toCsvCell(metricValueForExport(metricsByKey.get("apex-height"))),
+          toCsvCell(metricValueForExport(metricsByKey.get("fit-error"))),
         ].join(","));
       } catch (err) {
         console.error(`Error exporting group ${group.groupId}:`, err);
@@ -3240,7 +3815,7 @@ export default function Step7MeasurementsPage() {
                                     </div>
                                   </div>
                                   <div className="mt-1 text-xs text-muted-foreground">
-                                    Err: {group.combinedMeasurements.fit_error.toFixed(4)}m
+                                    Fit Error: {group.combinedMeasurements.fit_error.toFixed(4)}m
                                   </div>
                                 </div>
                                 {isExpanded && (
@@ -3311,110 +3886,9 @@ export default function Step7MeasurementsPage() {
                       {selectedGroup ? (
                         <>
                           <div className="grid grid-cols-2 gap-2">
-                            <div className="p-2 rounded-lg bg-muted/50 text-center">
-                              <Circle className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                              <p className="text-sm font-bold">{formatRadius(selectedGroup.combinedMeasurements.arc_radius, selectedGroup.combinedMeasurements.rib_length)}</p>
-                              <p className="text-xs text-muted-foreground">Arc Radius</p>
-                            </div>
-                            <div className="p-2 rounded-lg bg-muted/50 text-center">
-                              <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                              <p className="text-sm font-bold">{selectedGroup.combinedMeasurements.rib_length.toFixed(2)}m</p>
-                              <p className="text-xs text-muted-foreground">Total Length</p>
-                            </div>
-                            {impostLineData && selectedGroup.combinedMeasurements.arc_center_z !== 0 && (
-                              <div className="p-2 rounded-lg bg-muted/50 text-center">
-                                <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                                <p className="text-sm font-bold">{(selectedGroup.combinedMeasurements.arc_center_z - impostLineData.impost_height).toFixed(3)}m</p>
-                                <p className="text-xs text-muted-foreground">Impost Dist</p>
-                              </div>
-                            )}
-                            {(() => {
-                              // Hide regular span when the group is semicircular (Semi Span shown instead)
-                              if ((measurementConfig.semicircularIds ?? []).includes(selectedGroup.groupId)) return null;
-                              if (!hasDisplayableRadius(selectedGroup.combinedMeasurements.arc_radius, selectedGroup.combinedMeasurements.rib_length)) {
-                                return null;
-                              }
-                              const groupSpan = selectedGroup.ribIds
-                                .map(rid => apexSpanResult?.ribs[rid])
-                                .find(r => r != null);
-                              if (!groupSpan) return null;
-                              return (
-                                <div className="p-2 rounded-lg bg-muted/50 text-center">
-                                  <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                                  {isLoadingApexSpan ? (
-                                    <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
-                                  ) : (
-                                    <p className="text-sm font-bold">{groupSpan.span.toFixed(2)}m</p>
-                                  )}
-                                  <p className="text-xs text-muted-foreground">Span</p>
-                                </div>
-                              );
-                            })()}
-                            {(() => {
-                              const pairing = (measurementConfig.ribPairings ?? []).find(p =>
-                                p.sides.some(sideId => {
-                                  const group = displayGroupById.get(sideId);
-                                  const sideRibIds = group ? group.ribIds : [sideId];
-                                  return sideRibIds.some(rid => selectedGroup.ribIds.includes(rid));
-                                })
-                              );
-                              if (!pairing) return null;
-                              const pairingResult = apexSpanResult?.pairingApex?.find(
-                                r => r.pairingId === pairing.id
-                              );
-                              const apexH = pairingResult?.apexHeight;
-                              const impostH = impostLineData?.impost_height ?? 0;
-                              const hasApex = pairingResult?.status === "ok" && typeof apexH === "number";
-                              return (
-                                <div className="p-2 rounded-lg bg-muted/50 text-center">
-                                  <ArrowLeftRight className="w-3.5 h-3.5 mx-auto mb-0.5 text-emerald-400" />
-                                  {isLoadingApexSpan ? (
-                                    <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
-                                  ) : hasApex ? (
-                                    <p className="text-sm font-bold">{(apexH - impostH).toFixed(3)}m</p>
-                                  ) : (
-                                    <p className="text-sm font-bold text-amber-500">N/A</p>
-                                  )}
-                                  <p className="text-xs text-muted-foreground">Apex Height</p>
-                                  <p className="text-[9px] text-muted-foreground truncate">{pairing.name}</p>
-                                </div>
-                              );
-                            })()}
-                            {(() => {
-                              const semiResult = apexSpanResult?.semicircularApex?.find(
-                                r => r.groupId === selectedGroup.groupId
-                              );
-                              if (!semiResult) return null;
-                              const impostH = impostLineData?.impost_height ?? 0;
-                              const hasApex = semiResult.status === "ok" && typeof semiResult.apexHeight === "number";
-                              const hasSpan = semiResult.status === "ok" && typeof semiResult.span === "number";
-                              return (
-                                <>
-                                  {hasSpan && (
-                                    <div className="p-2 rounded-lg bg-violet-500/10 text-center">
-                                      <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-violet-400" />
-                                      {isLoadingApexSpan ? (
-                                        <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
-                                      ) : (
-                                        <p className="text-sm font-bold">{semiResult.span!.toFixed(2)}m</p>
-                                      )}
-                                      <p className="text-xs text-muted-foreground">Semi Span</p>
-                                    </div>
-                                  )}
-                                  {hasApex && (
-                                    <div className="p-2 rounded-lg bg-violet-500/10 text-center">
-                                      <Circle className="w-3.5 h-3.5 mx-auto mb-0.5 text-violet-400" />
-                                      {isLoadingApexSpan ? (
-                                        <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
-                                      ) : (
-                                        <p className="text-sm font-bold">{(semiResult.apexHeight! - impostH).toFixed(3)}m</p>
-                                      )}
-                                      <p className="text-xs text-muted-foreground">Semi Apex</p>
-                                    </div>
-                                  )}
-                                </>
-                              );
-                            })()}
+                            {selectedGroupMetricTiles.map(metric => (
+                              <MetricTile key={metric.key} metric={metric} />
+                            ))}
                           </div>
 
                           {apexSpanResult && (() => {
@@ -3489,69 +3963,11 @@ export default function Step7MeasurementsPage() {
                           </div>
                         </>
                       ) : (
-                        <>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="p-2 rounded-lg bg-muted/50 text-center">
-                              <Circle className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                              <p className="text-sm font-bold">{formatRadius(measurementData?.arcRadius ?? selectedMeasurement!.arcRadius, measurementData?.ribLength ?? selectedMeasurement!.ribLength)}</p>
-                              <p className="text-xs text-muted-foreground">Arc Radius</p>
-                            </div>
-                            <div className="p-2 rounded-lg bg-muted/50 text-center">
-                              <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                              <p className="text-sm font-bold">{(measurementData?.ribLength ?? selectedMeasurement!.ribLength).toFixed(2)}m</p>
-                              <p className="text-xs text-muted-foreground">Rib Length</p>
-                            </div>
-                            {selectedRibImpostData && impostLineData && (
-                              <div className="p-2 rounded-lg bg-muted/50 text-center">
-                                <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                                <p className="text-sm font-bold">{(selectedRibImpostData.arc_center_z - impostLineData.impost_height).toFixed(3)}m</p>
-                                <p className="text-xs text-muted-foreground">Impost Dist</p>
-                              </div>
-                            )}
-                            {apexSpanResult?.ribs[selectedRib!] && hasDisplayableRadius(
-                              measurementData?.arcRadius ?? selectedMeasurement!.arcRadius,
-                              measurementData?.ribLength ?? selectedMeasurement!.ribLength
-                            ) && (
-                              <div className="p-2 rounded-lg bg-muted/50 text-center">
-                                <Ruler className="w-3.5 h-3.5 mx-auto mb-0.5 text-primary" />
-                                <p className="text-sm font-bold">{apexSpanResult.ribs[selectedRib!].span.toFixed(2)}m</p>
-                                <p className="text-xs text-muted-foreground">Span</p>
-                              </div>
-                            )}
-                            {(() => {
-                              const pairing = (measurementConfig.ribPairings ?? []).find(p =>
-                                p.sides.some(sideId => {
-                                  const group = displayGroupById.get(sideId);
-                                  const sideRibIds = group ? group.ribIds : [sideId];
-                                  return sideRibIds.includes(selectedRib!);
-                                })
-                              );
-                              if (!pairing) return null;
-                              const pairingResult = apexSpanResult?.pairingApex?.find(
-                                r => r.pairingId === pairing.id
-                              );
-                              const apexH = pairingResult?.apexHeight;
-                              const impostH = impostLineData?.impost_height ?? 0;
-                              const hasApex = pairingResult?.status === "ok" && typeof apexH === "number";
-                              return (
-                                <div className="p-2 rounded-lg bg-muted/50 text-center">
-                                  <ArrowLeftRight className="w-3.5 h-3.5 mx-auto mb-0.5 text-emerald-400" />
-                                  {isLoadingApexSpan ? (
-                                    <Loader2 className="w-3.5 h-3.5 mx-auto animate-spin text-muted-foreground" />
-                                  ) : hasApex ? (
-                                    <p className="text-sm font-bold">{(apexH - impostH).toFixed(3)}m</p>
-                                  ) : (
-                                    <p className="text-sm font-bold text-amber-500">N/A</p>
-                                  )}
-                                  <p className="text-xs text-muted-foreground">Apex Height</p>
-                                  <p className="text-[9px] text-muted-foreground truncate">{pairing.name}</p>
-                                </div>
-                              );
-                            })()}
-                          </div>
-
-
-                        </>
+                        <div className="grid grid-cols-2 gap-2">
+                          {selectedRibMetricTiles.map(metric => (
+                            <MetricTile key={metric.key} metric={metric} />
+                          ))}
+                        </div>
                       )}
 
                       {selectedRib && selectedRibGroupingDetails && (
@@ -3695,11 +4111,11 @@ export default function Step7MeasurementsPage() {
                                     />
                                     <span className="text-sm font-medium truncate">{displayName}</span>
                                   </div>
-                                  {medianApexZ != null && (
-                                    <span className="text-xs font-mono text-muted-foreground shrink-0">
-                                      Z: {(medianApexZ - impostH).toFixed(2)}m
-                                    </span>
-                                  )}
+                                  <span className="text-xs text-muted-foreground shrink-0">
+                                    {medianApexZ != null
+                                      ? `Z: ${(medianApexZ - impostH).toFixed(2)}m`
+                                      : "No apex yet"}
+                                  </span>
                                 </div>
                               </div>
                             );
