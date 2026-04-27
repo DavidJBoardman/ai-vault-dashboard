@@ -10,7 +10,10 @@ export async function exportReportPdf(filenameHint: string): Promise<void> {
 
   try {
     const buffer = await api.report.printToPdf();
-    const blob = new Blob([buffer], { type: "application/pdf" });
+    const bytes = new Uint8Array(buffer);
+    const blob = new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)], {
+      type: "application/pdf",
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
