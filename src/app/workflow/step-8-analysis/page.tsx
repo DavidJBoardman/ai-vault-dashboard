@@ -5,6 +5,7 @@ import { StepActions, StepHeader } from "@/components/workflow/step-navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Geometry2DReport } from "@/components/analysis/Geometry2DReport";
 import { useProjectStore } from "@/lib/store";
 import { formatNumber } from "@/lib/utils";
 import {
@@ -126,7 +127,9 @@ export default function Step8AnalysisPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="2d" />
+        <TabsContent value="2d" className="space-y-6">
+          <Geometry2DReport />
+        </TabsContent>
 
         <TabsContent value="3d" className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
