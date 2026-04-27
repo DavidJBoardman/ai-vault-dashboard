@@ -10,7 +10,7 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
   { data },
   ref
 ) {
-  const { referencePoints, projectionImageDataUrl, roi } = data;
+  const { referencePoints, projectionImageDataUrl, roi, imageSize } = data;
 
   return (
     <section className="space-y-4">
@@ -31,6 +31,7 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
               imageDataUrl={projectionImageDataUrl}
               roi={roi}
               referencePoints={referencePoints}
+              imageSize={imageSize}
             />
           </div>
           <figcaption className="text-center text-xs text-muted-foreground">

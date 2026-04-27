@@ -1,26 +1,27 @@
 import { forwardRef } from "react";
-import type { ReferencePoint, RoiBox } from "@/lib/report/geometry2dReport";
+import type { ImageSize, ReferencePoint, RoiBox } from "@/lib/report/geometry2dReport";
 
 interface BayPlanSvgProps {
   imageDataUrl: string | null;
   roi: RoiBox | null;
   referencePoints: ReferencePoint[];
+  imageSize: ImageSize;
 }
 
 export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function BayPlanSvg(
-  { imageDataUrl, roi, referencePoints },
+  { imageDataUrl, roi, referencePoints, imageSize },
   ref
 ) {
-  // The store persists ROI and reference points in normalised (0-1) UV space.
-  // The viewBox is set to the ROI rectangle so the SVG crops the projection.
+  // Everything is in projection-image pixel space.
+  // The viewBox crops to the ROI rectangle (or the whole image if no ROI).
   const vbX = roi?.x ?? 0;
   const vbY = roi?.y ?? 0;
-  const vbW = roi?.width ?? 1;
-  const vbH = roi?.height ?? 1;
+  const vbW = roi?.width ?? imageSize.width;
+  const vbH = roi?.height ?? imageSize.height;
   const aspect = vbH > 0 ? vbW / vbH : 1;
 
-  const radius = Math.max(vbW, vbH) * 0.014;
-  const fontSize = Math.max(vbW, vbH) * 0.04;
+  const radius = Math.max(vbW, vbH) * 0.012;
+  const fontSize = Math.max(vbW, vbH) * 0.026;
 
   return (
     <svg
@@ -32,38 +33,31 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
       style={{ aspectRatio: aspect, maxHeight: "70vh" }}
     >
       {imageDataUrl ? (
-        <image href={imageDataUrl} x={0} y={0} width={1} height={1} preserveAspectRatio="none" />
+        <image
+          href={imageDataUrl}
+          x={0}
+          y={0}
+          width={imageSize.width}
+          height={imageSize.height}
+          preserveAspectRatio="none"
+        />
       ) : (
         <rect x={vbX} y={vbY} width={vbW} height={vbH} fill="#f4f4f5" />
-      )}
-
-      {roi && (
-        <rect
-          x={vbX}
-          y={vbY}
-          width={vbW}
-          height={vbH}
-          fill="none"
-          stroke="#0ea5e9"
-          strokeWidth={radius * 0.18}
-          strokeDasharray={`${radius * 0.5} ${radius * 0.4}`}
-          opacity={0.7}
-        />
       )}
 
       {referencePoints.map((p) => (
         <g key={p.letter}>
           <circle
-            cx={p.u}
-            cy={p.v}
+            cx={p.x}
+            cy={p.y}
             r={radius}
             fill="#ef4444"
             stroke="#ffffff"
             strokeWidth={radius * 0.25}
           />
           <text
-            x={p.u + radius * 1.6}
-            y={p.v - radius * 0.3}
+            x={p.x + radius * 1.4}
+            y={p.y - radius * 0.4}
             fontSize={fontSize}
             fontWeight={700}
             fontFamily="Georgia, serif"
