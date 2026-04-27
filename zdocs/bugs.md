@@ -44,7 +44,7 @@ Remove Analysis page - David
 
 [x] remove depth and plasma from ui viewer all pages - yang
 
-Add warning when navigating to cut typology saying to make sure all boss stones are labelled because they're used in future steps - yang
+[x] Add warning when navigating to cut typology saying to make sure all boss stones are labelled because they're used in future steps - yang
 
 [x] add logo  ukri or whatever - yang
 [x] removed setting buttons on the top right corner
@@ -70,5 +70,5 @@ Analysis page, show a quick summary of the vault results 2d + 3d anaylsis with c
 
 
 Build
-[?] Add NSIS installer if required.Need a vote.
+<del>[?] Add NSIS installer if required.Need a vote.</del>
 [x] Add uninstall doc
