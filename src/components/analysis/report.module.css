@@ -1,0 +1,34 @@
+.report {
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+.report :global(.print-only) {
+  display: none;
+}
+
+@media print {
+  .report :global(.screen-only) {
+    display: none !important;
+  }
+
+  .report :global(.print-only) {
+    display: table-row !important;
+  }
+
+  .report section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .report h2 {
+    page-break-after: avoid;
+  }
+}
+
+:global(body.report-print-mode) .report :global(.screen-only) {
+  display: none !important;
+}
+
+:global(body.report-print-mode) .report :global(.print-only) {
+  display: table-row !important;
+}
