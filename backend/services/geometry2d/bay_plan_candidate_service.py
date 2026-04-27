@@ -269,9 +269,29 @@ class BayPlanCandidateService:
             tuple(sorted((int(edge["a"]), int(edge["b"]))))
             for edge in selected_edges
         }
+        candidate_edge_keys = {
+            tuple(sorted((int(edge["a"]), int(edge["b"]))))
+            for edge in candidate_edges
+        }
         for edge in candidate_edges:
             key = tuple(sorted((int(edge["a"]), int(edge["b"]))))
             edge["selected"] = key in selected_edge_set
+
+        # Boundary edges that were not in the optional candidate pool still
+        # carry useful metrics (overlap with rib mask, third-boss penalty)
+        # computed inside the selector. Surface them so the canvas hover
+        # popup can show real numbers instead of placeholders.
+        for edge in selected_edges:
+            if not bool(edge.get("isBoundaryForced", False)):
+                continue
+            key = tuple(sorted((int(edge["a"]), int(edge["b"]))))
+            if key in candidate_edge_keys:
+                continue
+            mirror = dict(edge)
+            mirror["selected"] = True
+            mirror["candidateSource"] = mirror.get("candidateSource", "boundary")
+            candidate_edges = list(candidate_edges) + [mirror]
+            candidate_edge_keys.add(key)
 
         base_image = load_base_image(project_dir)
         target_path = debug_image_path(project_dir)

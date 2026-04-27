@@ -4,6 +4,7 @@ export * from "./SegmentationGroupsCard";
 export * from "./OverlaySettingsCard";
 export * from "./RoiEvidenceLayersCard";
 export * from "./ReferencePointLayersCard";
+export * from "./SegmentedClassesList";
 export * from "./RoiAccessCard";
 export * from "./NodePreparationCard";
 export * from "./PreviewToolkit";

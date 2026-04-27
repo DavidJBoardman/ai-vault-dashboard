@@ -2,7 +2,6 @@
 
 import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Image as ImageIcon, RefreshCw } from "lucide-react";
 import { PreviewToolkit } from "@/components/geometry2d/layout";
@@ -18,11 +17,12 @@ import {
 } from "@/lib/api";
 import { toImageSrc } from "@/lib/utils";
 import {
+  getCompactNodeLabel,
   getDelaunayConstraintStyle,
+  getNodePointTag,
   getReconstructionBossStyle,
 } from "@/components/geometry2d/projectionCanvasUtils";
 
-type ImageViewType = "colour" | "depthGrayscale" | "depthPlasma";
 type BossHoverInfoMode = "none" | "nodes" | "matching";
 
 interface ROIState {
@@ -36,8 +36,6 @@ interface ROIState {
 interface ProjectionCanvasProps {
   containerClassName?: string;
   selectedProjection: { settings?: { perspective?: string; resolution?: number } } | null;
-  selectedImageType: ImageViewType;
-  onImageTypeChange: (type: ImageViewType) => void;
   currentImage: string | undefined | null;
   canvasRef: RefObject<HTMLDivElement>;
   onMouseDown: React.MouseEventHandler<HTMLDivElement>;
@@ -84,8 +82,6 @@ interface ProjectionCanvasProps {
 export function ProjectionCanvas({
   containerClassName,
   selectedProjection,
-  selectedImageType,
-  onImageTypeChange,
   currentImage,
   canvasRef,
   onMouseDown,
@@ -144,6 +140,10 @@ export function ProjectionCanvas({
   const [panStart, setPanStart] = useState<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const [hoveredBoss, setHoveredBoss] = useState<{
     id: number;
+    label: string;
+    tag: string;
+    pointType: "boss" | "corner";
+    source: string;
     x: number;
     y: number;
     hostWidth: number;
@@ -237,6 +237,14 @@ export function ProjectionCanvas({
     : showMatchingInspectMode
       ? "Inspect node match diagnostics"
       : "Select and drag points";
+  const formatPointType = (pointType: "boss" | "corner") =>
+    pointType === "corner" ? "ROI corner" : "Reference point";
+  const formatPointSource = (source: string) => {
+    if (source === "manual") return "Manual";
+    if (source === "auto") return "Auto generated";
+    if (source === "ideal") return "Ideal match";
+    return source || "Unknown";
+  };
   const reconstructionBossLegendItems = Array.from(
     new Map(usedBosses.map((boss) => [getReconstructionBossStyle(boss.source).label, getReconstructionBossStyle(boss.source)])).values()
   );
@@ -542,8 +550,13 @@ export function ProjectionCanvas({
         const hostRect = event.currentTarget.getBoundingClientRect();
         if (point) {
           const isUnmatched = isTemplatePointUnmatched(point);
+          const tag = getNodePointTag(point) || String(point.id);
           setHoveredBoss({
             id: point.id,
+            label: point.label,
+            tag,
+            pointType: point.pointType,
+            source: point.source,
             x: event.clientX - hostRect.left,
             y: event.clientY - hostRect.top,
             hostWidth: hostRect.width,
@@ -572,8 +585,8 @@ export function ProjectionCanvas({
         setHoveredReconstructionEdge({
           a: edge.a,
           b: edge.b,
-          aLabel: String(reconstructionNodes[edge.a]?.bossId || reconstructionNodes[edge.a]?.id || edge.a),
-          bLabel: String(reconstructionNodes[edge.b]?.bossId || reconstructionNodes[edge.b]?.id || edge.b),
+          aLabel: getCompactNodeLabel(reconstructionNodes[edge.a]?.bossId || reconstructionNodes[edge.a]?.id || edge.a),
+          bLabel: getCompactNodeLabel(reconstructionNodes[edge.b]?.bossId || reconstructionNodes[edge.b]?.id || edge.b),
           x: event.clientX - hostRect.left,
           y: event.clientY - hostRect.top,
           hostWidth: hostRect.width,
@@ -836,7 +849,7 @@ export function ProjectionCanvas({
                 ? "#78350f"
                 : "#0ea5e9";
         const radius = isSelected ? 6 : isCorner ? 5.4 : isManual ? 5.2 : 4.4;
-        const pointLabel = isCorner ? point.label : String(point.id);
+        const pointLabel = getNodePointTag(point) || String(point.id);
 
         if (isSelected) {
           context.save();
@@ -1011,10 +1024,10 @@ export function ProjectionCanvas({
         context.font = "bold 12px sans-serif";
         context.fillStyle = "#000000";
         context.globalAlpha = 0.9;
-        context.fillText(String(boss.id), x + 7, y - 8);
+        context.fillText(getCompactNodeLabel(boss.id), x + 7, y - 8);
         context.fillStyle = "#ffffff";
         context.globalAlpha = 1;
-        context.fillText(String(boss.id), x + 6, y - 9);
+        context.fillText(getCompactNodeLabel(boss.id), x + 6, y - 9);
         context.restore();
       });
     }
@@ -1202,27 +1215,11 @@ export function ProjectionCanvas({
     <div className={containerClassName || "lg:col-span-6"}>
       <Card className="h-full">
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="font-display">Bay Preview</CardTitle>
-              <CardDescription>
-                {selectedProjection?.settings?.perspective || "bottom"} projection • {selectedProjection?.settings?.resolution || 2048}px
-              </CardDescription>
-            </div>
-
-            <div className="flex gap-1">
-              {(["colour", "depthGrayscale", "depthPlasma"] as ImageViewType[]).map((type) => (
-                <Button
-                  key={type}
-                  variant={selectedImageType === type ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => onImageTypeChange(type)}
-                  className="h-7 text-xs"
-                >
-                  {type === "colour" ? "RGB" : type === "depthGrayscale" ? "Depth" : "Plasma"}
-                </Button>
-              ))}
-            </div>
+          <div>
+            <CardTitle className="font-display">Bay Preview</CardTitle>
+            <CardDescription>
+              {selectedProjection?.settings?.perspective || "bottom"} projection • {selectedProjection?.settings?.resolution || 2048}px
+            </CardDescription>
           </div>
         </CardHeader>
         <CardContent>
@@ -1462,6 +1459,24 @@ export function ProjectionCanvas({
                         />
                       ))}
 
+                      {[
+                        [roi.x, roi.y - roi.height / 2, "n", "cursor-ns-resize"],
+                        [roi.x + roi.width / 2, roi.y, "e", "cursor-ew-resize"],
+                        [roi.x, roi.y + roi.height / 2, "s", "cursor-ns-resize"],
+                        [roi.x - roi.width / 2, roi.y, "w", "cursor-ew-resize"],
+                      ].map(([x, y, handle, cursorClass]) => (
+                        <circle
+                          key={handle as string}
+                          cx={(x as number) * 100}
+                          cy={(y as number) * 100}
+                          r="0.95"
+                          fill="white"
+                          stroke={ROI_EDIT}
+                          strokeWidth="0.36"
+                          className={`pointer-events-auto ${cursorClass as string}`}
+                        />
+                      ))}
+
                       <line
                         x1={roi.x * 100}
                         y1={(roi.y - roi.height / 2) * 100}
@@ -1627,25 +1642,32 @@ export function ProjectionCanvas({
                               />
                             </>
                           )}
-                          <text
-                            x={(point.x / projectionResolution) * 100 + 1.06}
-                            y={(point.y / projectionResolution) * 100 - 0.92}
-                            fill="#000000"
-                            opacity="0.9"
-                            fontSize="2.05"
-                            fontWeight="700"
-                          >
-                            {point.id}
-                          </text>
-                          <text
-                            x={(point.x / projectionResolution) * 100 + 1}
-                            y={(point.y / projectionResolution) * 100 - 1}
-                            fill="#ffffff"
-                            fontSize="2"
-                            fontWeight="700"
-                          >
-                            {point.id}
-                          </text>
+                          {(() => {
+                            const tag = getNodePointTag(point) || String(point.id);
+                            return (
+                              <>
+                                <text
+                                  x={(point.x / projectionResolution) * 100 + 1.06}
+                                  y={(point.y / projectionResolution) * 100 - 0.92}
+                                  fill="#000000"
+                                  opacity="0.9"
+                                  fontSize="2.05"
+                                  fontWeight="700"
+                                >
+                                  {tag}
+                                </text>
+                                <text
+                                  x={(point.x / projectionResolution) * 100 + 1}
+                                  y={(point.y / projectionResolution) * 100 - 1}
+                                  fill="#ffffff"
+                                  fontSize="2"
+                                  fontWeight="700"
+                                >
+                                  {tag}
+                                </text>
+                              </>
+                            );
+                          })()}
                         </>
                       );
                     })()}
@@ -1922,7 +1944,7 @@ export function ProjectionCanvas({
                         fontSize="2.05"
                         fontWeight="700"
                       >
-                        {boss.id}
+                        {getCompactNodeLabel(boss.id)}
                       </text>
                       <text
                         x={(boss.x / projectionResolution) * 100 + 1}
@@ -1931,7 +1953,7 @@ export function ProjectionCanvas({
                         fontSize="2"
                         fontWeight="700"
                       >
-                        {boss.id}
+                        {getCompactNodeLabel(boss.id)}
                       </text>
                           </>
                         );
@@ -1957,15 +1979,27 @@ export function ProjectionCanvas({
                       8,
                       Math.min(
                         hoveredBoss.y + 12,
-                        hoveredBoss.hostHeight - 104 - 8
+                        hoveredBoss.hostHeight - 156 - 8
                       )
                     ),
                   }}
                 >
-                  <p className="mb-1 font-semibold">#{hoveredBoss.id}</p>
+                  <p className="mb-1 font-semibold">
+                    {hoveredBoss.tag} <span className="text-muted-foreground">#{hoveredBoss.id}</span>
+                  </p>
                   {bossHoverInfoMode === "nodes" ? (
                     <>
                       <div className="grid grid-cols-[62px_1fr] gap-x-2 gap-y-1">
+                        <p className="text-muted-foreground">Label</p>
+                        <p className="text-foreground">{hoveredBoss.label || "-"}</p>
+                        <p className="text-muted-foreground">Type</p>
+                        <p className={hoveredBoss.pointType === "corner" ? "text-cyan-300" : "text-foreground"}>
+                          {formatPointType(hoveredBoss.pointType)}
+                        </p>
+                        <p className="text-muted-foreground">Source</p>
+                        <p className={hoveredBoss.source === "manual" ? "text-amber-300" : "text-emerald-300"}>
+                          {formatPointSource(hoveredBoss.source)}
+                        </p>
                         <p className="text-muted-foreground">Boss xy</p>
                         <p className="font-mono text-foreground">
                           {Math.round(hoveredBoss.px)}, {Math.round(hoveredBoss.py)}
@@ -1977,6 +2011,16 @@ export function ProjectionCanvas({
                     </>
                   ) : (
                     <div className="grid grid-cols-[62px_1fr] gap-x-2 gap-y-1">
+                      <p className="text-muted-foreground">Label</p>
+                      <p className="text-foreground">{hoveredBoss.label || "-"}</p>
+                      <p className="text-muted-foreground">Type</p>
+                      <p className={hoveredBoss.pointType === "corner" ? "text-cyan-300" : "text-foreground"}>
+                        {formatPointType(hoveredBoss.pointType)}
+                      </p>
+                      <p className="text-muted-foreground">Source</p>
+                      <p className={hoveredBoss.source === "manual" ? "text-amber-300" : "text-emerald-300"}>
+                        {formatPointSource(hoveredBoss.source)}
+                      </p>
                       <p className="text-muted-foreground">Boss uv</p>
                       <p className="font-mono text-foreground">
                         {hoveredBoss.u.toFixed(4)}, {hoveredBoss.v.toFixed(4)}
@@ -2028,11 +2072,21 @@ export function ProjectionCanvas({
                     </p>
                     <p className="text-muted-foreground">Edge score</p>
                     <p className="font-mono text-foreground">
-                      {hoveredReconstructionEdge.score !== null ? hoveredReconstructionEdge.score.toFixed(4) : "-"}
+                      {hoveredReconstructionEdge.score !== null
+                        ? hoveredReconstructionEdge.score.toFixed(4)
+                        : hoveredReconstructionEdge.isConstraint
+                          ? "n/a (mandatory)"
+                          : "-"}
                     </p>
                     <p className="text-muted-foreground">Mutual</p>
                     <p className={hoveredReconstructionEdge.mutual ? "text-emerald-300" : "text-muted-foreground"}>
-                      {hoveredReconstructionEdge.mutual === null ? "-" : hoveredReconstructionEdge.mutual ? "Yes" : "No"}
+                      {hoveredReconstructionEdge.mutual === null
+                        ? hoveredReconstructionEdge.isConstraint
+                          ? "n/a (mandatory)"
+                          : "-"
+                        : hoveredReconstructionEdge.mutual
+                          ? "Yes"
+                          : "No"}
                     </p>
                     <p className="text-muted-foreground">Type</p>
                     <p className="text-foreground">

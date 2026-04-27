@@ -236,6 +236,7 @@ export default function Step4Geometry2DPage() {
                   onShowROIChange={controller.handleShowROIChange}
                   roi={controller.roi}
                   onRotationChange={(rotation) => controller.setRoi((prev) => ({ ...prev, rotation }))}
+                  onResetROI={controller.handleResetROI}
                   onSaveROI={controller.handleSaveROI}
                   isSavingROI={controller.isSavingROI}
                   hasSegmentations={controller.hasSegmentations}
@@ -321,6 +322,8 @@ export default function Step4Geometry2DPage() {
                 <RoiEvidenceLayersCard
                   hasSegmentations={controller.hasSegmentations}
                   groupVisibility={controller.groupVisibility}
+                  groupedSegmentations={controller.groupedSegmentations}
+                  onToggleSegmentation={controller.toggleSegmentationVisibility}
                   showBaseImage={controller.showBaseImage}
                   onShowBaseImageChange={controller.handleShowBaseImageChange}
                   editRoiEnabled={controller.showROI}
@@ -339,6 +342,8 @@ export default function Step4Geometry2DPage() {
               ) : isNodesStage ? (
                 <ReferencePointLayersCard
                   groupVisibility={controller.groupVisibility}
+                  groupedSegmentations={controller.groupedSegmentations}
+                  onToggleSegmentation={controller.toggleSegmentationVisibility}
                   showBaseImage={controller.showBaseImage}
                   onShowBaseImageChange={controller.handleShowBaseImageChange}
                   roiLabel={controller.correctedRoiPreview ? "Suggested ROI" : "ROI"}
@@ -355,6 +360,8 @@ export default function Step4Geometry2DPage() {
               ) : isMatchingStage ? (
                 <ReferencePointLayersCard
                   groupVisibility={controller.groupVisibility}
+                  groupedSegmentations={controller.groupedSegmentations}
+                  onToggleSegmentation={controller.toggleSegmentationVisibility}
                   showBaseImage={controller.showBaseImage}
                   onShowBaseImageChange={controller.handleShowBaseImageChange}
                   roiLabel={controller.correctedRoiPreview ? "Suggested ROI" : "ROI"}
@@ -411,8 +418,6 @@ export default function Step4Geometry2DPage() {
               <div className="space-y-4">
                 <ProjectionCanvas
                   selectedProjection={controller.selectedProjection}
-                  selectedImageType={controller.selectedImageType}
-                  onImageTypeChange={controller.setSelectedImageType}
                   currentImage={controller.currentImage}
                   canvasRef={controller.canvasRef}
                   onMouseDown={controller.activeSection === "roi" ? controller.handleMouseDown : () => {}}

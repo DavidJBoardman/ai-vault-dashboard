@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Info, RefreshCw, RotateCw, Save, Square } from "lucide-react";
+import { Info, RefreshCw, RotateCcw, RotateCw, Save, Square } from "lucide-react";
 
 interface ROIState {
   x: number;
@@ -20,6 +20,7 @@ interface RoiControlsProps {
   onShowROIChange: (checked: boolean) => void;
   roi: ROIState;
   onRotationChange: (rotation: number) => void;
+  onResetROI: () => void;
   onSaveROI: () => void;
   isSavingROI: boolean;
   hasSegmentations: boolean;
@@ -32,6 +33,7 @@ export function RoiControls({
   onShowROIChange,
   roi,
   onRotationChange,
+  onResetROI,
   onSaveROI,
   isSavingROI,
   hasSegmentations,
@@ -82,15 +84,28 @@ export function RoiControls({
           <p>Turn this off after analysis to review the saved and suggested ROI overlays.</p>
         </div>
 
-        <Button
-          onClick={onSaveROI}
-          disabled={isSavingROI || !hasSegmentations}
-          className="w-full gap-2"
-          size="sm"
-        >
-          {isSavingROI ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save ROI
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onResetROI}
+            disabled={isSavingROI}
+            className="gap-2"
+            size="sm"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Reset ROI
+          </Button>
+          <Button
+            onClick={onSaveROI}
+            disabled={isSavingROI || !hasSegmentations}
+            className="gap-2"
+            size="sm"
+          >
+            {isSavingROI ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save ROI
+          </Button>
+        </div>
 
         {roiSaveResult && (
           <div className="p-2 rounded-md bg-primary/10 border border-primary/20">

@@ -67,7 +67,12 @@ def _extract_instance_centroids_from_index(
     seg_dir: Path,
     *,
     min_area: int = 10,
-) -> List[Tuple[float, float, int]]:
+) -> List[Dict[str, Any]]:
+    """Read boss-stone instance masks and preserve their segmentation labels.
+
+    Returns dicts with cx, cy, area, label so the downstream report can carry
+    the step-3 segmentation tag (e.g. "boss stone A") instead of renumbering.
+    """
     index_path = seg_dir / "index.json"
     if not index_path.exists():
         return []
@@ -79,7 +84,7 @@ def _extract_instance_centroids_from_index(
     if not isinstance(raw_segmentations, list):
         return []
 
-    points: List[Tuple[float, float, int]] = []
+    items: List[Dict[str, Any]] = []
     for seg in raw_segmentations:
         if not isinstance(seg, dict):
             continue
@@ -96,11 +101,19 @@ def _extract_instance_centroids_from_index(
         if not mask_path.exists():
             continue
         centroid = _extract_instance_centroid(mask_path, min_area=min_area)
-        if centroid is not None:
-            points.append(centroid)
+        if centroid is None:
+            continue
+        cx, cy, area = centroid
+        items.append(
+            {
+                "cx": cx,
+                "cy": cy,
+                "area": area,
+                "label": str(seg.get("label") or "").strip(),
+            }
+        )
 
-    points.sort(key=lambda p: (p[1], p[0]))
-    return points
+    return items
 
 
 def _parse_manual_points(points: Optional[Sequence[Dict[str, float]]]) -> Optional[List[Tuple[float, float]]]:
@@ -133,28 +146,40 @@ def prepare_bosses_for_geometry2d(
     mask_path = seg_dir / "group_boss_stone.png"
 
     manual_points = _parse_manual_points(manual_bosses)
+    items: List[Dict[str, Any]]
     if manual_points is not None:
-        points_xy = [(x, y, 0) for x, y in manual_points]
+        items = [{"cx": x, "cy": y, "area": 0, "label": ""} for x, y in manual_points]
         detection_mode = "manual"
     else:
-        points_xy = _extract_instance_centroids_from_index(seg_dir, min_area=min_area)
+        items = _extract_instance_centroids_from_index(seg_dir, min_area=min_area)
         detection_mode = "segmentation_instances"
-        if not points_xy:
+        if not items:
             if not mask_path.exists():
                 raise FileNotFoundError(f"Boss group mask not found: {mask_path}")
-            points_xy = _extract_centroids(mask_path, min_area=min_area)
+            items = [
+                {"cx": cx, "cy": cy, "area": area, "label": ""}
+                for cx, cy, area in _extract_centroids(mask_path, min_area=min_area)
+            ]
             detection_mode = "auto_components"
 
     bosses: List[Dict[str, Any]] = []
     boss_ids: List[int] = []
-    for idx, (cx, cy, area) in enumerate(points_xy, start=1):
-        u, v = image_to_unit((float(cx), float(cy)), roi_params)
+    for idx, item in enumerate(items, start=1):
+        cx = float(item["cx"])
+        cy = float(item["cy"])
+        area = int(item["area"])
+        # Preserve the step-3 segmentation label (e.g. "boss stone A") so the
+        # reference points in step-4 carry the same tag. Fall back to the
+        # numeric id when the segmentation source did not provide a label.
+        label = str(item.get("label") or "").strip() or str(idx)
+        u, v = image_to_unit((cx, cy), roi_params)
         bosses.append(
             {
                 "id": idx,
                 "component_id": idx,
-                "area": int(area),
-                "centroid_xy": {"x": float(cx), "y": float(cy)},
+                "label": label,
+                "area": area,
+                "centroid_xy": {"x": cx, "y": cy},
                 "centroid_uv": {"u": float(u), "v": float(v)},
                 "out_of_bounds": bool(not (0.0 <= u <= 1.0 and 0.0 <= v <= 1.0)),
             }

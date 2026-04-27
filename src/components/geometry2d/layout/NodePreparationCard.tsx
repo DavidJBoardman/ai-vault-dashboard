@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
+import { getNodePointTag } from "@/components/geometry2d/projectionCanvasUtils";
 
 export type NodePointFilter = "all" | "inside" | "outside";
 
@@ -88,11 +89,16 @@ export function NodePreparationCard({
     <Card>
       <CardHeader className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base font-medium">{titlePrefix ? `${titlePrefix} Reference Points` : "Reference Points"}</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-base font-medium">{titlePrefix ? `${titlePrefix} Reference Points` : "Reference Points"}</CardTitle>
+            <Badge variant="secondary" className="text-xs">
+              {totalPointsCount} {totalPointsCount === 1 ? "point" : "points"}
+            </Badge>
+          </div>
           {hasUnsavedChanges ? <Badge variant="secondary">Unsaved</Badge> : <Badge variant="outline">Saved</Badge>}
         </div>
         <CardDescription className="text-xs">
-          Edit reference points used to recover the bay plan.
+          Edit and label reference points used in later matching, reconstruction, and measurement steps.
         </CardDescription>
         {onGoToRoi && (
           <Button variant="link" size="sm" className="h-auto w-fit p-0 text-xs text-muted-foreground" onClick={onGoToRoi}>
@@ -102,10 +108,6 @@ export function NodePreparationCard({
       </CardHeader>
 
       <CardContent className="px-4 pb-4 pt-0 space-y-2">
-        <p className="text-[10px] text-muted-foreground">
-          Place each reference point on a stable geometric mark used to recover the bay plan.
-        </p>
-
         <Label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background/40 px-3 py-2">
           <div className="space-y-0.5">
             <span className="text-sm font-medium">Include ROI corners</span>
@@ -175,10 +177,21 @@ export function NodePreparationCard({
                 onClick={() => onSelectPoint(point.id)}
               >
                 <div className="space-y-0.5">
-                  <div className="text-xs font-medium">#{point.id}</div>
-                  {point.pointType === "corner" ? (
-                    <div className="text-[10px] uppercase tracking-wide text-cyan-300">{point.label}</div>
-                  ) : null}
+                  <div className="text-xs font-medium text-muted-foreground">#{point.id}</div>
+                  {(() => {
+                    const isCorner = point.pointType === "corner";
+                    const tag = getNodePointTag(point);
+                    if (!tag || tag === String(point.id)) return null;
+                    return (
+                      <div
+                        className={`text-sm font-semibold uppercase tracking-wide ${
+                          isCorner ? "text-cyan-300" : "text-amber-300"
+                        }`}
+                      >
+                        {tag}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <Input
                   type="text"

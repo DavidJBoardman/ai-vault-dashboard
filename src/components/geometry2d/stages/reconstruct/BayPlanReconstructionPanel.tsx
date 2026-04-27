@@ -21,6 +21,7 @@ import {
   Geometry2DBayPlanRunParams,
   Geometry2DBayPlanRunResult,
 } from "@/lib/api";
+import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 import { ChevronDown, ChevronUp, CircleHelp, Plus, RefreshCw, RotateCcw, Settings2, Trash2 } from "lucide-react";
 
 const RECONSTRUCTION_PARAM_FALLBACKS = {
@@ -210,7 +211,8 @@ export function BayPlanReconstructionPanel({
   const availableNodeIds = useMemo(() => {
     return (result?.nodes || []).map((node, index) => ({
       index,
-      label: String(node.bossId || node.id || index),
+      label: getCompactNodeLabel(node.bossId || node.id || index),
+      fullLabel: String(node.bossId || node.id || index),
     }));
   }, [result?.nodes]);
   const nodeLabelByIndex = useMemo(
@@ -274,12 +276,16 @@ export function BayPlanReconstructionPanel({
       if (!query) return true;
       const startLabel = nodeLabelByIndex.get(edge.a) || String(edge.a);
       const endLabel = nodeLabelByIndex.get(edge.b) || String(edge.b);
+      const startFullLabel = availableNodeIds.find((node) => node.index === edge.a)?.fullLabel || startLabel;
+      const endFullLabel = availableNodeIds.find((node) => node.index === edge.b)?.fullLabel || endLabel;
       const typeLabel = getEdgeTypeLabel(edge);
       return (
         `node ${startLabel}`.toLowerCase().includes(query) ||
         `node ${endLabel}`.toLowerCase().includes(query) ||
         startLabel.toLowerCase().includes(query) ||
         endLabel.toLowerCase().includes(query) ||
+        startFullLabel.toLowerCase().includes(query) ||
+        endFullLabel.toLowerCase().includes(query) ||
         typeLabel.includes(query)
       );
     });
@@ -313,7 +319,7 @@ export function BayPlanReconstructionPanel({
         edgeLabelCollator.compare(leftTo, rightTo);
       return edgeSort.direction === "asc" ? fallback : -fallback;
     });
-  }, [displayedManualEdges, edgeLabelCollator, edgeSearchQuery, edgeSort, nodeLabelByIndex, selectedEdgeKey]);
+  }, [availableNodeIds, displayedManualEdges, edgeLabelCollator, edgeSearchQuery, edgeSort, nodeLabelByIndex, selectedEdgeKey]);
 
   useEffect(() => {
     if (!selectedEdgeKey) return;
@@ -741,7 +747,7 @@ export function BayPlanReconstructionPanel({
                       <SelectContent>
                         {availableNodeIds.map((node) => (
                           <SelectItem key={`start-${node.index}`} value={String(node.index)}>
-                            Node {node.label}
+                            {node.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -757,7 +763,7 @@ export function BayPlanReconstructionPanel({
                       <SelectContent>
                         {availableNodeIds.map((node) => (
                           <SelectItem key={`end-${node.index}`} value={String(node.index)}>
-                            Node {node.label}
+                            {node.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -789,7 +795,7 @@ export function BayPlanReconstructionPanel({
                     <Input
                       value={edgeSearchQuery}
                       onChange={(event) => setEdgeSearchQuery(event.target.value)}
-                      placeholder="Search by node ID"
+                      placeholder="Search by node label"
                       className="h-8 flex-1 text-xs sm:min-w-[180px]"
                     />
                     <span className="text-[11px] text-muted-foreground">Click a row or rib to link both views.</span>
@@ -841,10 +847,10 @@ export function BayPlanReconstructionPanel({
                                 onClick={() => onSelectEdge(isSelected ? null : currentEdgeKey)}
                               >
                                 <td className="px-3 py-2.5">
-                                  <div className="font-medium text-foreground">Node {startLabel}</div>
+                                  <div className="font-medium text-foreground">{startLabel}</div>
                                 </td>
                                 <td className="px-3 py-2.5">
-                                  <div className="font-medium text-foreground">Node {endLabel}</div>
+                                  <div className="font-medium text-foreground">{endLabel}</div>
                                 </td>
                                 <td className="px-3 py-2.5">
                                   <Badge
@@ -866,7 +872,7 @@ export function BayPlanReconstructionPanel({
                                     size="sm"
                                     className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                                     title="Remove rib"
-                                    aria-label={`Remove rib from node ${startLabel} to node ${endLabel}`}
+                                    aria-label={`Remove rib from ${startLabel} to ${endLabel}`}
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       handleRemoveManualEdge(edge);

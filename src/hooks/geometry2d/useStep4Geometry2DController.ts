@@ -131,7 +131,7 @@ const DEFAULT_TEMPLATE_PARAMS: Geometry2DTemplateStateParams = {
   includeInner: true,
   includeOuter: true,
   allowCrossTemplate: true,
-  tolerance: 0.01,
+  tolerance: 0.015,
 };
 
 const ROI_INSIDE_MARGIN_UV = 0.02;
@@ -232,6 +232,76 @@ function getPointType(point: Pick<Geometry2DTemplateBossPoint, "pointType">): "b
 
 function cloneAndSortTemplatePoints(points: Geometry2DTemplateBossPoint[]): Geometry2DTemplateBossPoint[] {
   return points.map((point) => ({ ...point, pointType: getPointType(point) })).sort((a, b) => a.id - b.id);
+}
+
+// Match the step-3 alphabet (skips I, O, and Z — Z reserved for the bay
+// centre) so manually added boss points continue the same letter sequence
+// used by the segmentation labels. After Y the sequence falls through to
+// AA, AB, …, BA, … (Excel-style on a 23-letter alphabet).
+const BOSS_UPPER_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXY";
+// Legacy lowercase alphabet still recognised when reading old labels.
+const BOSS_LOWER_LETTERS_LEGACY = "abcdefghjklmnpqrstuvwxyz";
+
+function letterFromIndex(index: number): string {
+  const L = BOSS_UPPER_LETTERS;
+  const base = L.length; // 23
+  if (index < 0) return L[0];
+  if (index < base) return L[index];
+  const two = index - base;
+  if (two < base * base) {
+    return L[Math.floor(two / base)] + L[two % base];
+  }
+  const three = two - base * base;
+  return (
+    L[Math.floor(three / (base * base))] +
+    L[Math.floor((three % (base * base)) / base)] +
+    L[three % base]
+  );
+}
+
+function indexFromLetter(letter: string): number | null {
+  const L = BOSS_UPPER_LETTERS;
+  const base = L.length;
+  if (letter.length === 1) {
+    const i = L.indexOf(letter);
+    if (i >= 0) return i;
+    const lower = BOSS_LOWER_LETTERS_LEGACY.indexOf(letter);
+    return lower >= 0 ? base + lower : null;
+  }
+  if (letter.length === 2) {
+    const o = L.indexOf(letter[0]);
+    const i = L.indexOf(letter[1]);
+    return o >= 0 && i >= 0 ? base + o * base + i : null;
+  }
+  if (letter.length === 3) {
+    const a = L.indexOf(letter[0]);
+    const b = L.indexOf(letter[1]);
+    const c = L.indexOf(letter[2]);
+    return a >= 0 && b >= 0 && c >= 0
+      ? base + base * base + a * base * base + b * base + c
+      : null;
+  }
+  return null;
+}
+
+// Continue the sequence from the highest letter currently in use rather than
+// filling gaps left by deleted points — labels stay monotonic and don't reuse
+// a tag a user may remember from earlier in the session.
+//
+// Capacity: A–Y (23) + a–y (24) = 47 unique letters before the alphabet wraps,
+// matching step 3's `getAlphabeticalLabel`. In practice a single bay never
+// needs that many reference points; if it ever does, the rendered letter
+// wraps back to "A" — the row's `#N` remains the unambiguous identifier.
+function pickNextBossLetter(points: Geometry2DTemplateBossPoint[]): string {
+  let highest = -1;
+  points.forEach((point) => {
+    if (getPointType(point) !== "boss") return;
+    const match = String(point.label || "").trim().match(/\s+([A-Za-z]{1,3})$/);
+    if (!match) return;
+    const idx = indexFromLetter(match[1]);
+    if (idx !== null && idx > highest) highest = idx;
+  });
+  return letterFromIndex(highest + 1);
 }
 
 function allocateNextPointId(usedIds: Set<number>): number {
@@ -638,9 +708,16 @@ export function useStep4Geometry2DController() {
   const segmentations = useMemo(() => currentProject?.segmentations || [], [currentProject?.segmentations]);
 
   const groupedSegmentations = useMemo(() => {
+    // Mirror the step-3 base-label logic so classes here match the categories
+    // step-3 uses (e.g. "corner A" / "corner B" → "corner", "rib #1" → "rib").
+    const getClassLabel = (label: string): string =>
+      label
+        .replace(/\s+[A-Za-z][a-z]?$/, "")
+        .replace(/\s*#?\d+$/, "")
+        .trim() || label;
     const groups: Record<string, Segmentation[]> = {};
     segmentations.forEach(seg => {
-      const baseLabel = seg.label.replace(/\s*#?\d+$/, "").trim() || seg.label;
+      const baseLabel = getClassLabel(seg.label);
       if (!groups[baseLabel]) {
         groups[baseLabel] = [];
       }
@@ -801,6 +878,12 @@ export function useStep4Geometry2DController() {
     segmentations.forEach(seg => {
       updateSegmentation(seg.id, { visible });
     });
+  };
+
+  const toggleSegmentationVisibility = (segmentationId: string) => {
+    const seg = segmentations.find(s => s.id === segmentationId);
+    if (!seg) return;
+    updateSegmentation(seg.id, { visible: !seg.visible });
   };
 
   const visibleMasks = segmentations.filter(s => s.visible);
@@ -998,6 +1081,49 @@ export function useStep4Geometry2DController() {
       },
     });
   };
+
+  const handleResetROI = useCallback(() => {
+    const step3Roi = currentProject?.steps?.[3]?.data?.roi as ROIState | undefined;
+    const nextRoi = step3Roi && step3Roi.x !== undefined
+      ? {
+          x: step3Roi.x,
+          y: step3Roi.y,
+          width: step3Roi.width,
+          height: step3Roi.height,
+          rotation: step3Roi.rotation || 0,
+        }
+      : DEFAULT_ROI;
+
+    setRoi(nextRoi);
+    setShowROI(true);
+    setRoiSaveResult(null);
+    setGeometryResult(null);
+    setResult(null);
+    setVaultRatio(undefined);
+    setVaultRatioSuggestions([]);
+    setBossCount(undefined);
+    setAnalysedAt(undefined);
+    setAutoCorrectRoi(false);
+    setCorrectionApplied(undefined);
+    setOriginalRoiPreview(undefined);
+    setCorrectedRoiPreview(undefined);
+    setShowOriginalOverlay(false);
+    setShowUpdatedOverlay(false);
+
+    updateStep4Geometry2D({
+      roi: nextRoi,
+      prep: undefined,
+      analysis: null,
+      roiStats: undefined,
+    });
+
+    toast({
+      title: "ROI reset",
+      description: step3Roi && step3Roi.x !== undefined
+        ? "ROI restored from Step 3 segmentation."
+        : "ROI restored to the default bay frame.",
+    });
+  }, [currentProject?.steps, setGeometryResult, updateStep4Geometry2D]);
 
   const handleResetStep4 = useCallback(async () => {
     templateStateRequestIdRef.current += 1;
@@ -1197,9 +1323,10 @@ export function useStep4Geometry2DController() {
       resolution,
       Math.max(0, (roi.y + oy * roi.height) * resolution)
     );
+    const nextLetter = pickNextBossLetter(templatePoints);
     const point: Geometry2DTemplateBossPoint = {
       id: nextId,
-      label: String(nextId),
+      label: `boss stone ${nextLetter}`,
       x: nextX,
       y: nextY,
       source: "manual",
@@ -1941,14 +2068,16 @@ export function useStep4Geometry2DController() {
       });
     }
 
+    const step4Roi = geometry2dData?.roi || legacyRoi;
     const step3Roi = currentProject?.steps?.[3]?.data?.roi as ROIState | undefined;
-    if (step3Roi && step3Roi.x !== undefined) {
+    const sourceRoi = step4Roi && step4Roi.x !== undefined ? step4Roi : step3Roi;
+    if (sourceRoi && sourceRoi.x !== undefined) {
       const nextRoi = {
-        x: step3Roi.x,
-        y: step3Roi.y,
-        width: step3Roi.width,
-        height: step3Roi.height,
-        rotation: step3Roi.rotation || 0,
+        x: sourceRoi.x,
+        y: sourceRoi.y,
+        width: sourceRoi.width,
+        height: sourceRoi.height,
+        rotation: sourceRoi.rotation || 0,
       };
       setRoi((prev) => (isSameRoi(prev, nextRoi) ? prev : nextRoi));
     }
@@ -2262,6 +2391,7 @@ export function useStep4Geometry2DController() {
     handleReconstructLayersExpandedChange,
     handleShowOriginalOverlayChange,
     handleShowUpdatedOverlayChange,
+    handleResetROI,
     handleResetStep4,
     handleSaveROI,
     handleAnalyse,
@@ -2293,6 +2423,8 @@ export function useStep4Geometry2DController() {
 
     toggleGroupVisibility,
     toggleAllVisibility,
+    toggleSegmentationVisibility,
+    groupedSegmentations,
     persistAnalysisForContinue,
 
     hasProjection: !!selectedProjection,
