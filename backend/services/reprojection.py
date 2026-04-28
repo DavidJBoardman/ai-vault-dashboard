@@ -50,7 +50,7 @@ class ReprojectionService:
         output_file.parent.mkdir(parents=True, exist_ok=True)
         
         # Create a placeholder file
-        output_file.write_text("E57 reprojection placeholder")
+        output_file.write_text("E57 reprojection placeholder", encoding="utf-8")
         
         return str(output_file)
     

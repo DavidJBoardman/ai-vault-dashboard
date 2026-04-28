@@ -571,7 +571,7 @@ async def save_project(request: ProjectSaveRequest):
         
         # Save segmentations index
         seg_index_path = seg_dir / "index.json"
-        with open(seg_index_path, "w") as f:
+        with open(seg_index_path, "w", encoding="utf-8") as f:
             json.dump({
                 "segmentations": segmentation_refs,
                 "groups": group_summary,
@@ -623,7 +623,7 @@ async def save_project(request: ProjectSaveRequest):
         proj_dir = project_dir / "projections"
         proj_dir.mkdir(exist_ok=True)
         proj_index_path = proj_dir / "index.json"
-        with open(proj_index_path, "w") as f:
+        with open(proj_index_path, "w", encoding="utf-8") as f:
             json.dump({
                 "projections": projection_refs,
                 "totalCount": len(projection_refs),
@@ -656,7 +656,7 @@ async def save_project(request: ProjectSaveRequest):
         }
         
         # Save project.json
-        with open(project_path, "w") as f:
+        with open(project_path, "w", encoding="utf-8") as f:
             json.dump(project_data, f, indent=2)
         
         print(f"[OK] Project saved: {request.projectId}")
@@ -714,7 +714,7 @@ async def save_progress(request: SaveProgressRequest):
         project_data["updatedAt"] = datetime.now().isoformat()
         
         # Save updated project.json
-        with open(project_path, "w") as f:
+        with open(project_path, "w", encoding="utf-8") as f:
             json.dump(project_data, f, indent=2)
         
         print(f"[OK] Progress saved: step {request.currentStep}, {len(request.steps)} completed steps")
@@ -969,7 +969,7 @@ async def save_measurement_config(project_id: str, config: MeasurementConfig):
         project_data["measurementConfig"] = normalized
         project_data["updatedAt"] = datetime.now().isoformat()
 
-        with open(project_path, "w") as f:
+        with open(project_path, "w", encoding="utf-8") as f:
             json.dump(project_data, f, indent=2)
 
         return MeasurementConfigResponse(success=True, data=MeasurementConfig(**normalized))
@@ -1010,13 +1010,13 @@ async def save_step7b_summary(project_id: str, summary: Step7bSummarySnapshot):
         summary_path = _get_step7b_summary_path(project_dir)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(summary_path, "w") as f:
+        with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary.dict(), f, indent=2)
 
         with open(project_path, "r") as f:
             project_data = json.load(f)
         project_data["updatedAt"] = datetime.now().isoformat()
-        with open(project_path, "w") as f:
+        with open(project_path, "w", encoding="utf-8") as f:
             json.dump(project_data, f, indent=2)
 
         return Step7bSummaryResponse(success=True, data=summary)
@@ -1375,7 +1375,7 @@ async def save_roi(request: SaveROIRequest):
                 kept_segmentations.append(seg)
 
         if ribs_deleted:
-            print(f"  → Permanently deleted {ribs_deleted} rib segmentation(s) outside ROI")
+            print(f"  Deleted {ribs_deleted} rib segmentation(s) outside ROI")
             segmentations = kept_segmentations
 
         inside_count = sum(1 for s in segmentations if s.get("insideRoi", False))
@@ -1394,11 +1394,11 @@ async def save_roi(request: SaveROIRequest):
         index_data["groups"] = groups
         
         # Save updated index
-        with open(seg_index_path, "w") as f:
+        with open(seg_index_path, "w", encoding="utf-8") as f:
             json.dump(index_data, f, indent=2)
         
-        print(f"✓ Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f}°")
-        print(f"  → {inside_count} masks inside ROI, {outside_count} outside, {ribs_deleted} rib(s) permanently removed")
+        print(f"Saved ROI: ({request.roi.x:.1f}, {request.roi.y:.1f}) {request.roi.width:.1f}x{request.roi.height:.1f} @ {request.roi.rotation:.1f} deg")
+        print(f"  {inside_count} masks inside ROI, {outside_count} outside, {ribs_deleted} rib(s) permanently removed")
         
         return {
             "success": True,
@@ -2008,7 +2008,7 @@ async def trace_intrados(request: IntradosTraceRequest):
             "totalLines": len(lines),
             "totalRibs": len(rib_segmentations),
         }
-        with open(intrados_path, "w") as f:
+        with open(intrados_path, "w", encoding="utf-8") as f:
             json.dump(intrados_data, f, indent=2)
         
         print(f"[OK] Traced {len(lines)} intrados lines from {len(rib_segmentations)} ribs")
@@ -2759,7 +2759,7 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
             traces_dir.mkdir(parents=True, exist_ok=True)
             
             imported_traces_path = traces_dir / "imported_traces.json"
-            with open(imported_traces_path, "w") as f:
+            with open(imported_traces_path, "w", encoding="utf-8") as f:
                 json.dump({
                     "source": request.filePath,
                     "curves": result["curves"],

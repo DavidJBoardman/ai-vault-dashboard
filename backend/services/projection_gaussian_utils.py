@@ -409,7 +409,7 @@ def save_projection_gaussian(
     
     # Save metadata
     metadata_path = folder / f"{projection_id}_metadata.json"
-    with open(metadata_path, "w") as f:
+    with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
     paths["metadata"] = str(metadata_path)
     

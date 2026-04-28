@@ -454,7 +454,7 @@ def bridge_rib_intrados_through_boss_stones(
         boss_pts = e57_points[in_mask]
 
         if len(boss_pts) < 10:
-            print(f"  Bridge: skipping boss {boss_id[:8]} — only {len(boss_pts)} pts")
+            print(f"  Bridge: skipping boss {boss_id[:8]} - only {len(boss_pts)} pts")
             continue
 
         boss_centroid_3d = boss_pts.mean(axis=0)
@@ -491,10 +491,10 @@ def bridge_rib_intrados_through_boss_stones(
                 })
 
         if len(near) < 2:
-            print(f"  Bridge: boss {boss_id[:8]} — only {len(near)} endpoints nearby, skipping")
+            print(f"  Bridge: boss {boss_id[:8]} - only {len(near)} endpoints nearby, skipping")
             continue
 
-        print(f"  Bridge: boss {boss_id[:8]} — {len(near)} rib endpoints within {proximity_threshold}m")
+        print(f"  Bridge: boss {boss_id[:8]} - {len(near)} rib endpoints within {proximity_threshold}m")
 
         # ── Pair ribs that approach from approximately opposite sides ────
         used: set = set()
