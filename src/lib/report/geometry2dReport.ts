@@ -1,11 +1,27 @@
 import JSZip from "jszip";
 import type { Project } from "@/lib/store";
+import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 
 export interface BayProportionCandidate {
   rank: number;
   label: string;
   err: number;
   deltaFromBest: number;
+}
+
+export interface ReconstructNode {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  source: string;
+}
+
+export interface ReconstructEdge {
+  a: number;
+  b: number;
+  isConstraint: boolean;
+  isManual: boolean;
 }
 
 export interface ReferencePoint {
@@ -56,6 +72,10 @@ export interface ReportData {
     variantsMatched: number;
   };
   referencePoints: ReferencePoint[];
+  reconstruct: {
+    nodes: ReconstructNode[];
+    edges: ReconstructEdge[];
+  };
   roi: RoiBox | null;
   imageSize: ImageSize;
   inputs: {
@@ -101,11 +121,36 @@ interface PersistedRoi {
   scale?: number;
 }
 
+interface PersistedReconstructNode {
+  id?: string | number;
+  bossId?: string | number;
+  label?: string;
+  x?: number;
+  y?: number;
+  source?: string;
+}
+
+interface PersistedReconstructEdge {
+  a?: number;
+  b?: number;
+  isConstraint?: boolean;
+  isManual?: boolean;
+  isBoundaryForced?: boolean;
+}
+
+interface ReconstructPersisted {
+  result?: {
+    nodes?: PersistedReconstructNode[];
+    edges?: PersistedReconstructEdge[];
+  };
+}
+
 interface Geometry2DPersisted {
   prep?: PrepData;
   nodes?: NodesData;
   template?: NodesData;
   roi?: PersistedRoi;
+  reconstruct?: ReconstructPersisted;
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -236,6 +281,31 @@ export function selectReportData(
     ensureDataUrl(selectedProjection?.previewImage) ??
     null;
 
+  const reconstructNodesRaw = geom.reconstruct?.result?.nodes ?? [];
+  const reconstructNodes: ReconstructNode[] = reconstructNodesRaw
+    .filter((n): n is PersistedReconstructNode & { x: number; y: number } =>
+      typeof n.x === "number" && typeof n.y === "number"
+    )
+    .map((n) => ({
+      id: String(n.id ?? ""),
+      label: getCompactNodeLabel(n.bossId ?? n.label ?? n.id ?? ""),
+      x: n.x,
+      y: n.y,
+      source: String(n.source ?? ""),
+    }));
+
+  const reconstructEdgesRaw = geom.reconstruct?.result?.edges ?? [];
+  const reconstructEdges: ReconstructEdge[] = reconstructEdgesRaw
+    .filter((e): e is PersistedReconstructEdge & { a: number; b: number } =>
+      typeof e.a === "number" && typeof e.b === "number"
+    )
+    .map((e) => ({
+      a: e.a,
+      b: e.b,
+      isConstraint: Boolean(e.isConstraint || e.isBoundaryForced),
+      isManual: Boolean(e.isManual),
+    }));
+
   const templateSettings = (geom.template as { settings?: { matchingThreshold?: number | string } })
     ?.settings;
   const matchingThreshold =
@@ -273,6 +343,10 @@ export function selectReportData(
       variantsMatched,
     },
     referencePoints,
+    reconstruct: {
+      nodes: reconstructNodes,
+      edges: reconstructEdges,
+    },
     roi,
     imageSize: { width: resolution, height: resolution },
     inputs,
