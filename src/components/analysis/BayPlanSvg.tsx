@@ -51,8 +51,8 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
       viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
       preserveAspectRatio="xMidYMid meet"
       xmlns="http://www.w3.org/2000/svg"
-      className="block w-full"
-      style={{ aspectRatio: aspect, maxHeight: "70vh" }}
+      className="mx-auto block w-full"
+      style={{ aspectRatio: aspect, maxHeight: "32rem", maxWidth: `${aspect * 32}rem` }}
     >
       {imageDataUrl ? (
         <image
