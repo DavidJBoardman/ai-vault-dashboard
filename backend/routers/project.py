@@ -2122,6 +2122,27 @@ def _strip_corner_prefix(label: str) -> str:
     return stripped or text
 
 
+def _normalize_reference_boss_label(point: Dict[str, Any]) -> str:
+    """Prefer a persisted step-4 label; fallback to the legacy numeric ID."""
+    raw_label = str(point.get("label") or "").strip()
+    if raw_label:
+        return _strip_boss_stone_prefix(raw_label)
+
+    point_id = point.get("id")
+    return _strip_boss_stone_prefix(f"Boss Stone {point_id}")
+
+
+def _is_generic_boss_label(label: str) -> bool:
+    """Treat empty and numeric placeholders as generic labels."""
+    import re
+
+    stripped = _strip_boss_stone_prefix(str(label or "")).strip()
+    if not stripped:
+        return True
+
+    return bool(re.fullmatch(r"#?\d+(?:\.\d+)?", stripped))
+
+
 def _denormalize_xyz(norm_xyz, min_vals: list, range_vals: list, centroid: list):
     """Denormalise a normalised centred coordinate to real-world E57 space."""
     x = float(norm_xyz[0] * range_vals[0] + min_vals[0] + centroid[0])
@@ -2200,7 +2221,7 @@ def _boss_markers_from_reference_points(
                 x, y, z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
 
             point_id = point.get("id")
-            label = _strip_boss_stone_prefix(f"Boss Stone {point_id}")
+            label = _normalize_reference_boss_label(point)
 
             markers.append({
                 "id": f"boss-ref-{point_id}",
@@ -2328,8 +2349,10 @@ def _apply_reference_positions_to_segmentation_markers(
 ) -> list:
     """Refine segmentation markers and retain unmatched reference markers.
 
-    Segmentation markers remain the canonical source for IDs and labels.
-    If a reference marker is spatially close, only XYZ is copied over.
+    Segmentation markers remain the canonical source for IDs.
+    If a reference marker is spatially close, XYZ is copied over.
+    Labels are upgraded from the reference marker when the segmentation label
+    is still a generic placeholder (for example "1" or "Boss Stone 2").
     Any unmatched reference markers are appended so additional step 4 points
     are still available in step 7 preview and downstream tools.
     """
@@ -2360,6 +2383,9 @@ def _apply_reference_positions_to_segmentation_markers(
         marker["x"] = float(ref.get("x", marker.get("x", 0.0)))
         marker["y"] = float(ref.get("y", marker.get("y", 0.0)))
         marker["z"] = float(ref.get("z", marker.get("z", 0.0)))
+        ref_label = str(ref.get("label") or "").strip()
+        if ref_label and _is_generic_boss_label(str(marker.get("label") or "")):
+            marker["label"] = ref_label
         unmatched_ref_indices.remove(best_ref_idx)
 
     for ref_idx in sorted(unmatched_ref_indices):
