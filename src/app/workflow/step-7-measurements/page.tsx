@@ -1897,6 +1897,14 @@ export default function Step7MeasurementsPage() {
           icon: ArrowUpDown,
           state: "loading",
         }
+      : isStraightRib
+      ? {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: ArrowUpDown,
+          state: "not-applicable",
+          reason: "Straight rib",
+        }
       : !impostLineData
       ? {
           key: "impost-distance",
@@ -2203,6 +2211,14 @@ export default function Step7MeasurementsPage() {
           label: "Impost Distance",
           icon: ArrowUpDown,
           state: "loading",
+        }
+      : isStraightRib
+      ? {
+          key: "impost-distance",
+          label: "Impost Distance",
+          icon: ArrowUpDown,
+          state: "not-applicable",
+          reason: "Straight rib",
         }
       : !impostLineData
       ? {
