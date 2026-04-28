@@ -808,6 +808,15 @@ async def load_project(project_id: str):
         )
 
 
+@router.get("/{project_id}/path")
+async def get_project_path(project_id: str):
+    """Return the absolute filesystem path of a project's data directory."""
+    project_dir = PROJECT_DATA_DIR / "projects" / project_id
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+    return {"projectDir": str(project_dir)}
+
+
 @router.get("/list")
 async def list_projects():
     """List all saved projects."""
