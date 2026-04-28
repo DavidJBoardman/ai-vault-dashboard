@@ -133,12 +133,83 @@ class MeasurementConfigResponse(BaseModel):
     error: Optional[str] = None
 
 
+class Step7bRibSummaryRow(BaseModel):
+    """Persisted rib row for Step 7B summary/export."""
+    id: str
+    name: str
+    source: str
+    ribCount: int
+    arcRadius: Optional[float] = None
+    arcRadiusText: str = "N/A"
+    length: Optional[float] = None
+    lengthText: str = "N/A"
+    impostDistance: Optional[float] = None
+    impostDistanceText: str = "N/A"
+    span: Optional[float] = None
+    spanText: str = "N/A"
+    apexHeight: Optional[float] = None
+    apexHeightText: str = "N/A"
+    fitError: Optional[float] = None
+    fitErrorText: str = "N/A"
+
+
+class Step7bBossSummaryRow(BaseModel):
+    """Persisted boss row for Step 7B summary/export."""
+    id: str
+    name: str
+    groupId: str
+    x: float
+    y: float
+    z: float
+    heightFromImpost: Optional[float] = None
+    heightFromImpostText: str = "N/A"
+    connectedRibCount: int
+    apexPairCount: int
+    source: str
+
+
+class Step7bRibStats(BaseModel):
+    """Aggregate rib stats for Step 7B summary."""
+    groupedRows: int = 0
+    averageRadius: Optional[float] = None
+    averageFitError: Optional[float] = None
+
+
+class Step7bBossStats(BaseModel):
+    """Aggregate boss stats for Step 7B summary."""
+    bossesWithHeights: int = 0
+    averageHeight: Optional[float] = None
+
+
+class Step7bSummarySnapshot(BaseModel):
+    """Persisted Step 7B summary snapshot consumed by Step 8."""
+    generatedAt: str
+    activeTraceSource: str
+    activeTraceSummary: str
+    ribs: List[Step7bRibSummaryRow] = []
+    bosses: List[Step7bBossSummaryRow] = []
+    ribStats: Step7bRibStats = Step7bRibStats()
+    bossStats: Step7bBossStats = Step7bBossStats()
+
+
+class Step7bSummaryResponse(BaseModel):
+    """Response for persisted Step 7B summary endpoints."""
+    success: bool
+    data: Optional[Step7bSummarySnapshot] = None
+    error: Optional[str] = None
+
+
 def get_project_dir(project_id: str) -> Path:
     """Get or create project directory."""
     project_dir = PROJECT_DATA_DIR / "projects" / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
     append_project_log(f"ensure project_dir project_id={project_id} path={project_dir}")
     return project_dir
+
+
+def _get_step7b_summary_path(project_dir: Path) -> Path:
+    """Return the persisted Step 7B summary path for a project."""
+    return project_dir / "measurements" / "step7b-summary.json"
 
 
 def _load_intrados_rib_ids(project_dir: Path) -> set:
@@ -895,6 +966,53 @@ async def save_measurement_config(project_id: str, config: MeasurementConfig):
         return MeasurementConfigResponse(success=True, data=MeasurementConfig(**normalized))
     except Exception as e:
         return MeasurementConfigResponse(success=False, error=str(e))
+
+
+@router.get("/{project_id}/step7b-summary", response_model=Step7bSummaryResponse)
+async def get_step7b_summary(project_id: str):
+    """Load persisted Step 7B summary snapshot for a project."""
+    try:
+        project_dir = get_project_dir(project_id)
+        project_path = project_dir / "project.json"
+        if not project_path.exists():
+            return Step7bSummaryResponse(success=False, error=f"Project not found: {project_id}")
+
+        summary_path = _get_step7b_summary_path(project_dir)
+        if not summary_path.exists():
+            return Step7bSummaryResponse(success=False, error="Step 7B summary not found")
+
+        with open(summary_path, "r") as f:
+            payload = json.load(f)
+
+        return Step7bSummaryResponse(success=True, data=Step7bSummarySnapshot(**payload))
+    except Exception as e:
+        return Step7bSummaryResponse(success=False, error=str(e))
+
+
+@router.post("/{project_id}/step7b-summary", response_model=Step7bSummaryResponse)
+async def save_step7b_summary(project_id: str, summary: Step7bSummarySnapshot):
+    """Persist Step 7B summary snapshot for downstream Step 8 analysis."""
+    try:
+        project_dir = get_project_dir(project_id)
+        project_path = project_dir / "project.json"
+        if not project_path.exists():
+            return Step7bSummaryResponse(success=False, error=f"Project not found: {project_id}")
+
+        summary_path = _get_step7b_summary_path(project_dir)
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(summary_path, "w") as f:
+            json.dump(summary.dict(), f, indent=2)
+
+        with open(project_path, "r") as f:
+            project_data = json.load(f)
+        project_data["updatedAt"] = datetime.now().isoformat()
+        with open(project_path, "w") as f:
+            json.dump(project_data, f, indent=2)
+
+        return Step7bSummaryResponse(success=True, data=summary)
+    except Exception as e:
+        return Step7bSummaryResponse(success=False, error=str(e))
 
 
 @router.delete("/delete/{project_id}")
@@ -2004,6 +2122,27 @@ def _strip_corner_prefix(label: str) -> str:
     return stripped or text
 
 
+def _normalize_reference_boss_label(point: Dict[str, Any]) -> str:
+    """Prefer a persisted step-4 label; fallback to the legacy numeric ID."""
+    raw_label = str(point.get("label") or "").strip()
+    if raw_label:
+        return _strip_boss_stone_prefix(raw_label)
+
+    point_id = point.get("id")
+    return _strip_boss_stone_prefix(f"Boss Stone {point_id}")
+
+
+def _is_generic_boss_label(label: str) -> bool:
+    """Treat empty and numeric placeholders as generic labels."""
+    import re
+
+    stripped = _strip_boss_stone_prefix(str(label or "")).strip()
+    if not stripped:
+        return True
+
+    return bool(re.fullmatch(r"#?\d+(?:\.\d+)?", stripped))
+
+
 def _denormalize_xyz(norm_xyz, min_vals: list, range_vals: list, centroid: list):
     """Denormalise a normalised centred coordinate to real-world E57 space."""
     x = float(norm_xyz[0] * range_vals[0] + min_vals[0] + centroid[0])
@@ -2082,7 +2221,7 @@ def _boss_markers_from_reference_points(
                 x, y, z = _denormalize_xyz(norm_xyz, min_vals, range_vals, centroid)
 
             point_id = point.get("id")
-            label = _strip_boss_stone_prefix(f"Boss Stone {point_id}")
+            label = _normalize_reference_boss_label(point)
 
             markers.append({
                 "id": f"boss-ref-{point_id}",
@@ -2210,8 +2349,10 @@ def _apply_reference_positions_to_segmentation_markers(
 ) -> list:
     """Refine segmentation markers and retain unmatched reference markers.
 
-    Segmentation markers remain the canonical source for IDs and labels.
-    If a reference marker is spatially close, only XYZ is copied over.
+    Segmentation markers remain the canonical source for IDs.
+    If a reference marker is spatially close, XYZ is copied over.
+    Labels are upgraded from the reference marker when the segmentation label
+    is still a generic placeholder (for example "1" or "Boss Stone 2").
     Any unmatched reference markers are appended so additional step 4 points
     are still available in step 7 preview and downstream tools.
     """
@@ -2242,6 +2383,9 @@ def _apply_reference_positions_to_segmentation_markers(
         marker["x"] = float(ref.get("x", marker.get("x", 0.0)))
         marker["y"] = float(ref.get("y", marker.get("y", 0.0)))
         marker["z"] = float(ref.get("z", marker.get("z", 0.0)))
+        ref_label = str(ref.get("label") or "").strip()
+        if ref_label and _is_generic_boss_label(str(marker.get("label") or "")):
+            marker["label"] = ref_label
         unmatched_ref_indices.remove(best_ref_idx)
 
     for ref_idx in sorted(unmatched_ref_indices):
