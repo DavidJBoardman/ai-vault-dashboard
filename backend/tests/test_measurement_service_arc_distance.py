@@ -137,5 +137,64 @@ class MeasurementServiceFitErrorSemanticsTests(unittest.TestCase):
         self.assertNotAlmostEqual(float(fit_a["error"]), float(fit_b["error"]), places=12)
 
 
+class MeasurementServiceStraightLineModelTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.service = MeasurementService()
+
+    @staticmethod
+    def _synthetic_straight_points(n: int = 120, noise: float = 0.002) -> np.ndarray:
+        t = np.linspace(-1.0, 1.0, n)
+        x = 10.0 * t
+        y = 0.4 * t
+        z = 2.0 + 0.25 * t
+        pts = np.column_stack([x, y, z])
+
+        # Deterministic small perturbation so the fit error is non-zero.
+        jitter = np.sin(np.linspace(0.0, 4.0 * np.pi, n)) * noise
+        pts[:, 2] += jitter
+        return pts
+
+    def test_straight_model_ratio_gate(self) -> None:
+        self.assertTrue(self.service._is_straight_rib_model(arc_radius=10.1, rib_length=1.0))
+        self.assertFalse(self.service._is_straight_rib_model(arc_radius=10.0, rib_length=1.0))
+        self.assertFalse(self.service._is_straight_rib_model(arc_radius=9.9, rib_length=1.0))
+
+    def test_single_measurement_uses_line_distances_when_straight(self) -> None:
+        pts = self._synthetic_straight_points()
+        self.service.traces["rib-line"] = pts
+
+        n = len(pts)
+        with patch.object(self.service, "_calculate_point_distances_from_arc", wraps=self.service._calculate_point_distances_from_arc) as arc_dist, patch.object(
+            self.service,
+            "_calculate_point_distances_from_line",
+            wraps=self.service._calculate_point_distances_from_line,
+        ) as line_dist:
+            result = self.service._calculate("rib-line", 0.0, 1.0)
+
+        self.assertEqual(line_dist.call_count, 1)
+        self.assertEqual(arc_dist.call_count, 0)
+
+        distances = np.asarray(result["point_distances"], dtype=float)
+        self.assertGreater(distances.size, 0)
+        expected = float(np.sqrt(np.mean(np.square(distances))))
+        self.assertAlmostEqual(float(result["fit_error"]), expected, places=10)
+
+    def test_group_measurement_uses_line_distances_when_straight(self) -> None:
+        pts = self._synthetic_straight_points()
+        self.service.traces["rib-line-a"] = pts[:60]
+        self.service.traces["rib-line-b"] = pts[60:]
+
+        with patch.object(self.service, "_calculate_point_distances_from_arc", wraps=self.service._calculate_point_distances_from_arc) as arc_dist, patch.object(
+            self.service,
+            "_calculate_point_distances_from_line",
+            wraps=self.service._calculate_point_distances_from_line,
+        ) as line_dist:
+            result = self.service.calculate_group_measurements(["rib-line-a", "rib-line-b"])
+
+        self.assertEqual(line_dist.call_count, 1)
+        self.assertEqual(arc_dist.call_count, 0)
+        self.assertGreaterEqual(float(result["fit_error"]), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
