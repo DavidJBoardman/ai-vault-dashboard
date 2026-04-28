@@ -404,7 +404,7 @@ export default function Step8AnalysisPage() {
                 {ribRows.length > 0 ? (
                   <div className="space-y-2">
                     <div
-                      className="overflow-auto rounded-lg border transition-[max-height] duration-300 ease-in-out"
+                      className="relative isolate overflow-auto rounded-lg border transition-[max-height] duration-300 ease-in-out"
                       style={{
                         maxHeight: isRibSummaryExpanded
                           ? `${TABLE_EXPANDED_MAX_HEIGHT_PX}px`
@@ -412,17 +412,17 @@ export default function Step8AnalysisPage() {
                       }}
                     >
                       <table className="w-full text-sm">
-                        <thead className="bg-muted/40 text-left text-white">
+                        <thead className="bg-background text-left text-foreground">
                           <tr>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 font-medium">Name</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 font-medium">Source</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Ribs</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Arc Radius</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Length</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Impost Distance</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Span</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Apex Height</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Fit Error</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Name</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Source</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Ribs</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Arc Radius</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Length</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Impost Distance</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Span</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Apex Height</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Fit Error</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -483,7 +483,7 @@ export default function Step8AnalysisPage() {
                 {bossRows.length > 0 ? (
                   <div className="space-y-2">
                     <div
-                      className="overflow-auto rounded-lg border transition-[max-height] duration-300 ease-in-out"
+                      className="relative isolate overflow-auto rounded-lg border transition-[max-height] duration-300 ease-in-out"
                       style={{
                         maxHeight: isBossSummaryExpanded
                           ? `${TABLE_EXPANDED_MAX_HEIGHT_PX}px`
@@ -491,14 +491,14 @@ export default function Step8AnalysisPage() {
                       }}
                     >
                       <table className="w-full text-sm">
-                        <thead className="bg-muted/40 text-left text-white">
+                        <thead className="bg-background text-left text-foreground">
                           <tr>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 font-medium">Boss Stone</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 font-medium">Group</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Height From Impost</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Connected Ribs</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Apex Pairs</th>
-                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Source</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Boss Stone</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Group</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Height From Impost</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Connected Ribs</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Apex Pairs</th>
+                            <th className="sticky top-0 z-20 bg-background px-3 py-2 text-right font-medium shadow-[inset_0_-1px_0_hsl(var(--border))]">Source</th>
                           </tr>
                         </thead>
                         <tbody>
