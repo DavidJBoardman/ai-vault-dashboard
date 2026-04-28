@@ -27,32 +27,38 @@ The measurement tiles can show different states depending on the rib geometry. T
 
 ![Step 7B Data interface: full-page layout with the 3D viewer, rib measurement list, detail panels, boss-stone panel, and arrows highlighting the main areas used during review.](../../images/step-7/data-ui.png)
 
-1. Review the measurement list.
-   - The **Rib Measurements** panel shows all current display rows: single ribs, auto-detected groups, and manual groups.
-   - Multi-rib groups can be expanded to inspect their component traces.
-   - Click a row to inspect its detailed metrics.
+### 1. Review the measurement list
 
-2. Use the 3D viewer to verify the geometry.
-   - **Error Heat** colours the rib by point-wise distance from the fitted arc. Use it to spot poor fits or local distortions.
-   - **Best Fit Arc** replaces the heatmap with the fitted arc geometry itself.
-   - Click ribs or boss labels in the viewer to jump to the corresponding details in the side panels.
+- The **Rib Measurements** panel shows all current display rows: single ribs, auto-detected groups, and manual groups.
+- Multi-rib groups can be expanded to inspect their component traces.
+- Click a row to inspect its detailed metrics.
 
-3. Inspect the selected metrics.
-   - The details card reports the main measurement tiles for the selected rib or group.
-   - A grouped selection also lists the relevant apex/boss information and the individual ribs it contains.
-   - Straight ribs may show some measurements as **not applicable** rather than numeric.
-   - Ribs without a valid pairing may show **Apex Height** as unavailable.
+### 2. Use the 3D viewer to verify the geometry
 
-4. Review boss-stone heights.
-   - The **Boss Stones** panel shows the current height above impost for each boss where an apex can be resolved.
-   - Heights may come from explicit rib pairings first, with boss-apex data used as a fallback.
+- **Error Heat** colours the rib by point-wise distance from the fitted arc. Use it to spot poor fits or local distortions.
+- **Best Fit Arc** replaces the heatmap with the fitted arc geometry itself.
+- Click ribs or boss labels in the viewer to jump to the corresponding details in the side panels.
 
-5. Export the data if required.
-   - **Export Ribs** writes the rib or rib-group table to CSV.
-   - **Export Bosses** writes the boss-stone height table to CSV.
+### 3. Inspect the selected metrics
 
-6. Continue to Step 8.
-   - Clicking **Continue to Analysis** saves a Step 7B summary snapshot for the final analysis page.
+- The details card reports the main measurement tiles for the selected rib or group.
+- A grouped selection also lists the relevant apex/boss information and the individual ribs it contains.
+- Straight ribs may show some measurements as **not applicable** rather than numeric.
+- Ribs without a valid pairing may show **Apex Height** as unavailable.
+
+### 4. Review boss-stone heights
+
+- The **Boss Stones** panel shows the current height above impost for each boss where an apex can be resolved.
+- Heights may come from explicit rib pairings first, with boss-apex data used as a fallback.
+
+### 5. Export the data if required
+
+- **Export Ribs** writes the rib or rib-group table to CSV.
+- **Export Bosses** writes the boss-stone height table to CSV.
+
+### 6. Continue to Step 8
+
+- Clicking **Continue to Analysis** saves a Step 7B summary snapshot for the final analysis page.
 
 ## What to look for
 
