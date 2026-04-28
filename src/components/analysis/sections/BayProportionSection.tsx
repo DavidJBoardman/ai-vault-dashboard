@@ -16,7 +16,7 @@ export function BayProportionSection({ data }: { data: ReportData }) {
   return (
     <section className="space-y-4">
       <div className="space-y-1">
-        <h2 className="font-display text-xl font-semibold">§2 Bay proportion</h2>
+        <h2 className="font-display text-xl font-semibold">Bay proportion</h2>
         <p className="text-sm text-muted-foreground">
           Measured ROI ratio (W/H) compared against canonical mediaeval planning ratios.
         </p>
