@@ -627,6 +627,78 @@ export async function saveMeasurementConfig(
   });
 }
 
+export interface Step7bRibSummaryRow {
+  id: string;
+  name: string;
+  source: "custom" | "auto" | "single" | string;
+  ribCount: number;
+  arcRadius: number | null;
+  arcRadiusText: string;
+  length: number | null;
+  lengthText: string;
+  impostDistance: number | null;
+  impostDistanceText: string;
+  span: number | null;
+  spanText: string;
+  apexHeight: number | null;
+  apexHeightText: string;
+  fitError: number | null;
+  fitErrorText: string;
+}
+
+export interface Step7bBossSummaryRow {
+  id: string;
+  name: string;
+  groupId: string;
+  x: number;
+  y: number;
+  z: number;
+  heightFromImpost: number | null;
+  heightFromImpostText: string;
+  connectedRibCount: number;
+  apexPairCount: number;
+  source: "pairings" | "boss-apex" | "n/a" | string;
+}
+
+export interface Step7bRibStats {
+  groupedRows: number;
+  averageRadius: number | null;
+  averageFitError: number | null;
+}
+
+export interface Step7bBossStats {
+  bossesWithHeights: number;
+  averageHeight: number | null;
+}
+
+export interface Step7bSummarySnapshot {
+  generatedAt: string;
+  activeTraceSource: string;
+  activeTraceSummary: string;
+  ribs: Step7bRibSummaryRow[];
+  bosses: Step7bBossSummaryRow[];
+  ribStats: Step7bRibStats;
+  bossStats: Step7bBossStats;
+}
+
+export async function getStep7bSummary(
+  projectId: string,
+): Promise<ApiResponse<Step7bSummarySnapshot>> {
+  return apiRequest<Step7bSummarySnapshot>(`/api/project/${projectId}/step7b-summary`, {
+    method: "GET",
+  });
+}
+
+export async function saveStep7bSummary(
+  projectId: string,
+  payload: Step7bSummarySnapshot,
+): Promise<ApiResponse<Step7bSummarySnapshot>> {
+  return apiRequest<Step7bSummarySnapshot>(`/api/project/${projectId}/step7b-summary`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 // Chord Method Analysis
 export interface ChordAnalysisResult {
   predictedMethod: string;
