@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StepActions, StepHeader } from "@/components/workflow/step-navigation";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProjectStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import {
   getStep7bSummary,
   type Step7bBossSummaryRow,
@@ -61,21 +63,36 @@ function downloadCsv(fileName: string, content: string): void {
 }
 
 const TABLE_PREVIEW_ROWS = 5;
+const TABLE_COLLAPSED_MAX_HEIGHT_PX = 252;
+const TABLE_EXPANDED_MAX_HEIGHT_PX = 560;
+
+function renderTableValue(value: string) {
+  if (value.trim().toUpperCase() === "N/A") {
+    return (
+      <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+        N/A
+      </span>
+    );
+  }
+  return value;
+}
 
 function MetricCard(props: {
   title: string;
   value: string;
   description: string;
   icon: LucideIcon;
+  className?: string;
+  valueClassName?: string;
 }) {
-  const { title, value, description, icon: Icon } = props;
+  const { title, value, description, icon: Icon, className, valueClassName } = props;
   return (
-    <Card className="border-amber-500">
+    <Card className={cn("border-amber-500", className)}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{title}</p>
-            <p className="mt-1 text-2xl font-semibold">{value}</p>
+            <p className={cn("mt-1 text-2xl font-semibold", valueClassName)}>{value}</p>
             <p className="mt-1 text-xs text-muted-foreground">{description}</p>
           </div>
           <Icon className="h-5 w-5 text-amber-500" />
@@ -314,12 +331,16 @@ export default function Step8AnalysisPage() {
                   value={String(ribRows.length)}
                   description={`${ribStats.groupedRows} grouped rows`}
                   icon={Table}
+                  className="bg-amber-500/5 shadow-sm"
+                  valueClassName="text-3xl leading-none"
                 />
                 <MetricCard
                   title="Bosses"
                   value={String(bossRows.length)}
                   description="Saved boss rows"
                   icon={Box}
+                  className="bg-amber-500/5 shadow-sm"
+                  valueClassName="text-3xl leading-none"
                 />
                 <MetricCard
                   title="Avg Arc Radius"
@@ -382,33 +403,50 @@ export default function Step8AnalysisPage() {
                 <h3 className="text-sm font-semibold">Rib Summary</h3>
                 {ribRows.length > 0 ? (
                   <div className="space-y-2">
-                    <div className="overflow-x-auto rounded-lg border">
+                    <div
+                      className="overflow-auto rounded-lg border transition-[max-height] duration-300 ease-in-out"
+                      style={{
+                        maxHeight: isRibSummaryExpanded
+                          ? `${TABLE_EXPANDED_MAX_HEIGHT_PX}px`
+                          : `${TABLE_COLLAPSED_MAX_HEIGHT_PX}px`,
+                      }}
+                    >
                       <table className="w-full text-sm">
                         <thead className="bg-muted/40 text-left text-white">
                           <tr>
-                            <th className="px-3 py-2 font-medium">Name</th>
-                            <th className="px-3 py-2 font-medium">Source</th>
-                            <th className="px-3 py-2 text-right font-medium">Ribs</th>
-                            <th className="px-3 py-2 text-right font-medium">Arc Radius</th>
-                            <th className="px-3 py-2 text-right font-medium">Length</th>
-                            <th className="px-3 py-2 text-right font-medium">Impost Distance</th>
-                            <th className="px-3 py-2 text-right font-medium">Span</th>
-                            <th className="px-3 py-2 text-right font-medium">Apex Height</th>
-                            <th className="px-3 py-2 text-right font-medium">Fit Error</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 font-medium">Name</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 font-medium">Source</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Ribs</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Arc Radius</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Length</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Impost Distance</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Span</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Apex Height</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Fit Error</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {visibleRibRows.map((row: Step7bRibSummaryRow, index) => (
-                            <tr key={row.id} className={index % 2 === 0 ? "bg-muted/20" : ""}>
+                          {ribRows.map((row: Step7bRibSummaryRow, index) => (
+                            <tr
+                              key={row.id}
+                              className={cn(
+                                index % 2 === 0 ? "bg-muted/20" : "",
+                                "hover:bg-amber-500/5 transition-colors",
+                              )}
+                            >
                               <td className="px-3 py-2 font-medium">{row.name}</td>
-                              <td className="px-3 py-2 text-muted-foreground uppercase tracking-wide">{row.source}</td>
+                              <td className="px-3 py-2">
+                                <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-300 uppercase tracking-wide">
+                                  {row.source}
+                                </Badge>
+                              </td>
                               <td className="px-3 py-2 text-right text-muted-foreground">{row.ribCount}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{row.arcRadiusText}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{row.lengthText}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{row.impostDistanceText}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{row.spanText}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{row.apexHeightText}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{row.fitErrorText}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{renderTableValue(row.arcRadiusText)}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{renderTableValue(row.lengthText)}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{renderTableValue(row.impostDistanceText)}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{renderTableValue(row.spanText)}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{renderTableValue(row.apexHeightText)}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{renderTableValue(row.fitErrorText)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -420,10 +458,12 @@ export default function Step8AnalysisPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="gap-1"
+                          className="group gap-1"
                           onClick={() => setIsRibSummaryExpanded((value) => !value)}
                         >
-                          {isRibSummaryExpanded ? <ChevronUp className="h-4 w-4 text-amber-500" /> : <ChevronDown className="h-4 w-4 text-amber-500" />}
+                          <span className={cn("transition-transform duration-300", isRibSummaryExpanded ? "rotate-180" : "rotate-0")}>
+                            <ChevronDown className="h-4 w-4 text-amber-500" />
+                          </span>
                           {isRibSummaryExpanded
                             ? `Collapse to first ${TABLE_PREVIEW_ROWS} rows`
                             : `Show ${ribRows.length - TABLE_PREVIEW_ROWS} more rows`}
@@ -442,27 +482,48 @@ export default function Step8AnalysisPage() {
                 <h3 className="text-sm font-semibold">Boss Stone Summary</h3>
                 {bossRows.length > 0 ? (
                   <div className="space-y-2">
-                    <div className="overflow-x-auto rounded-lg border">
+                    <div
+                      className="overflow-auto rounded-lg border transition-[max-height] duration-300 ease-in-out"
+                      style={{
+                        maxHeight: isBossSummaryExpanded
+                          ? `${TABLE_EXPANDED_MAX_HEIGHT_PX}px`
+                          : `${TABLE_COLLAPSED_MAX_HEIGHT_PX}px`,
+                      }}
+                    >
                       <table className="w-full text-sm">
                         <thead className="bg-muted/40 text-left text-white">
                           <tr>
-                            <th className="px-3 py-2 font-medium">Boss Stone</th>
-                            <th className="px-3 py-2 font-medium">Group</th>
-                            <th className="px-3 py-2 text-right font-medium">Height From Impost</th>
-                            <th className="px-3 py-2 text-right font-medium">Connected Ribs</th>
-                            <th className="px-3 py-2 text-right font-medium">Apex Pairs</th>
-                            <th className="px-3 py-2 text-right font-medium">Source</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 font-medium">Boss Stone</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 font-medium">Group</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Height From Impost</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Connected Ribs</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Apex Pairs</th>
+                            <th className="sticky top-0 z-10 bg-muted/40 px-3 py-2 text-right font-medium">Source</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {visibleBossRows.map((row: Step7bBossSummaryRow, index) => (
-                            <tr key={row.id} className={index % 2 === 0 ? "bg-muted/20" : ""}>
+                          {bossRows.map((row: Step7bBossSummaryRow, index) => (
+                            <tr
+                              key={row.id}
+                              className={cn(
+                                index % 2 === 0 ? "bg-muted/20" : "",
+                                "hover:bg-amber-500/5 transition-colors",
+                              )}
+                            >
                               <td className="px-3 py-2 font-medium">{row.name}</td>
-                              <td className="px-3 py-2 text-muted-foreground">{row.groupId}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{row.heightFromImpostText}</td>
+                              <td className="px-3 py-2">
+                                <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-300">
+                                  {row.groupId}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{renderTableValue(row.heightFromImpostText)}</td>
                               <td className="px-3 py-2 text-right text-muted-foreground">{row.connectedRibCount}</td>
                               <td className="px-3 py-2 text-right text-muted-foreground">{row.apexPairCount}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground uppercase tracking-wide">{row.source}</td>
+                              <td className="px-3 py-2 text-right">
+                                <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-300 uppercase tracking-wide">
+                                  {row.source}
+                                </Badge>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -474,10 +535,12 @@ export default function Step8AnalysisPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="gap-1"
+                          className="group gap-1"
                           onClick={() => setIsBossSummaryExpanded((value) => !value)}
                         >
-                          {isBossSummaryExpanded ? <ChevronUp className="h-4 w-4 text-amber-500" /> : <ChevronDown className="h-4 w-4 text-amber-500" />}
+                          <span className={cn("transition-transform duration-300", isBossSummaryExpanded ? "rotate-180" : "rotate-0")}>
+                            <ChevronDown className="h-4 w-4 text-amber-500" />
+                          </span>
                           {isBossSummaryExpanded
                             ? `Collapse to first ${TABLE_PREVIEW_ROWS} rows`
                             : `Show ${bossRows.length - TABLE_PREVIEW_ROWS} more rows`}
