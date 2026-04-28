@@ -13,7 +13,6 @@ import {
   type Step7bRibSummaryRow,
   type Step7bSummarySnapshot,
 } from "@/lib/api";
-import { formatNumber } from "@/lib/utils";
 import {
   Box,
   CheckCircle,
@@ -25,7 +24,6 @@ import {
   Grid3X3,
   Home,
   Loader2,
-  RefreshCw,
   Table,
   type LucideIcon,
 } from "lucide-react";
@@ -72,7 +70,7 @@ function MetricCard(props: {
 }) {
   const { title, value, description, icon: Icon } = props;
   return (
-    <Card>
+    <Card className="border-amber-500">
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -80,7 +78,7 @@ function MetricCard(props: {
             <p className="mt-1 text-2xl font-semibold">{value}</p>
             <p className="mt-1 text-xs text-muted-foreground">{description}</p>
           </div>
-          <Icon className="h-5 w-5 text-muted-foreground" />
+          <Icon className="h-5 w-5 text-amber-500" />
         </div>
       </CardContent>
     </Card>
@@ -91,7 +89,6 @@ export default function Step8AnalysisPage() {
   const router = useRouter();
   const { currentProject, completeStep } = useProjectStore();
 
-  const [reloadNonce, setReloadNonce] = useState(0);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summarySnapshot, setSummarySnapshot] = useState<Step7bSummarySnapshot | null>(null);
@@ -141,15 +138,12 @@ export default function Step8AnalysisPage() {
     return () => {
       isActive = false;
     };
-  }, [currentProject?.id, reloadNonce]);
+  }, [currentProject?.id]);
 
   const totalSegmentations = currentProject?.segmentations.length || 0;
   const totalProjections = currentProject?.projections.length || 0;
   const totalMeasurements = currentProject?.measurements.length || 0;
   const totalHypotheses = currentProject?.hypotheses.length || 0;
-  const totalPointCount = currentProject?.pointCloudStats?.pointCount || 0;
-  const totalIntradosLines = currentProject?.intradosLines.length || 0;
-  const totalReprojectionSelections = currentProject?.reprojectionSelections.length || 0;
 
   const ribRows = summarySnapshot?.ribs ?? [];
   const bossRows = summarySnapshot?.bosses ?? [];
@@ -179,10 +173,6 @@ export default function Step8AnalysisPage() {
       averageApexHeight: averageOrNull(apexHeights),
     };
   }, [ribRows]);
-
-  const handleRefreshSummary = () => {
-    setReloadNonce((value) => value + 1);
-  };
 
   const handleDownloadRibSummary = () => {
     if (ribRows.length === 0) return;
@@ -248,9 +238,9 @@ export default function Step8AnalysisPage() {
           description="No project is loaded. Open a project to view 2D and 3D result summaries."
         />
 
-        <Card>
+        <Card className="border-amber-500">
           <CardContent className="py-10 text-center">
-            <Circle className="mx-auto h-12 w-12 text-muted-foreground/60" />
+            <Circle className="mx-auto h-12 w-12 text-amber-500/70" />
             <p className="mt-3 text-sm text-muted-foreground">No active project data available.</p>
           </CardContent>
         </Card>
@@ -274,12 +264,12 @@ export default function Step8AnalysisPage() {
 
       <Tabs defaultValue="2d" className="space-y-6">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="2d" className="gap-2">
-            <Grid3X3 className="h-4 w-4" />
+          <TabsTrigger value="2d" className="gap-2 group">
+            <Grid3X3 className="h-4 w-4 text-muted-foreground group-data-[state=active]:text-amber-500" />
             2D
           </TabsTrigger>
-          <TabsTrigger value="3d" className="gap-2">
-            <Box className="h-4 w-4" />
+          <TabsTrigger value="3d" className="gap-2 group">
+            <Box className="h-4 w-4 text-muted-foreground group-data-[state=active]:text-amber-500" />
             3D
           </TabsTrigger>
         </TabsList>
@@ -287,39 +277,15 @@ export default function Step8AnalysisPage() {
         <TabsContent value="2d" />
 
         <TabsContent value="3d" className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
-            <MetricCard
-              title="Intrados Lines"
-              value={String(totalIntradosLines)}
-              description="Tracked in Step 6"
-              icon={Circle}
-            />
-            <MetricCard
-              title="Measurements"
-              value={String(totalMeasurements)}
-              description="Saved in Step 7"
-              icon={Table}
-            />
-          </div>
-
           <Card>
             <CardHeader className="gap-4 md:flex md:flex-row md:items-start md:justify-between">
               <div className="space-y-1">
-                <CardTitle className="font-display">Step 7 Data Summary</CardTitle>
+                <CardTitle className="font-display">Data Summary</CardTitle>
                 <CardDescription>
                   Loaded from saved Step 7B summary data under the project measurements folder.
                 </CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handleRefreshSummary}
-                  disabled={isSummaryLoading}
-                  className="gap-2"
-                >
-                  <RefreshCw className={`h-4 w-4 ${isSummaryLoading ? "animate-spin" : ""}`} />
-                  Refresh
-                </Button>
                 <Button
                   variant="outline"
                   onClick={handleDownloadRibSummary}
@@ -348,6 +314,12 @@ export default function Step8AnalysisPage() {
                   value={String(ribRows.length)}
                   description={`${ribStats.groupedRows} grouped rows`}
                   icon={Table}
+                />
+                <MetricCard
+                  title="Bosses"
+                  value={String(bossRows.length)}
+                  description="Saved boss rows"
+                  icon={Box}
                 />
                 <MetricCard
                   title="Avg Arc Radius"
@@ -412,7 +384,7 @@ export default function Step8AnalysisPage() {
                   <div className="space-y-2">
                     <div className="overflow-x-auto rounded-lg border">
                       <table className="w-full text-sm">
-                        <thead className="bg-muted/40 text-left">
+                        <thead className="bg-muted/40 text-left text-white">
                           <tr>
                             <th className="px-3 py-2 font-medium">Name</th>
                             <th className="px-3 py-2 font-medium">Source</th>
@@ -451,7 +423,7 @@ export default function Step8AnalysisPage() {
                           className="gap-1"
                           onClick={() => setIsRibSummaryExpanded((value) => !value)}
                         >
-                          {isRibSummaryExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          {isRibSummaryExpanded ? <ChevronUp className="h-4 w-4 text-amber-500" /> : <ChevronDown className="h-4 w-4 text-amber-500" />}
                           {isRibSummaryExpanded
                             ? `Collapse to first ${TABLE_PREVIEW_ROWS} rows`
                             : `Show ${ribRows.length - TABLE_PREVIEW_ROWS} more rows`}
@@ -472,16 +444,13 @@ export default function Step8AnalysisPage() {
                   <div className="space-y-2">
                     <div className="overflow-x-auto rounded-lg border">
                       <table className="w-full text-sm">
-                        <thead className="bg-muted/40 text-left">
+                        <thead className="bg-muted/40 text-left text-white">
                           <tr>
                             <th className="px-3 py-2 font-medium">Boss Stone</th>
                             <th className="px-3 py-2 font-medium">Group</th>
                             <th className="px-3 py-2 text-right font-medium">Height From Impost</th>
                             <th className="px-3 py-2 text-right font-medium">Connected Ribs</th>
                             <th className="px-3 py-2 text-right font-medium">Apex Pairs</th>
-                            <th className="px-3 py-2 text-right font-medium">X</th>
-                            <th className="px-3 py-2 text-right font-medium">Y</th>
-                            <th className="px-3 py-2 text-right font-medium">Z</th>
                             <th className="px-3 py-2 text-right font-medium">Source</th>
                           </tr>
                         </thead>
@@ -493,9 +462,6 @@ export default function Step8AnalysisPage() {
                               <td className="px-3 py-2 text-right text-muted-foreground">{row.heightFromImpostText}</td>
                               <td className="px-3 py-2 text-right text-muted-foreground">{row.connectedRibCount}</td>
                               <td className="px-3 py-2 text-right text-muted-foreground">{row.apexPairCount}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{formatMetric(row.x, 3)}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{formatMetric(row.y, 3)}</td>
-                              <td className="px-3 py-2 text-right text-muted-foreground">{formatMetric(row.z, 3)}</td>
                               <td className="px-3 py-2 text-right text-muted-foreground uppercase tracking-wide">{row.source}</td>
                             </tr>
                           ))}
@@ -511,7 +477,7 @@ export default function Step8AnalysisPage() {
                           className="gap-1"
                           onClick={() => setIsBossSummaryExpanded((value) => !value)}
                         >
-                          {isBossSummaryExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          {isBossSummaryExpanded ? <ChevronUp className="h-4 w-4 text-amber-500" /> : <ChevronDown className="h-4 w-4 text-amber-500" />}
                           {isBossSummaryExpanded
                             ? `Collapse to first ${TABLE_PREVIEW_ROWS} rows`
                             : `Show ${bossRows.length - TABLE_PREVIEW_ROWS} more rows`}
@@ -524,51 +490,6 @@ export default function Step8AnalysisPage() {
                     No saved boss summary rows are available.
                   </div>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-display">Point Cloud and Traces</CardTitle>
-              <CardDescription>3D context pulled from Steps 1, 5, and 6</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border">
-                <table className="w-full text-sm">
-                  <tbody>
-                    <tr>
-                      <td className="px-3 py-2 font-medium">Point cloud points</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{formatNumber(totalPointCount)}</td>
-                    </tr>
-                    <tr className="bg-muted/30">
-                      <td className="px-3 py-2 font-medium">Reprojection selections</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{totalReprojectionSelections}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 font-medium">Intrados lines</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{totalIntradosLines}</td>
-                    </tr>
-                    <tr className="bg-muted/30">
-                      <td className="px-3 py-2 font-medium">Summary trace source</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{summarySnapshot?.activeTraceSource ?? "n/a"}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 font-medium">Saved trace summary</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{summarySnapshot?.activeTraceSummary ?? "n/a"}</td>
-                    </tr>
-                    <tr className="bg-muted/30">
-                      <td className="px-3 py-2 font-medium">Imported 3D traces</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{currentProject.traces3D.length}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 font-medium">Bounding box available</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">
-                        {currentProject.pointCloudStats?.boundingBox ? "yes" : "no"}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
               </div>
             </CardContent>
           </Card>
