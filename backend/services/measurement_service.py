@@ -9,6 +9,9 @@ import numpy as np
 from scipy import optimize
 
 
+STRAIGHT_LINE_RATIO = 10.0
+
+
 class MeasurementService:
     """Service for calculating geometric measurements on vault ribs."""
     
@@ -63,12 +66,21 @@ class MeasurementService:
         # Calculate arc parameters
         arc_params = self._fit_arc(segment)
 
-        # Calculate point distances from arc for visualization
-        point_distances = self._calculate_point_distances_from_arc(segment, arc_params)
-        fit_error = self._calculate_fit_error_from_distances(point_distances)
-        
         # Calculate rib length
         rib_length = self._calculate_length(segment)
+
+        use_straight_line_model = self._is_straight_rib_model(
+            arc_radius=float(arc_params.get("radius", 0.0)),
+            rib_length=rib_length,
+        )
+
+        # Calculate point distances from the selected best-fit model.
+        if use_straight_line_model:
+            line_params = self._fit_line(segment)
+            point_distances = self._calculate_point_distances_from_line(segment, line_params)
+        else:
+            point_distances = self._calculate_point_distances_from_arc(segment, arc_params)
+        fit_error = self._calculate_fit_error_from_distances(point_distances)
 
         # Find apex and springing points
         apex = self._find_apex(segment)
@@ -305,6 +317,87 @@ class MeasurementService:
                 "end_angle": end_angle,
                 "error": fallback_error
             }
+
+    @staticmethod
+    def _is_straight_rib_model(arc_radius: float, rib_length: float) -> bool:
+        """Return True when curvature is visually negligible for the rib length."""
+        if not np.isfinite(arc_radius) or not np.isfinite(rib_length):
+            return False
+        if arc_radius <= 0.0 or rib_length <= 0.0:
+            return False
+        return arc_radius > STRAIGHT_LINE_RATIO * rib_length
+
+    @staticmethod
+    def _fit_line(points: np.ndarray) -> Dict[str, np.ndarray]:
+        """Fit a finite 3D line segment using PCA and point extents."""
+        if points.size == 0:
+            zero = np.zeros(3, dtype=float)
+            return {
+                "origin": zero,
+                "direction": np.array([1.0, 0.0, 0.0], dtype=float),
+                "start": zero,
+                "end": zero,
+            }
+
+        if len(points) == 1:
+            p = np.asarray(points[0], dtype=float)
+            return {
+                "origin": p,
+                "direction": np.array([1.0, 0.0, 0.0], dtype=float),
+                "start": p,
+                "end": p,
+            }
+
+        origin = np.mean(points, axis=0)
+        centered = points - origin
+
+        try:
+            _, _, vt = np.linalg.svd(centered, full_matrices=False)
+            direction = np.asarray(vt[0], dtype=float)
+        except np.linalg.LinAlgError:
+            direction = np.asarray(points[-1] - points[0], dtype=float)
+
+        norm = float(np.linalg.norm(direction))
+        if norm <= 1e-12:
+            direction = np.array([1.0, 0.0, 0.0], dtype=float)
+        else:
+            direction = direction / norm
+
+        t = centered @ direction
+        t_min = float(np.min(t))
+        t_max = float(np.max(t))
+
+        start = origin + t_min * direction
+        end = origin + t_max * direction
+        return {
+            "origin": origin,
+            "direction": direction,
+            "start": start,
+            "end": end,
+        }
+
+    @staticmethod
+    def _calculate_point_distances_from_line(
+        points: np.ndarray,
+        line_params: Dict[str, np.ndarray],
+    ) -> np.ndarray:
+        """Calculate point-to-segment distances against a fitted finite line."""
+        if points.size == 0:
+            return np.array([], dtype=float)
+
+        start = np.asarray(line_params.get("start", np.zeros(3, dtype=float)), dtype=float)
+        end = np.asarray(line_params.get("end", start), dtype=float)
+        segment = end - start
+        seg_len_sq = float(np.dot(segment, segment))
+
+        if seg_len_sq <= 1e-12:
+            return np.linalg.norm(points - start, axis=1)
+
+        rel = points - start
+        t = (rel @ segment) / seg_len_sq
+        t = np.clip(t, 0.0, 1.0)
+        closest = start + t[:, np.newaxis] * segment
+        return np.linalg.norm(points - closest, axis=1)
     
     def _calculate_length(self, points: np.ndarray) -> float:
         """Calculate the arc length of the rib."""
@@ -1261,11 +1354,21 @@ class MeasurementService:
 
         merged_points = np.vstack([self.traces[rid] for rid in valid_ids])
         arc_params = self._fit_arc(merged_points)
-        point_distances = self._calculate_point_distances_from_arc(merged_points, arc_params)
-        fit_error = self._calculate_fit_error_from_distances(point_distances)
         rib_length = sum(
             self._calculate_length(self.traces[rid]) for rid in valid_ids
         )
+
+        use_straight_line_model = self._is_straight_rib_model(
+            arc_radius=float(arc_params.get("radius", 0.0)),
+            rib_length=float(rib_length),
+        )
+        if use_straight_line_model:
+            line_params = self._fit_line(merged_points)
+            point_distances = self._calculate_point_distances_from_line(merged_points, line_params)
+        else:
+            point_distances = self._calculate_point_distances_from_arc(merged_points, arc_params)
+
+        fit_error = self._calculate_fit_error_from_distances(point_distances)
         apex = self._find_apex(merged_points)
         springing = self._find_springing_points(merged_points)
 

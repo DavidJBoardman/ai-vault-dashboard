@@ -525,15 +525,32 @@ function createBestFitArcLines(
   segmentPoints: Point3D[],
   arcCenter: Point3D,
   arcRadius: number,
+  ribLength: number,
   traceId: string,
   fitBasisU?: Point3D,
   fitBasisV?: Point3D,
   fitStartAngle?: number,
   fitEndAngle?: number,
 ): Line3D[] {
-  if (segmentPoints.length < 3 || !arcCenter || arcRadius <= 0) return [];
+  if (segmentPoints.length < 2 || !arcCenter || arcRadius <= 0) return [];
 
   const arcColor = "rgb(100, 150, 255)";
+
+  // Straight ribs are visualized as finite best-fit lines, not huge-radius arcs.
+  if (!hasDisplayableRadius(arcRadius, ribLength)) {
+    const startPoint = segmentPoints[0];
+    const endPoint = segmentPoints[segmentPoints.length - 1];
+
+    return [{
+      id: `${traceId}-ideal-line`,
+      label: "Ideal Line",
+      color: arcColor,
+      points: [startPoint, endPoint],
+    }];
+  }
+
+  if (segmentPoints.length < 3) return [];
+
   const lines: Line3D[] = [];
 
   const hasBackendArcFrame =
@@ -2588,6 +2605,7 @@ export default function Step7MeasurementsPage() {
               result.value.data.segmentPoints,
               result.value.data.arcCenter,
               result.value.data.arcRadius,
+              result.value.data.ribLength,
               result.value.traceId,
               result.value.data.arcBasisU,
               result.value.data.arcBasisV,
