@@ -43,7 +43,9 @@ Remove Analysis page - David
 [x] add logo  ukri or whatever - yang
 [x] removed setting buttons on the top right corner
 
-[x] analysis-report  
+[x] analysis-report
+
+[] dxf [vector format] to export the plan  
 [?] anyway I can reset the segmentation?
 
 # Wiktoria

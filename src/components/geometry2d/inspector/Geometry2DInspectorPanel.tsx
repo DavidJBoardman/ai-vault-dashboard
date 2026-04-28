@@ -58,7 +58,9 @@ interface Geometry2DInspectorPanelProps {
   isLoadingBayPlanState: boolean;
   isRunningBayPlan: boolean;
   isSavingBayPlanManualEdges: boolean;
+  isExportingBayPlanDxf: boolean;
   onRunBayPlan: () => void;
+  onExportBayPlanDxf: () => void;
   onSaveBayPlanManualEdges: (edges: Geometry2DBayPlanEdge[]) => void;
   onSelectBayPlanEdge: (edgeKey: string | null) => void;
   reconstructView?: "controls" | "manualEdit";
@@ -104,7 +106,9 @@ export function Geometry2DInspectorPanel({
   isLoadingBayPlanState,
   isRunningBayPlan,
   isSavingBayPlanManualEdges,
+  isExportingBayPlanDxf,
   onRunBayPlan,
+  onExportBayPlanDxf,
   onSaveBayPlanManualEdges,
   onSelectBayPlanEdge,
   reconstructView = "controls",
@@ -160,7 +164,9 @@ export function Geometry2DInspectorPanel({
           isLoadingState={isLoadingBayPlanState}
           isRunning={isRunningBayPlan}
           isSavingManualEdges={isSavingBayPlanManualEdges}
+          isExportingDxf={isExportingBayPlanDxf}
           onRun={onRunBayPlan}
+          onExportDxf={onExportBayPlanDxf}
           onSaveManualEdges={onSaveBayPlanManualEdges}
           onSelectEdge={onSelectBayPlanEdge}
           view={reconstructView}

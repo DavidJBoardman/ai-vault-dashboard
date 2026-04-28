@@ -336,7 +336,9 @@ export default function Step4Geometry2DPage() {
                   isLoadingBayPlanState={controller.isLoadingReconstructionState}
                   isRunningBayPlan={controller.isRunningReconstruction}
                   isSavingBayPlanManualEdges={controller.isSavingReconstructionManualEdges}
+                  isExportingBayPlanDxf={controller.isExportingBayPlanDxf}
                   onRunBayPlan={controller.handleRunReconstruction}
+                  onExportBayPlanDxf={controller.handleExportBayPlanDxf}
                   onSaveBayPlanManualEdges={controller.handleSaveManualReconstructionEdges}
                   onSelectBayPlanEdge={handleSelectReconstructionEdge}
                 />
