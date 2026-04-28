@@ -17,7 +17,9 @@ import { formatNumber } from "@/lib/utils";
 import {
   Box,
   CheckCircle,
+  ChevronDown,
   ChevronLeft,
+  ChevronUp,
   Circle,
   Download,
   Grid3X3,
@@ -37,6 +39,15 @@ function formatMeters(value: number, digits = 2): string {
   return `${value.toFixed(digits)}m`;
 }
 
+function isFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function averageOrNull(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
 function toCsvCell(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
@@ -50,6 +61,8 @@ function downloadCsv(fileName: string, content: string): void {
   anchor.click();
   URL.revokeObjectURL(url);
 }
+
+const TABLE_PREVIEW_ROWS = 5;
 
 function MetricCard(props: {
   title: string;
@@ -84,6 +97,8 @@ export default function Step8AnalysisPage() {
   const [summarySnapshot, setSummarySnapshot] = useState<Step7bSummarySnapshot | null>(null);
   const [exportingRibs, setExportingRibs] = useState(false);
   const [exportingBosses, setExportingBosses] = useState(false);
+  const [isRibSummaryExpanded, setIsRibSummaryExpanded] = useState(false);
+  const [isBossSummaryExpanded, setIsBossSummaryExpanded] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -138,6 +153,8 @@ export default function Step8AnalysisPage() {
 
   const ribRows = summarySnapshot?.ribs ?? [];
   const bossRows = summarySnapshot?.bosses ?? [];
+  const visibleRibRows = isRibSummaryExpanded ? ribRows : ribRows.slice(0, TABLE_PREVIEW_ROWS);
+  const visibleBossRows = isBossSummaryExpanded ? bossRows : bossRows.slice(0, TABLE_PREVIEW_ROWS);
 
   const ribStats = useMemo(
     () =>
@@ -149,14 +166,19 @@ export default function Step8AnalysisPage() {
     [summarySnapshot],
   );
 
-  const bossStats = useMemo(
-    () =>
-      summarySnapshot?.bossStats ?? {
-        bossesWithHeights: 0,
-        averageHeight: null,
-      },
-    [summarySnapshot],
-  );
+  const ribAverages = useMemo(() => {
+    const lengths = ribRows.map((row) => row.length).filter(isFiniteNumber);
+    const impostDistances = ribRows.map((row) => row.impostDistance).filter(isFiniteNumber);
+    const spans = ribRows.map((row) => row.span).filter(isFiniteNumber);
+    const apexHeights = ribRows.map((row) => row.apexHeight).filter(isFiniteNumber);
+
+    return {
+      averageLength: averageOrNull(lengths),
+      averageImpostDistance: averageOrNull(impostDistances),
+      averageSpan: averageOrNull(spans),
+      averageApexHeight: averageOrNull(apexHeights),
+    };
+  }, [ribRows]);
 
   const handleRefreshSummary = () => {
     setReloadNonce((value) => value + 1);
@@ -265,13 +287,7 @@ export default function Step8AnalysisPage() {
         <TabsContent value="2d" />
 
         <TabsContent value="3d" className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              title="Point Count"
-              value={formatNumber(totalPointCount)}
-              description="Loaded from Step 1"
-              icon={Box}
-            />
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
             <MetricCard
               title="Intrados Lines"
               value={String(totalIntradosLines)}
@@ -283,12 +299,6 @@ export default function Step8AnalysisPage() {
               value={String(totalMeasurements)}
               description="Saved in Step 7"
               icon={Table}
-            />
-            <MetricCard
-              title="Hypotheses"
-              value={String(totalHypotheses)}
-              description="Grouped measurement sets"
-              icon={CheckCircle}
             />
           </div>
 
@@ -352,14 +362,32 @@ export default function Step8AnalysisPage() {
                   icon={CheckCircle}
                 />
                 <MetricCard
-                  title="Boss Heights"
-                  value={`${bossStats.bossesWithHeights}/${bossRows.length}`}
-                  description={
-                    bossStats.averageHeight == null
-                      ? "No saved apex height data"
-                      : `avg ${formatMeters(bossStats.averageHeight, 2)}`
+                  title="Avg Length"
+                  value={ribAverages.averageLength == null ? "n/a" : formatMeters(ribAverages.averageLength, 2)}
+                  description="Across saved rib rows"
+                  icon={Table}
+                />
+                <MetricCard
+                  title="Avg Impost Distance"
+                  value={
+                    ribAverages.averageImpostDistance == null
+                      ? "n/a"
+                      : formatMeters(ribAverages.averageImpostDistance, 2)
                   }
+                  description="Across saved rib rows"
+                  icon={Circle}
+                />
+                <MetricCard
+                  title="Avg Span"
+                  value={ribAverages.averageSpan == null ? "n/a" : formatMeters(ribAverages.averageSpan, 2)}
+                  description="Across saved rib rows"
                   icon={Box}
+                />
+                <MetricCard
+                  title="Avg Apex Height"
+                  value={ribAverages.averageApexHeight == null ? "n/a" : formatMeters(ribAverages.averageApexHeight, 2)}
+                  description="Across saved rib rows"
+                  icon={CheckCircle}
                 />
               </div>
 
@@ -381,37 +409,55 @@ export default function Step8AnalysisPage() {
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold">Rib Summary</h3>
                 {ribRows.length > 0 ? (
-                  <div className="overflow-x-auto rounded-lg border">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/40 text-left">
-                        <tr>
-                          <th className="px-3 py-2 font-medium">Name</th>
-                          <th className="px-3 py-2 font-medium">Source</th>
-                          <th className="px-3 py-2 text-right font-medium">Ribs</th>
-                          <th className="px-3 py-2 text-right font-medium">Arc Radius</th>
-                          <th className="px-3 py-2 text-right font-medium">Length</th>
-                          <th className="px-3 py-2 text-right font-medium">Impost Distance</th>
-                          <th className="px-3 py-2 text-right font-medium">Span</th>
-                          <th className="px-3 py-2 text-right font-medium">Apex Height</th>
-                          <th className="px-3 py-2 text-right font-medium">Fit Error</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {ribRows.map((row: Step7bRibSummaryRow, index) => (
-                          <tr key={row.id} className={index % 2 === 0 ? "bg-muted/20" : ""}>
-                            <td className="px-3 py-2 font-medium">{row.name}</td>
-                            <td className="px-3 py-2 text-muted-foreground uppercase tracking-wide">{row.source}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.ribCount}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.arcRadiusText}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.lengthText}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.impostDistanceText}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.spanText}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.apexHeightText}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.fitErrorText}</td>
+                  <div className="space-y-2">
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/40 text-left">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">Name</th>
+                            <th className="px-3 py-2 font-medium">Source</th>
+                            <th className="px-3 py-2 text-right font-medium">Ribs</th>
+                            <th className="px-3 py-2 text-right font-medium">Arc Radius</th>
+                            <th className="px-3 py-2 text-right font-medium">Length</th>
+                            <th className="px-3 py-2 text-right font-medium">Impost Distance</th>
+                            <th className="px-3 py-2 text-right font-medium">Span</th>
+                            <th className="px-3 py-2 text-right font-medium">Apex Height</th>
+                            <th className="px-3 py-2 text-right font-medium">Fit Error</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {visibleRibRows.map((row: Step7bRibSummaryRow, index) => (
+                            <tr key={row.id} className={index % 2 === 0 ? "bg-muted/20" : ""}>
+                              <td className="px-3 py-2 font-medium">{row.name}</td>
+                              <td className="px-3 py-2 text-muted-foreground uppercase tracking-wide">{row.source}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.ribCount}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.arcRadiusText}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.lengthText}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.impostDistanceText}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.spanText}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.apexHeightText}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.fitErrorText}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {ribRows.length > TABLE_PREVIEW_ROWS && (
+                      <div className="flex justify-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => setIsRibSummaryExpanded((value) => !value)}
+                        >
+                          {isRibSummaryExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          {isRibSummaryExpanded
+                            ? `Collapse to first ${TABLE_PREVIEW_ROWS} rows`
+                            : `Show ${ribRows.length - TABLE_PREVIEW_ROWS} more rows`}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
@@ -423,37 +469,55 @@ export default function Step8AnalysisPage() {
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold">Boss Stone Summary</h3>
                 {bossRows.length > 0 ? (
-                  <div className="overflow-x-auto rounded-lg border">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/40 text-left">
-                        <tr>
-                          <th className="px-3 py-2 font-medium">Boss Stone</th>
-                          <th className="px-3 py-2 font-medium">Group</th>
-                          <th className="px-3 py-2 text-right font-medium">Height From Impost</th>
-                          <th className="px-3 py-2 text-right font-medium">Connected Ribs</th>
-                          <th className="px-3 py-2 text-right font-medium">Apex Pairs</th>
-                          <th className="px-3 py-2 text-right font-medium">X</th>
-                          <th className="px-3 py-2 text-right font-medium">Y</th>
-                          <th className="px-3 py-2 text-right font-medium">Z</th>
-                          <th className="px-3 py-2 text-right font-medium">Source</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bossRows.map((row: Step7bBossSummaryRow, index) => (
-                          <tr key={row.id} className={index % 2 === 0 ? "bg-muted/20" : ""}>
-                            <td className="px-3 py-2 font-medium">{row.name}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{row.groupId}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.heightFromImpostText}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.connectedRibCount}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{row.apexPairCount}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{formatMetric(row.x, 3)}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{formatMetric(row.y, 3)}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">{formatMetric(row.z, 3)}</td>
-                            <td className="px-3 py-2 text-right text-muted-foreground uppercase tracking-wide">{row.source}</td>
+                  <div className="space-y-2">
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/40 text-left">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">Boss Stone</th>
+                            <th className="px-3 py-2 font-medium">Group</th>
+                            <th className="px-3 py-2 text-right font-medium">Height From Impost</th>
+                            <th className="px-3 py-2 text-right font-medium">Connected Ribs</th>
+                            <th className="px-3 py-2 text-right font-medium">Apex Pairs</th>
+                            <th className="px-3 py-2 text-right font-medium">X</th>
+                            <th className="px-3 py-2 text-right font-medium">Y</th>
+                            <th className="px-3 py-2 text-right font-medium">Z</th>
+                            <th className="px-3 py-2 text-right font-medium">Source</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {visibleBossRows.map((row: Step7bBossSummaryRow, index) => (
+                            <tr key={row.id} className={index % 2 === 0 ? "bg-muted/20" : ""}>
+                              <td className="px-3 py-2 font-medium">{row.name}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{row.groupId}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.heightFromImpostText}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.connectedRibCount}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{row.apexPairCount}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{formatMetric(row.x, 3)}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{formatMetric(row.y, 3)}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{formatMetric(row.z, 3)}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground uppercase tracking-wide">{row.source}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {bossRows.length > TABLE_PREVIEW_ROWS && (
+                      <div className="flex justify-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => setIsBossSummaryExpanded((value) => !value)}
+                        >
+                          {isBossSummaryExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          {isBossSummaryExpanded
+                            ? `Collapse to first ${TABLE_PREVIEW_ROWS} rows`
+                            : `Show ${bossRows.length - TABLE_PREVIEW_ROWS} more rows`}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
