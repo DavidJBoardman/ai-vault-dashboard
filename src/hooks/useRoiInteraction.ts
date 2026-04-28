@@ -80,43 +80,21 @@ export function resizeRoiFromHandle(
   localDy: number,
   minSize = 0.1
 ): ROIState {
-  let left = -roi.width / 2;
-  let right = roi.width / 2;
-  let top = -roi.height / 2;
-  let bottom = roi.height / 2;
+  let halfWidth = roi.width / 2;
+  let halfHeight = roi.height / 2;
 
-  if (handle.includes("e")) right += localDx;
-  if (handle.includes("w")) left += localDx;
-  if (handle.includes("s")) bottom += localDy;
-  if (handle.includes("n")) top += localDy;
+  if (handle.includes("e")) halfWidth += localDx;
+  if (handle.includes("w")) halfWidth -= localDx;
+  if (handle.includes("s")) halfHeight += localDy;
+  if (handle.includes("n")) halfHeight -= localDy;
 
-  if (right - left < minSize) {
-    if (handle.includes("w")) {
-      left = right - minSize;
-    } else {
-      right = left + minSize;
-    }
-  }
-  if (bottom - top < minSize) {
-    if (handle.includes("n")) {
-      top = bottom - minSize;
-    } else {
-      bottom = top + minSize;
-    }
-  }
-
-  const centreLocalX = (left + right) / 2;
-  const centreLocalY = (top + bottom) / 2;
-  const angle = (roi.rotation * Math.PI) / 180;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
+  halfWidth = Math.max(minSize / 2, halfWidth);
+  halfHeight = Math.max(minSize / 2, halfHeight);
 
   return {
     ...roi,
-    x: roi.x + centreLocalX * cos - centreLocalY * sin,
-    y: roi.y + centreLocalX * sin + centreLocalY * cos,
-    width: right - left,
-    height: bottom - top,
+    width: halfWidth * 2,
+    height: halfHeight * 2,
   };
 }
 

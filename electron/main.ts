@@ -237,15 +237,3 @@ ipcMain.handle('capture:region', async (_, rect: { x: number; y: number; width: 
   return image.toPNG().toString('base64');
 });
 
-ipcMain.handle('report:print-to-pdf', async (event) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-  if (!senderWindow) {
-    throw new Error('Sender window not found');
-  }
-  const buffer = await senderWindow.webContents.printToPDF({
-    printBackground: true,
-    pageSize: 'A4',
-    margins: { marginType: 'custom', top: 0.6, bottom: 0.6, left: 0.6, right: 0.6 },
-  });
-  return buffer;
-});
