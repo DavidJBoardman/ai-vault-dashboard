@@ -22,7 +22,10 @@ Boss stones are also summarised, including their height above the impost line wh
 The measurement tiles can show different states depending on the rib geometry. The example below shows the expected values for one regular curved rib and one straight rib, where some arc-based measurements become unavailable or not applicable.
 
 ![Step 7B possible measurement values for two ribs: one regular curved rib and one straight rib, illustrating how the metric tiles change depending on rib geometry.](../../images/step-7/possible-values.png)
+
 ## Workflow
+
+![Step 7B Data interface: full-page layout with the 3D viewer, rib measurement list, detail panels, boss-stone panel, and arrows highlighting the main areas used during review.](../../images/step-7/data-ui.png)
 
 1. Review the measurement list.
    - The **Rib Measurements** panel shows all current display rows: single ribs, auto-detected groups, and manual groups.
