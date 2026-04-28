@@ -22,7 +22,7 @@ import {
   Geometry2DBayPlanRunResult,
 } from "@/lib/api";
 import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
-import { ChevronDown, ChevronUp, CircleHelp, Network, Plus, RefreshCw, RotateCcw, Settings2, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleHelp, Download, Network, Plus, RefreshCw, RotateCcw, Settings2, Trash2 } from "lucide-react";
 
 const RECONSTRUCTION_PARAM_FALLBACKS = {
   reconstructionMode: "current" as const,
@@ -49,7 +49,9 @@ interface BayPlanReconstructionPanelProps {
   isLoadingState: boolean;
   isRunning: boolean;
   isSavingManualEdges: boolean;
+  isExportingDxf: boolean;
   onRun: () => void;
+  onExportDxf: () => void;
   onSaveManualEdges: (edges: Geometry2DBayPlanEdge[]) => void;
   onSelectEdge: (edgeKey: string | null) => void;
   // Which slice of this panel to render. "controls" = the bay-plan setup card,
@@ -176,7 +178,9 @@ export function BayPlanReconstructionPanel({
   isLoadingState,
   isRunning,
   isSavingManualEdges,
+  isExportingDxf,
   onRun,
+  onExportDxf,
   onSaveManualEdges,
   onSelectEdge,
   view = "controls",
@@ -715,10 +719,25 @@ export function BayPlanReconstructionPanel({
             </CardContent>
           </Card>
 
-          <Button className="w-full gap-2" onClick={onRun} disabled={isLoadingState || isRunning}>
-            <RefreshCw className={`h-4 w-4 ${isRunning ? "animate-spin" : ""}`} />
-            {isRunning ? "Running reconstruction..." : result ? "Run reconstruction again" : "Run reconstruction"}
-          </Button>
+          <div className="grid gap-3">
+            <Button className="w-full gap-2" onClick={onRun} disabled={isLoadingState || isRunning || isExportingDxf}>
+              <RefreshCw className={`h-4 w-4 ${isRunning ? "animate-spin" : ""}`} />
+              {isRunning ? "Running reconstruction..." : result ? "Run reconstruction again" : "Run reconstruction"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2"
+              onClick={onExportDxf}
+              disabled={!result || isLoadingState || isRunning || isExportingDxf}
+            >
+              <Download className="h-4 w-4" />
+              {isExportingDxf ? "Preparing..." : "Download DXF"}
+            </Button>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              DXF uses projection pixel coordinates, not real-world scale.
+            </p>
+          </div>
         </CardContent>
       </Card>
       )}

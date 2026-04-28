@@ -390,11 +390,11 @@ export function CutTypologyMatchingPanel({
             </div>
           </details>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             <Button
               onClick={onRunMatching}
               disabled={isLoadingState || isRunningMatching}
-              className="h-12 w-full gap-2"
+              className="w-full gap-2"
             >
               {isRunningMatching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               {lastRunAt ? "Run matching again" : "Run matching"}

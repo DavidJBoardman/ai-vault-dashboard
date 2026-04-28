@@ -42,6 +42,7 @@ import {
   GroupVisibilityInfo,
 } from "@/components/geometry2d/types";
 import { toast } from "@/components/ui/use-toast";
+import { buildBayPlanDxf, downloadBayPlanDxf } from "@/lib/geometry2d/bayPlanDxf";
 import {
   buildPerBossTypologySummary,
   collectPrimaryReadingOverlayLabelsFromPerBoss,
@@ -397,6 +398,7 @@ export function useStep4Geometry2DController() {
   const [isLoadingReconstructionState, setIsLoadingReconstructionState] = useState(false);
   const [isRunningReconstruction, setIsRunningReconstruction] = useState(false);
   const [isSavingReconstructionManualEdges, setIsSavingReconstructionManualEdges] = useState(false);
+  const [isExportingBayPlanDxf, setIsExportingBayPlanDxf] = useState(false);
 
   const [roi, setRoi] = useState<ROIState>(() => {
     const project = useProjectStore.getState().currentProject;
@@ -1546,6 +1548,29 @@ export function useStep4Geometry2DController() {
     updateStep4Geometry2D,
   ]);
 
+  const handleExportBayPlanDxf = useCallback(async () => {
+    if (!currentProject?.id || !reconstructResult) return;
+    setIsExportingBayPlanDxf(true);
+    try {
+      const { text, ribCount, nodeCount } = buildBayPlanDxf(reconstructResult);
+      const saved = await downloadBayPlanDxf(text, `bay_plan_${new Date().toISOString().slice(0, 10)}.dxf`);
+      if (!saved) return;
+      toast({
+        title: "Bay plan DXF downloaded",
+        description: `${ribCount} ribs and ${nodeCount} nodes written to DXF.`,
+      });
+    } catch (error) {
+      console.error("Bay plan DXF export error:", error);
+      toast({
+        title: "DXF export failed",
+        description: error instanceof Error ? error.message : "Failed to export bay plan DXF.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingBayPlanDxf(false);
+    }
+  }, [currentProject?.id, reconstructResult]);
+
   const handleRunTemplateMatching = async () => {
     if (!currentProject?.id) return;
 
@@ -2147,6 +2172,7 @@ export function useStep4Geometry2DController() {
     isLoadingReconstructionState,
     isRunningReconstruction,
     isSavingReconstructionManualEdges,
+    isExportingBayPlanDxf,
 
     intradosLines,
     showIntrados,
@@ -2200,6 +2226,7 @@ export function useStep4Geometry2DController() {
     loadTemplateState,
     handleRunReconstruction,
     handleSaveManualReconstructionEdges,
+    handleExportBayPlanDxf,
     loadReconstructionState,
     handleReconstructOverlayLayerChange,
     handleReconstructSegmentationLayerChange,

@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import type { Project } from "@/lib/store";
 import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import { buildBayPlanDxf } from "@/lib/geometry2d/bayPlanDxf";
 
 export interface BayProportionCandidate {
   rank: number;
@@ -368,6 +369,37 @@ export function toCsv(
   return header + "\n" + body + "\n";
 }
 
+function buildBayPlanMetadata(data: ReportData) {
+  return {
+    exportType: "step-4d-bay-plan-dxf",
+    generatedAt: data.generatedAt,
+    projectId: data.projectId,
+    projectName: data.projectName,
+    projectionName: data.projectionName,
+    coordinateSystem: {
+      units: "projection pixels",
+      origin: "top-left of projection image",
+      xAxis: "right",
+      yAxis: "down",
+      realWorldScale: "not calibrated in this DXF export",
+    },
+    imageSize: data.imageSize,
+    nodeCount: data.reconstruct.nodes.length,
+    ribCount: data.reconstruct.edges.length,
+    layers: {
+      BAY_RIBS: "Reconstructed rib line segments",
+      BAY_NODES: "Node marker circles",
+    },
+    nodes: data.reconstruct.nodes.map((node, index) => ({
+      index,
+      id: node.id,
+      label: node.label,
+      x: node.x,
+      y: node.y,
+    })),
+  };
+}
+
 export interface BundleInputs {
   reportHtml: string;
   bayPlanPng: Blob | null;
@@ -403,6 +435,16 @@ export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
 
   if (bayPlanPng) {
     zip.file("bay-plan.png", bayPlanPng);
+  }
+
+  if (data.reconstruct.nodes.length > 0 && data.reconstruct.edges.length > 0) {
+    try {
+      const { text } = buildBayPlanDxf(data.reconstruct);
+      zip.file("bay-plan.dxf", text);
+      zip.file("bay-plan-metadata.json", JSON.stringify(buildBayPlanMetadata(data), null, 2));
+    } catch {
+      // The report bundle should still export if the optional DXF cannot be built.
+    }
   }
 
   return zip.generateAsync({ type: "blob" });
