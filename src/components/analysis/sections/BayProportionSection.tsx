@@ -1,12 +1,17 @@
 import { Card, CardContent } from "@/components/ui/card";
 import type { ReportData } from "@/lib/report/geometry2dReport";
 
+const NEAR_EQUIVALENT_TOL = 0.005;
+
 function fmt(n: number, d = 4): string {
   return Number.isFinite(n) ? n.toFixed(d) : "n/a";
 }
 
 export function BayProportionSection({ data }: { data: ReportData }) {
   const { measured, best, candidates } = data.bayProportion;
+  const nearEquivalent = candidates.filter(
+    (c) => c.rank !== 1 && c.deltaFromBest <= NEAR_EQUIVALENT_TOL
+  );
 
   return (
     <section className="space-y-4">
@@ -32,6 +37,15 @@ export function BayProportionSection({ data }: { data: ReportData }) {
                 <span className="font-medium">{fmt(best.err)}</span>
               </div>
             </div>
+            {nearEquivalent.length > 0 && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Near-equivalent within Δ ≤ {NEAR_EQUIVALENT_TOL.toFixed(3)}:{" "}
+                {nearEquivalent
+                  .map((c) => `${c.label} (Δ ${fmt(c.deltaFromBest)})`)
+                  .join(", ")}
+                .
+              </p>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -52,16 +66,30 @@ export function BayProportionSection({ data }: { data: ReportData }) {
               </tr>
             </thead>
             <tbody>
-              {candidates.map((c, i) => (
-                <tr key={c.label} className={i % 2 === 0 ? "bg-muted/20" : ""}>
-                  <td className="px-3 py-2 tabular-nums">{c.rank}</td>
-                  <td className="px-3 py-2">{c.label}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmt(c.err)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {c.rank === 1 ? "—" : fmt(c.deltaFromBest)}
-                  </td>
-                </tr>
-              ))}
+              {candidates.map((c, i) => {
+                const isNear = c.rank !== 1 && c.deltaFromBest <= NEAR_EQUIVALENT_TOL;
+                return (
+                  <tr key={c.label} className={i % 2 === 0 ? "bg-muted/20" : ""}>
+                    <td className="px-3 py-2 tabular-nums">{c.rank}</td>
+                    <td className="px-3 py-2">{c.label}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmt(c.err)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {c.rank === 1 ? (
+                        "—"
+                      ) : (
+                        <>
+                          {fmt(c.deltaFromBest)}
+                          {isNear && (
+                            <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                              near
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

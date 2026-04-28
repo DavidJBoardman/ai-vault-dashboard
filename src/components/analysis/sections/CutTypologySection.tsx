@@ -1,17 +1,59 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReportData } from "@/lib/report/geometry2dReport";
 
 const PAGE_SIZE = 10;
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+const DISPLAY_COLUMNS: Array<{ key: string; label: string; align?: "left" | "right" }> = [
+  { key: "boss_id", label: "ID" },
+  { key: "display_label", label: "Label" },
+  { key: "variant_label", label: "Variant" },
+  { key: "x_error", label: "x error", align: "right" },
+  { key: "y_error", label: "y error", align: "right" },
+  { key: "matched", label: "Matched" },
+];
+
+function fmtError(raw: string | undefined): string {
+  if (raw == null || raw === "") return "";
+  const n = Number(raw);
+  return Number.isFinite(n) ? n.toFixed(4) : raw;
+}
+
+function fmtMatched(raw: string | undefined): string {
+  if (raw == null) return "";
+  const v = raw.toLowerCase();
+  if (v === "true" || v === "1" || v === "yes") return "Yes";
+  if (v === "false" || v === "0" || v === "no") return "No";
+  return raw;
+}
 
 export function CutTypologySection({ data }: { data: ReportData }) {
-  const { columns, rows, bossesMatched, variantsMatched } = data.cutTypology;
+  const { rows, bossesMatched, variantsMatched } = data.cutTypology;
   const [page, setPage] = useState(0);
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const slice = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const displayRows = useMemo(() => {
+    let bossIndex = 0;
+    return rows.map((r) => {
+      const isBoss = (r["point_type"] ?? "") === "boss";
+      const displayLabel = isBoss
+        ? `Boss ${LETTERS[bossIndex++] ?? `#${bossIndex}`}`
+        : r["point_label"] ?? "";
+      return {
+        ...r,
+        display_label: displayLabel,
+        x_error: fmtError(r["x_error"]),
+        y_error: fmtError(r["y_error"]),
+        matched: fmtMatched(r["matched"]),
+      };
+    });
+  }, [rows]);
+
+  const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE));
+  const slice = displayRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
     <section className="space-y-4">
@@ -20,46 +62,53 @@ export function CutTypologySection({ data }: { data: ReportData }) {
         <p className="text-sm text-muted-foreground">
           {rows.length === 0
             ? "Template matching has not been run."
-            : `${bossesMatched} boss${bossesMatched === 1 ? "" : "es"} matched across ${variantsMatched} typology variant${variantsMatched === 1 ? "" : "s"}.`}
+            : `${bossesMatched} boss${bossesMatched === 1 ? "" : "es"} matched across ${variantsMatched} typology variant${variantsMatched === 1 ? "" : "s"}. Bosses re-lettered for display; the bundled CSV preserves original labels.`}
         </p>
       </div>
 
-      {rows.length > 0 && columns.length > 0 && (
+      {displayRows.length > 0 && (
         <>
           <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-left">
                 <tr>
-                  {columns.map((col) => (
-                    <th key={col} className="px-3 py-2 font-medium">
-                      {col}
+                  {DISPLAY_COLUMNS.map((col) => (
+                    <th
+                      key={col.key}
+                      className={`px-3 py-2 font-medium ${col.align === "right" ? "text-right" : ""}`}
+                    >
+                      {col.label}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {/* Screen mode: paginated slice */}
                 {slice.map((row, i) => (
                   <tr
                     key={`screen-${page}-${i}`}
                     className={`screen-only ${i % 2 === 0 ? "bg-muted/20" : ""}`}
                   >
-                    {columns.map((col) => (
-                      <td key={col} className="px-3 py-2 tabular-nums">
-                        {row[col] ?? ""}
+                    {DISPLAY_COLUMNS.map((col) => (
+                      <td
+                        key={col.key}
+                        className={`px-3 py-2 tabular-nums ${col.align === "right" ? "text-right" : ""}`}
+                      >
+                        {row[col.key] ?? ""}
                       </td>
                     ))}
                   </tr>
                 ))}
-                {/* Print mode: all rows */}
-                {rows.map((row, i) => (
+                {displayRows.map((row, i) => (
                   <tr
                     key={`print-${i}`}
                     className={`print-only ${i % 2 === 0 ? "bg-muted/20" : ""}`}
                   >
-                    {columns.map((col) => (
-                      <td key={col} className="px-3 py-2 tabular-nums">
-                        {row[col] ?? ""}
+                    {DISPLAY_COLUMNS.map((col) => (
+                      <td
+                        key={col.key}
+                        className={`px-3 py-2 tabular-nums ${col.align === "right" ? "text-right" : ""}`}
+                      >
+                        {row[col.key] ?? ""}
                       </td>
                     ))}
                   </tr>

@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import type { ImageSize, ReferencePoint, RoiBox } from "@/lib/report/geometry2dReport";
 
 interface BayPlanSvgProps {
@@ -12,12 +12,34 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
   { imageDataUrl, roi, referencePoints, imageSize },
   ref
 ) {
-  // Everything is in projection-image pixel space.
-  // The viewBox crops to the ROI rectangle (or the whole image if no ROI).
+  const [natural, setNatural] = useState<ImageSize | null>(null);
+
+  useEffect(() => {
+    if (!imageDataUrl) {
+      setNatural(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (!cancelled) setNatural({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.onerror = () => {
+      if (!cancelled) setNatural(null);
+    };
+    img.src = imageDataUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [imageDataUrl]);
+
+  const imgW = natural?.width ?? imageSize.width;
+  const imgH = natural?.height ?? imageSize.height;
+
   const vbX = roi?.x ?? 0;
   const vbY = roi?.y ?? 0;
-  const vbW = roi?.width ?? imageSize.width;
-  const vbH = roi?.height ?? imageSize.height;
+  const vbW = roi?.width ?? imgW;
+  const vbH = roi?.height ?? imgH;
   const aspect = vbH > 0 ? vbW / vbH : 1;
 
   const radius = Math.max(vbW, vbH) * 0.012;
@@ -37,8 +59,8 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
           href={imageDataUrl}
           x={0}
           y={0}
-          width={imageSize.width}
-          height={imageSize.height}
+          width={imgW}
+          height={imgH}
           preserveAspectRatio="none"
         />
       ) : (

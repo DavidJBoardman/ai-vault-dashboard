@@ -58,6 +58,13 @@ export interface ReportData {
   referencePoints: ReferencePoint[];
   roi: RoiBox | null;
   imageSize: ImageSize;
+  inputs: {
+    resolution: number;
+    roiPx: { width: number; height: number; rotation: number } | null;
+    bossCount: number;
+    pointCount: number;
+    matchingThreshold: string | null;
+  };
 }
 
 interface PrepData {
@@ -211,16 +218,35 @@ export function selectReportData(
 
   const matchColumns = cutTypology?.columns ?? [];
   const matchRows = cutTypology?.rows ?? [];
+  const bossRows = matchRows.filter((r) => (r["point_type"] ?? "") === "boss");
   const variantsMatched = new Set(
     matchRows
-      .map((r) => r["matchedVariantLabel"] || r["matched_variant_label"] || "")
-      .filter((v) => v.length > 0)
+      .map((r) => r["variant_label"] ?? r["matchedVariantLabel"] ?? r["matched_variant_label"] ?? "")
+      .filter((v) => v && v !== "None" && v !== "roi_corner")
   ).size;
 
   const projectionImageDataUrl =
     ensureDataUrl(selectedProjection?.images?.colour) ??
     ensureDataUrl(selectedProjection?.previewImage) ??
     null;
+
+  const templateSettings = (geom.template as { settings?: { matchingThreshold?: number | string } })
+    ?.settings;
+  const matchingThreshold =
+    typeof templateSettings?.matchingThreshold === "number" ||
+    typeof templateSettings?.matchingThreshold === "string"
+      ? String(templateSettings.matchingThreshold)
+      : null;
+
+  const inputs = {
+    resolution,
+    roiPx: roi
+      ? { width: roi.width, height: roi.height, rotation: roi.rotation }
+      : null,
+    bossCount: bossRows.length,
+    pointCount: referencePoints.length,
+    matchingThreshold,
+  };
 
   return {
     generatedAt: new Date().toISOString(),
@@ -237,12 +263,13 @@ export function selectReportData(
     cutTypology: {
       columns: matchColumns,
       rows: matchRows,
-      bossesMatched: matchRows.length,
+      bossesMatched: bossRows.length,
       variantsMatched,
     },
     referencePoints,
     roi,
     imageSize: { width: resolution, height: resolution },
+    inputs,
   };
 }
 
