@@ -601,6 +601,14 @@ export interface MeasurementConfig {
   semicircularIds: string[];
 }
 
+export async function getProjectPath(
+  projectId: string,
+): Promise<ApiResponse<{ projectDir: string }>> {
+  return apiRequest<{ projectDir: string }>(`/api/project/${projectId}/path`, {
+    method: "GET",
+  });
+}
+
 export async function getMeasurementConfig(
   projectId: string,
 ): Promise<ApiResponse<MeasurementConfig>> {
