@@ -138,17 +138,23 @@ function normaliseRoi(raw: PersistedRoi | undefined, resolution: number): RoiBox
     };
   }
 
-  // Top-left/size form: { x, y, width, height }
+  // Centre/size form: { x, y, width, height } — `x, y` are the ROI centre per ROIState.
   if (typeof raw.x === "number" && typeof raw.y === "number" && typeof raw.width === "number" && typeof raw.height === "number") {
-    let { x, y, width, height } = raw;
-    const looksUnit = x <= 1.01 && y <= 1.01 && width <= 1.01 && height <= 1.01;
+    let { x: cx, y: cy, width, height } = raw;
+    const looksUnit = cx <= 1.01 && cy <= 1.01 && width <= 1.01 && height <= 1.01;
     if (looksUnit) {
-      x *= resolution;
-      y *= resolution;
+      cx *= resolution;
+      cy *= resolution;
       width *= resolution;
       height *= resolution;
     }
-    return { x, y, width, height, rotation: raw.rotation ?? 0 };
+    return {
+      x: cx - width / 2,
+      y: cy - height / 2,
+      width,
+      height,
+      rotation: raw.rotation ?? 0,
+    };
   }
 
   return null;
