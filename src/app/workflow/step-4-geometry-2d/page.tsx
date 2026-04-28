@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   WorkflowStepperCard,
   type WorkflowStepperItem,
@@ -402,6 +404,25 @@ export default function Step4Geometry2DPage() {
                   onSegmentationLayerChange={controller.handleReconstructSegmentationLayerChange}
                   showToggle={false}
                 />
+              ) : null}
+
+              {stageToolTab === "overlays" && controller.intradosLines.length > 0 ? (
+                <Card>
+                  <CardContent className="p-3">
+                    <Label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                      <div className="space-y-0.5">
+                        <span className="text-sm font-medium">Step 6 traces</span>
+                        <p className="text-[11px] text-muted-foreground">
+                          Show generated trace lines on this 2D preview.
+                        </p>
+                      </div>
+                      <Checkbox
+                        checked={controller.showIntrados}
+                        onCheckedChange={(checked) => controller.setShowIntrados(checked === true)}
+                      />
+                    </Label>
+                  </CardContent>
+                </Card>
               ) : null}
 
               {!isRoiStage && !isNodesStage && !isMatchingStage && !isReconstructStage && (

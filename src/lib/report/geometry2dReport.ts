@@ -401,20 +401,6 @@ export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
     )
   );
 
-  zip.file(
-    "bay-plan.csv",
-    toCsv(
-      data.referencePoints.map((p) => ({
-        letter: p.letter,
-        x_px: p.x.toFixed(2),
-        y_px: p.y.toFixed(2),
-        u: p.u.toFixed(6),
-        v: p.v.toFixed(6),
-      })),
-      ["letter", "x_px", "y_px", "u", "v"]
-    )
-  );
-
   if (bayPlanPng) {
     zip.file("bay-plan.png", bayPlanPng);
   }
