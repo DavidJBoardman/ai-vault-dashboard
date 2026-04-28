@@ -58,7 +58,7 @@ export function CutTypologySection({ data }: { data: ReportData }) {
   return (
     <section className="space-y-4">
       <div className="space-y-1">
-        <h2 className="font-display text-xl font-semibold">§3 Cut typology</h2>
+        <h2 className="font-display text-xl font-semibold">Cut typology</h2>
         <p className="text-sm text-muted-foreground">
           {rows.length === 0
             ? "Template matching has not been run."

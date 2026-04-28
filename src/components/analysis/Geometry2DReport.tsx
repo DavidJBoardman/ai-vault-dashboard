@@ -15,7 +15,6 @@ import {
 import { rasteriseSvgElement } from "@/lib/report/rasteriseBayPlan";
 import { exportReportPdf } from "@/lib/report/exportPdf";
 import { ProjectHeader } from "./sections/ProjectHeader";
-import { ProjectInputsSection } from "./sections/ProjectInputsSection";
 import { BayProportionSection } from "./sections/BayProportionSection";
 import { CutTypologySection } from "./sections/CutTypologySection";
 import { BayPlanSection } from "./sections/BayPlanSection";
@@ -182,7 +181,6 @@ export function Geometry2DReport() {
         className={`${styles.report} space-y-10 rounded-lg border bg-background p-8`}
       >
         <ProjectHeader data={data} />
-        <ProjectInputsSection data={data} />
         <BayProportionSection data={data} />
         <CutTypologySection data={data} />
         <BayPlanSection ref={bayPlanSvgRef} data={data} />

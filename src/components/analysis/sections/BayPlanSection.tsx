@@ -15,7 +15,7 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
   return (
     <section className="space-y-4">
       <div className="space-y-1">
-        <h2 className="font-display text-xl font-semibold">§4 Bay plan preview</h2>
+        <h2 className="font-display text-xl font-semibold">Bay plan preview</h2>
         <p className="text-sm text-muted-foreground">
           Projection clipped to the ROI with reference points labelled in save order.
         </p>
