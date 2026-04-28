@@ -34,22 +34,24 @@ export function ProjectHeader({ data }: Props) {
       <h1 className="font-display text-3xl font-semibold tracking-tight">
         {data.projectName || "Untitled project"}
       </h1>
-      <dl className="grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
+      <dl className="space-y-1 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <dt className="font-medium text-foreground">Project folder</dt>
           <dd className="break-all font-mono text-xs text-muted-foreground">
             {projectDir ?? "detecting…"}
           </dd>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <dt className="font-medium text-foreground">Project ID</dt>
-          <dd className="font-mono text-xs text-muted-foreground">{data.projectId}</dd>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <dt className="font-medium text-foreground">Generated</dt>
-          <dd className="tabular-nums text-muted-foreground">
-            {new Date(data.generatedAt).toLocaleString()}
-          </dd>
+        <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <dt className="font-medium text-foreground">Project ID</dt>
+            <dd className="font-mono text-xs text-muted-foreground">{data.projectId}</dd>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <dt className="font-medium text-foreground">Generated</dt>
+            <dd className="tabular-nums text-muted-foreground">
+              {new Date(data.generatedAt).toLocaleString()}
+            </dd>
+          </div>
         </div>
       </dl>
     </header>
