@@ -31,34 +31,7 @@ function nodeForEdgeIndex(
   return nodes.find((n) => n.id === String(index));
 }
 
-function rotatedImageBbox(
-  imgW: number,
-  imgH: number,
-  cx: number,
-  cy: number,
-  rotationDeg: number,
-): { x: number; y: number; width: number; height: number } {
-  const theta = (-rotationDeg * Math.PI) / 180;
-  const cos = Math.cos(theta);
-  const sin = Math.sin(theta);
-  const corners = [
-    [0, 0],
-    [imgW, 0],
-    [imgW, imgH],
-    [0, imgH],
-  ].map(([x, y]) => {
-    const dx = x - cx;
-    const dy = y - cy;
-    return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
-  });
-  const xs = corners.map((c) => c[0]);
-  const ys = corners.map((c) => c[1]);
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
-  const maxX = Math.max(...xs);
-  const maxY = Math.max(...ys);
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-}
+const VIEWBOX_MARGIN = 1.15;
 
 export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function BayPlanSvg(
   {
@@ -100,7 +73,14 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
   const cy = roi ? roi.y + roi.height / 2 : imgH / 2;
   const rotation = roi?.rotation ?? 0;
 
-  const bbox = rotatedImageBbox(imgW, imgH, cx, cy, rotation);
+  const vbW = (roi?.width ?? imgW) * VIEWBOX_MARGIN;
+  const vbH = (roi?.height ?? imgH) * VIEWBOX_MARGIN;
+  const bbox = {
+    x: cx - vbW / 2,
+    y: cy - vbH / 2,
+    width: vbW,
+    height: vbH,
+  };
   const aspect = bbox.height > 0 ? bbox.width / bbox.height : 1;
 
   const refScale = Math.max(bbox.width, bbox.height);
