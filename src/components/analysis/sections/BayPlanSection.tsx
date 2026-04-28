@@ -10,7 +10,7 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
   { data },
   ref
 ) {
-  const { referencePoints, projectionImageDataUrl, roi, imageSize } = data;
+  const { referencePoints, projectionImageDataUrl, roi, imageSize, reconstruct } = data;
 
   return (
     <section className="space-y-4">
@@ -21,22 +21,24 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
         </p>
       </div>
 
-      {referencePoints.length === 0 ? (
+      {referencePoints.length === 0 && reconstruct.nodes.length === 0 ? (
         <p className="text-sm text-muted-foreground">No reference points saved yet.</p>
       ) : (
         <figure className="space-y-2">
-          <div className="overflow-hidden rounded-lg border bg-muted/20 p-2">
+          <div className="overflow-hidden rounded-lg border bg-black p-2">
             <BayPlanSvg
               ref={ref}
               imageDataUrl={projectionImageDataUrl}
               roi={roi}
               referencePoints={referencePoints}
+              reconstructNodes={reconstruct.nodes}
+              reconstructEdges={reconstruct.edges}
               imageSize={imageSize}
             />
           </div>
           <figcaption className="text-center text-xs text-muted-foreground">
-            Bay plan preview · {referencePoints.length} reference point
-            {referencePoints.length === 1 ? "" : "s"}
+            Bay plan · {reconstruct.nodes.length || referencePoints.length} nodes ·{" "}
+            {reconstruct.edges.length} ribs
           </figcaption>
         </figure>
       )}
