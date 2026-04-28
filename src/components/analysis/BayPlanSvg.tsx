@@ -14,6 +14,7 @@ interface BayPlanSvgProps {
   reconstructNodes: ReconstructNode[];
   reconstructEdges: ReconstructEdge[];
   imageSize: ImageSize;
+  showBackground: boolean;
 }
 
 const EDGE_CONSTRAINT = "#0ea5e9";
@@ -27,8 +28,36 @@ function nodeForEdgeIndex(
   index: number
 ): ReconstructNode | undefined {
   if (index >= 0 && index < nodes.length) return nodes[index];
-  const byId = nodes.find((n) => n.id === String(index));
-  return byId;
+  return nodes.find((n) => n.id === String(index));
+}
+
+function rotatedImageBbox(
+  imgW: number,
+  imgH: number,
+  cx: number,
+  cy: number,
+  rotationDeg: number,
+): { x: number; y: number; width: number; height: number } {
+  const theta = (-rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  const corners = [
+    [0, 0],
+    [imgW, 0],
+    [imgW, imgH],
+    [0, imgH],
+  ].map(([x, y]) => {
+    const dx = x - cx;
+    const dy = y - cy;
+    return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+  });
+  const xs = corners.map((c) => c[0]);
+  const ys = corners.map((c) => c[1]);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
 export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function BayPlanSvg(
@@ -39,6 +68,7 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
     reconstructNodes,
     reconstructEdges,
     imageSize,
+    showBackground,
   },
   ref
 ) {
@@ -68,19 +98,17 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
 
   const cx = roi ? roi.x + roi.width / 2 : imgW / 2;
   const cy = roi ? roi.y + roi.height / 2 : imgH / 2;
-  const vbX = roi?.x ?? 0;
-  const vbY = roi?.y ?? 0;
-  const vbW = roi?.width ?? imgW;
-  const vbH = roi?.height ?? imgH;
   const rotation = roi?.rotation ?? 0;
-  const aspect = vbH > 0 ? vbW / vbH : 1;
 
-  const radius = Math.max(vbW, vbH) * 0.012;
-  const fontSize = Math.max(vbW, vbH) * 0.026;
-  const edgeWidth = Math.max(vbW, vbH) * 0.004;
+  const bbox = rotatedImageBbox(imgW, imgH, cx, cy, rotation);
+  const aspect = bbox.height > 0 ? bbox.width / bbox.height : 1;
+
+  const refScale = Math.max(bbox.width, bbox.height);
+  const radius = refScale * 0.012;
+  const fontSize = refScale * 0.026;
+  const edgeWidth = refScale * 0.004;
 
   const useReconstruct = reconstructNodes.length > 0;
-  const nodes = useReconstruct ? reconstructNodes : null;
   const points: Array<{ x: number; y: number; label: string }> = useReconstruct
     ? reconstructNodes.map((n) => ({ x: n.x, y: n.y, label: n.label }))
     : referencePoints.map((p) => ({ x: p.x, y: p.y, label: p.letter }));
@@ -88,14 +116,14 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
   return (
     <svg
       ref={ref}
-      viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
+      viewBox={`${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`}
       preserveAspectRatio="xMidYMid meet"
       xmlns="http://www.w3.org/2000/svg"
       className="mx-auto block w-full"
       style={{ aspectRatio: aspect, maxHeight: "32rem", maxWidth: `${aspect * 32}rem` }}
     >
       <g transform={`rotate(${-rotation} ${cx} ${cy})`}>
-        {imageDataUrl ? (
+        {showBackground && imageDataUrl && (
           <image
             href={imageDataUrl}
             x={0}
@@ -104,14 +132,12 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
             height={imgH}
             preserveAspectRatio="none"
           />
-        ) : (
-          <rect x={vbX} y={vbY} width={vbW} height={vbH} fill="#f4f4f5" />
         )}
 
-        {nodes &&
+        {useReconstruct &&
           reconstructEdges.map((edge, i) => {
-            const a = nodeForEdgeIndex(nodes, edge.a);
-            const b = nodeForEdgeIndex(nodes, edge.b);
+            const a = nodeForEdgeIndex(reconstructNodes, edge.a);
+            const b = nodeForEdgeIndex(reconstructNodes, edge.b);
             if (!a || !b) return null;
             const stroke = edge.isManual
               ? EDGE_MANUAL
