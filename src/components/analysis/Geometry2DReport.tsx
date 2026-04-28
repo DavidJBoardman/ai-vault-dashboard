@@ -181,9 +181,9 @@ export function Geometry2DReport() {
         className={`${styles.report} space-y-10 rounded-lg border bg-background p-8`}
       >
         <ProjectHeader data={data} />
+        <BayPlanSection ref={bayPlanSvgRef} data={data} />
         <BayProportionSection data={data} />
         <CutTypologySection data={data} />
-        <BayPlanSection ref={bayPlanSvgRef} data={data} />
         <ReportFooter generatedAt={data.generatedAt} />
       </article>
     </div>
