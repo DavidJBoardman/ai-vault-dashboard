@@ -47,7 +47,10 @@ nav:
           - Bay-Plan Reconstruction: workflow/step-4/bay-plan-reconstruction.md
       - "Step 5: Reprojection to 3D": workflow/step-5-reprojection.md
       - "Step 6: 3D Geometry Traces": workflow/step-6-traces.md
-      - "Step 7: Measurements and Analysis": workflow/step-7-measurements.md
+      - "Step 7: Measurements and Analysis":
+          - Overview: workflow/step-7/index.md
+          - Labelling: workflow/step-7/labelling.md
+          - Data: workflow/step-7/data.md
       - "Step 8: Three-Circle Chord Method Analysis": workflow/step-8-analysis.md
   - System:
       - Technical Overview: system.md
