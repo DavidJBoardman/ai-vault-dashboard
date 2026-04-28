@@ -51,7 +51,7 @@ class E57Exporter:
         
         if not HAS_PYE57:
             # Create placeholder if pye57 not available
-            output_file.write_text("E57 export placeholder - pye57 not installed")
+            output_file.write_text("E57 export placeholder - pye57 not installed", encoding="utf-8")
             return str(output_file)
         
         try:
@@ -106,7 +106,7 @@ class E57Exporter:
             e57.close()
         except Exception as e:
             # If E57 creation fails, create a text placeholder
-            output_path.write_text(f"E57 export failed: {e}")
+            output_path.write_text(f"E57 export failed: {e}", encoding="utf-8")
     
     async def export_annotations_only(
         self,
@@ -126,6 +126,6 @@ class E57Exporter:
             "data": {},  # Would contain actual annotation data
         }
         
-        output_file.write_text(json.dumps(annotations, indent=2))
+        output_file.write_text(json.dumps(annotations, indent=2), encoding="utf-8")
         
         return str(output_file)
