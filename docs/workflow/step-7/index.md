@@ -40,7 +40,7 @@ Step 7 combines several calculations behind the scenes:
 
 1. It loads the selected trace source from Step 6 and the boss markers already associated with the project.
 2. It estimates rib groups and allows you to refine them manually.
-3. It fits circular arcs to the rib traces and derives lengths, radii, springing data, and fit errors.[^1]
+3. It fits circular arcs to the rib traces and derives lengths, radii, springing data, and fit errors.
 4. It calculates impost-based heights and span values once the rib naming and pairing logic is defined.
 5. It saves a Step 7B summary snapshot for Step 8 when you continue to the next workflow step.
 
