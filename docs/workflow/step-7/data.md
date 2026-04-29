@@ -49,7 +49,7 @@ The measurement tiles can show different states depending on the rib geometry. T
 ### 4. Review boss-stone heights
 
 - The **Boss Stones** panel shows the current height above impost for each boss where an apex can be resolved.
-- Heights may come from explicit rib pairings first, with boss-apex data used as a fallback.
+- Heights may come from explicit rib pairings first, with boss 3D height (lowest point) data used as a fallback.
 
 ### 5. Export the data if required
 
@@ -66,7 +66,6 @@ The measurement tiles can show different states depending on the rib geometry. T
 - unusually high fit errors compared with the rest of the vault
 - missing apex heights caused by absent or incorrect pairings
 - implausible boss heights caused by a poor impost line choice
-- straight ribs being forced into curved interpretations
 
 If the measurements do not look credible, return to Step 7A and revise the naming, grouping, pairings, or impost setup before exporting or proceeding.
 
