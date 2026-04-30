@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This final Step 4 sub-stage reconstructs the **bay plan** from the ROI, reference points, matching results, and segmentation masks.
+This final Step 4 sub-stage reconstructs the **bay plan** from the ROI, reference points, matching results, and segmentation masks. The checked nodes and reconstructed plan can also be exported as a `DXF` drawing for CAD and downstream documentation workflows.
 
 ## Workflow
 
@@ -50,6 +50,15 @@ If the graph has obvious errors, try the following before editing manually:
 - Lower **candidate max distance** if the graph connects nodes across the bay that should not be linked.
 - Switch **reconstruction mode** to `delaunay` for comparison — if it produces a cleaner graph, the rib-mask evidence may be too noisy for angular-nearest.
 
+### 4. Export the plan as DXF
+
+Once the graph has been reviewed, use the `DXF` export to save the reconstructed bay plan. The export includes:
+
+- the final node set, including saved manual corrections
+- the reconstructed plan edges that define the 2D rib layout
+
+Use this file when you need a CAD-readable record of the Step 4 result before continuing to the 3D reprojection stages.
+
 [^1]: Related reference: Steger, C., "An Unbiased Detector of Curvilinear Structures", *IEEE Transactions on Pattern Analysis and Machine Intelligence* 20(2), 1998, 113–125.
 
 [^2]: Related reference: Shewchuk, J.R., "Triangle: Engineering a 2D Quality Mesh Generator and Delaunay Triangulator", *Applied Computational Geometry*, Springer, 1996, 203–222.
@@ -64,4 +73,5 @@ Before leaving Step 4 you should have:
 
 - a bay plan whose edges match the visible rib pattern
 - any necessary manual corrections applied
+- a `DXF` export of the nodes and reconstructed plan if an external CAD record is needed
 - a saved result ready for Step 5
