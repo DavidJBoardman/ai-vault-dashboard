@@ -51,7 +51,7 @@ nav:
           - Overview: workflow/step-7/index.md
           - Labelling: workflow/step-7/labelling.md
           - Data: workflow/step-7/data.md
-      - "Step 8: Three-Circle Chord Method Analysis": workflow/step-8-analysis.md
+      - "Step 8: Analysis": workflow/step-8-analysis.md
   - System:
       - Technical Overview: system.md
 

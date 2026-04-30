@@ -23,8 +23,13 @@ Each sub-stage saves results before the next can run, so the data flow is strict
 
 ## Interface layout
 
-![Step 4 Interface Layout](../../images/step-4/step4_interface_layout.png){ width="800" .center }
+![Step 4 Interface Layout](../../images/step-4/step4_interface_layout.png){ width="700" .center }
 
+### Overlays panel
+
+Across Step 4, the **Overlays** tab opens the **Layers** panel so you can turn the projection, segmentation classes (e.g. ribs, bosses, corners), and ROI comparisons on or off over the canvas. It is shared between sub-stages and helps you check masks and saved geometry against what you see on the image while you adjust the ROI, points, matching, or bay plan.
+
+![Step 4 Overlays tab with Layers panel: projection, Step 3 classes, and ROI comparison toggles beside the bay preview](../../images/step-4/step4_interface_overlay.png){ width="500" .center }
 
 ## Key concepts
 
