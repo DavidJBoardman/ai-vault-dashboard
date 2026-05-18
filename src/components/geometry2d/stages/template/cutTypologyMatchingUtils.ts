@@ -200,7 +200,9 @@ function familyFromRow(row: MatchCsvRow): string {
 }
 
 function detailLabelFromRow(row: MatchCsvRow, family: string): string {
-  if (family === "hybrid") {
+  const xCut = row.x_cut && row.x_cut !== "None" ? row.x_cut : null;
+  const yCut = row.y_cut && row.y_cut !== "None" ? row.y_cut : null;
+  if ((family === "hybrid" || (xCut && yCut && xCut !== yCut)) && xCut && yCut) {
     return `${rawVariantLabelToTitle(row.x_cut)} x ${rawVariantLabelToTitle(row.y_cut)}`;
   }
   if (family === "unresolved") {
@@ -261,7 +263,7 @@ export function buildPerBossTypologySummary(rows: MatchCsvRow[]): PerBossTypolog
         const labels: string[] = [];
         if (row.x_cut) labels.push(row.x_cut);
         if (row.y_cut) labels.push(row.y_cut);
-        if (row.variant_label && row.variant_label !== "None") labels.push(row.variant_label);
+        if (labels.length === 0 && row.variant_label && row.variant_label !== "None") labels.push(row.variant_label);
         return labels.filter((label) => {
           if (!label || label === "None") return false;
           if (dominantFamily === "standard starcut") return label.startsWith("starcut_n=");
@@ -317,15 +319,18 @@ export function collectPrimaryReadingOverlayLabelsFromPerBoss(rows: Geometry2DCu
 
   const simplifiedRows: MatchCsvRow[] = bossRows.map((row) => {
     const simplest = selectSimplestBossMatch(row.matches || []);
+    const axisMatch = row.axisCutMatch;
     const variantLabel = simplest?.variantLabel || "None";
     const isCross = !!simplest?.isCrossTemplate;
+    const fallbackXCut = isCross ? String(simplest?.xTemplate || "None") : variantLabel;
+    const fallbackYCut = isCross ? String(simplest?.yTemplate || "None") : variantLabel;
     return {
       boss_id: String(row.id),
       point_type: row.pointType,
       variant_label: variantLabel,
-      x_cut: isCross ? String(simplest?.xTemplate || "None") : variantLabel,
-      y_cut: isCross ? String(simplest?.yTemplate || "None") : variantLabel,
-      matched: simplest ? "true" : "false",
+      x_cut: String(axisMatch?.xCut || fallbackXCut),
+      y_cut: String(axisMatch?.yCut || fallbackYCut),
+      matched: axisMatch ? (axisMatch.matched ? "true" : "false") : simplest ? "true" : "false",
     };
   });
 

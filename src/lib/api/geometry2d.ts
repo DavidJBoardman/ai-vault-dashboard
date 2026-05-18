@@ -125,10 +125,21 @@ export interface Geometry2DCutTypologyBossMatch {
   yRatioIndex?: number;
 }
 
+export interface Geometry2DCutTypologyAxisCutMatch {
+  xCut?: string | null;
+  yCut?: string | null;
+  xRatio?: number | null;
+  yRatio?: number | null;
+  xError?: number | null;
+  yError?: number | null;
+  matched: boolean;
+}
+
 export interface Geometry2DCutTypologyBossResult extends Geometry2DNodePoint {
   matchedAny: boolean;
   matchedCount: number;
   matches: Geometry2DCutTypologyBossMatch[];
+  axisCutMatch?: Geometry2DCutTypologyAxisCutMatch | null;
 }
 
 export interface Geometry2DCutTypologyVariantResult extends Geometry2DCutTypologyOverlayVariant {

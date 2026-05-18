@@ -28,12 +28,12 @@ import { CutTypologyMatchTable } from "./CutTypologyMatchTable";
 
 const RESET_TEMPLATE_PARAMS: Geometry2DCutTypologyParams = {
   starcutMin: 2,
-  starcutMax: 6,
+  starcutMax: 7,
   includeStarcut: true,
   includeInner: true,
   includeOuter: true,
   allowCrossTemplate: true,
-  tolerance: 0.015,
+  tolerance: 0.05,
 };
 
 interface CutTypologyMatchingPanelProps {
@@ -126,6 +126,7 @@ export function CutTypologyMatchingPanel({
     () => Math.max(...(perBossSummary?.details.map(([, count]) => count) || [1])),
     [perBossSummary]
   );
+  const tolerancePercent = (params.tolerance * 100).toFixed(1);
 
   return (
     <>
@@ -169,7 +170,7 @@ export function CutTypologyMatchingPanel({
               </div>
               {perBossSummary.details.length > 0 ? (
                 <div className="space-y-2 border-t border-border/70 pt-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Distribution</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Matched Node Cuts</p>
                   <div className="space-y-2">
                     {perBossSummary.details.map(([detail, count]) => (
                       <div key={`${detail}-${count}`} className="grid grid-cols-[minmax(0,1fr)_44px] items-center gap-3">
@@ -345,8 +346,8 @@ export function CutTypologyMatchingPanel({
 
               <div className="rounded-md border border-border px-2.5 py-2 space-y-1">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium">Tolerance</span>
-                  <span className="text-muted-foreground">{params.tolerance.toFixed(3)}</span>
+                  <span className="font-medium">Point-to-cut tolerance</span>
+                  <span className="text-muted-foreground">±{tolerancePercent}%</span>
                 </div>
                 <Slider
                   min={0.001}
@@ -355,6 +356,10 @@ export function CutTypologyMatchingPanel({
                   value={[params.tolerance]}
                   onValueChange={(value) => onParamChange({ tolerance: value[0] ?? params.tolerance })}
                 />
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  {params.tolerance.toFixed(3)} = within ±{tolerancePercent}% of bay width/height. Lower is stricter;
+                  higher accepts rougher point placement.
+                </p>
               </div>
 
               <div className="space-y-1.5">

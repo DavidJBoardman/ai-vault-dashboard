@@ -20,12 +20,12 @@ from services.geometry2d.utils.template_scoring import extract_template_ratios, 
 
 DEFAULT_TEMPLATE_PARAMS: Dict[str, Any] = {
     "starcutMin": 2,
-    "starcutMax": 6,
+    "starcutMax": 7,
     "includeStarcut": True,
     "includeInner": True,
     "includeOuter": True,
     "allowCrossTemplate": True,
-    "tolerance": 0.015,
+    "tolerance": 0.05,
 }
 ROI_INSIDE_MARGIN_UV = 0.02
 CORNER_REFERENCE_SPECS: List[Tuple[str, Tuple[float, float]]] = [
@@ -56,7 +56,7 @@ PARAMETER_SCHEMA: List[Dict[str, Any]] = [
         "type": "integer",
         "min": 2,
         "step": 1,
-        "default": 6,
+        "default": 7,
         "description": "Upper bound for standardcut grid divisors.",
     },
     {
@@ -89,13 +89,13 @@ PARAMETER_SCHEMA: List[Dict[str, Any]] = [
     },
     {
         "key": "tolerance",
-        "label": "Ratio tolerance",
+        "label": "Point-to-cut tolerance",
         "type": "float",
         "min": 0.001,
         "max": 0.1,
         "step": 0.001,
-        "default": 0.015,
-        "description": "Maximum absolute ratio distance for a matched coordinate.",
+        "default": 0.05,
+        "description": "Maximum normalised bay distance from a reference point to a cut line.",
     },
 ]
 
@@ -306,6 +306,7 @@ class CutTypologyMatchingService:
 
         per_boss_rows: List[Dict[str, Any]] = []
         boss_matches_by_id: Dict[int, List[Dict[str, Any]]] = {}
+        axis_cut_matches_by_id: Dict[int, Dict[str, Any]] = {}
         for idx, point in enumerate(boss_points_with_uv):
             boss_matches: List[Dict[str, Any]] = []
             for summary in variant_summaries:
@@ -329,6 +330,11 @@ class CutTypologyMatchingService:
                     }
                 )
             boss_matches_by_id[int(point["id"])] = boss_matches
+            axis_cut_matches_by_id[int(point["id"])] = self._build_axis_cut_match(
+                boss_uv=(float(point["u"]), float(point["v"])),
+                variants=variants,
+                tolerance=tolerance,
+            )
 
         for point in points_with_uv:
             point_type = str(point.get("pointType", "boss"))
@@ -349,6 +355,7 @@ class CutTypologyMatchingService:
                     "matchedAny": len(boss_matches_by_id.get(int(point["id"]), [])) > 0,
                     "matchedCount": len(boss_matches_by_id.get(int(point["id"]), [])),
                     "matches": boss_matches_by_id.get(int(point["id"]), []),
+                    "axisCutMatch": axis_cut_matches_by_id.get(int(point["id"])),
                 }
             )
 
@@ -500,6 +507,75 @@ class CutTypologyMatchingService:
         )[0]
 
     @classmethod
+    def _axis_cut_priority(cls, variant_label: str) -> Tuple[int, int, str]:
+        family, value = cls._variant_priority(variant_label)
+        return (family, value, variant_label)
+
+    @classmethod
+    def _axis_ratio_candidates(
+        cls,
+        variants: Sequence[TemplateVariant],
+        axis: str,
+        target: float,
+        tolerance: float,
+    ) -> List[Dict[str, Any]]:
+        candidates: List[Dict[str, Any]] = []
+        seen: set[Tuple[str, float]] = set()
+        for variant in variants:
+            if variant.x_source_label or variant.y_source_label:
+                continue
+            if axis == "x":
+                ratios, _ = extract_template_ratios(variant.template_uv)
+            else:
+                _, ratios = extract_template_ratios(variant.template_uv)
+            for ratio_value in ratios:
+                ratio = float(ratio_value)
+                error = abs(float(target) - ratio)
+                if error > tolerance:
+                    continue
+                key = (variant.variant_label, round(ratio, 6))
+                if key in seen:
+                    continue
+                seen.add(key)
+                candidates.append(
+                    {
+                        "cut": variant.variant_label,
+                        "ratio": ratio,
+                        "error": float(error),
+                    }
+                )
+        return sorted(
+            candidates,
+            key=lambda item: (
+                cls._axis_cut_priority(str(item["cut"])),
+                float(item["error"]),
+                float(item["ratio"]),
+            ),
+        )
+
+    @classmethod
+    def _build_axis_cut_match(
+        cls,
+        boss_uv: Tuple[float, float],
+        variants: Sequence[TemplateVariant],
+        tolerance: float,
+    ) -> Dict[str, Any]:
+        u, v = float(boss_uv[0]), float(boss_uv[1])
+        x_candidates = cls._axis_ratio_candidates(variants, "x", u, tolerance)
+        y_candidates = cls._axis_ratio_candidates(variants, "y", v, tolerance)
+        x_best = x_candidates[0] if x_candidates else None
+        y_best = y_candidates[0] if y_candidates else None
+        return {
+            "xCut": x_best.get("cut") if x_best else None,
+            "yCut": y_best.get("cut") if y_best else None,
+            "xRatio": x_best.get("ratio") if x_best else None,
+            "yRatio": y_best.get("ratio") if y_best else None,
+            "xError": x_best.get("error") if x_best else None,
+            "yError": y_best.get("error") if y_best else None,
+            "matched": bool(x_best and y_best),
+        }
+
+    @classmethod
     def _write_match_csv(cls, project_dir: Path, roi: Dict[str, float], per_boss_rows: Sequence[Dict[str, Any]]) -> None:
         csv_path = cls._matching_csv_path(project_dir)
         fieldnames = [
@@ -526,7 +602,14 @@ class CutTypologyMatchingService:
             boss_uv = [point.get("u"), point.get("v")]
             boss_xy = [int(round(float(point.get("x", 0.0)))), int(round(float(point.get("y", 0.0))))]
             matches = point.get("matches")
+            axis_match = point.get("axisCutMatch") if isinstance(point.get("axisCutMatch"), dict) else None
             if not isinstance(matches, list) or len(matches) == 0:
+                x_ratio = (axis_match or {}).get("xRatio")
+                y_ratio = (axis_match or {}).get("yRatio")
+                template_xy: Optional[List[int]] = None
+                if isinstance(x_ratio, (int, float)) and isinstance(y_ratio, (int, float)):
+                    tx, ty = unit_to_image((float(x_ratio), float(y_ratio)), roi)
+                    template_xy = [int(round(float(tx))), int(round(float(ty)))]
                 rows.append(
                     {
                         "boss_id": boss_id,
@@ -534,15 +617,15 @@ class CutTypologyMatchingService:
                         "point_type": str(point.get("pointType", "boss")),
                         "variant_label": "None",
                         "template_type": "None",
-                        "x_cut": "None",
-                        "y_cut": "None",
+                        "x_cut": str((axis_match or {}).get("xCut") or "None"),
+                        "y_cut": str((axis_match or {}).get("yCut") or "None"),
                         "boss_uv": str(boss_uv),
-                        "template_uv": "None",
+                        "template_uv": str([x_ratio, y_ratio]) if x_ratio is not None and y_ratio is not None else "None",
                         "boss_xy": str(boss_xy),
-                        "template_xy": "None",
-                        "x_error": "None",
-                        "y_error": "None",
-                        "matched": False,
+                        "template_xy": str(template_xy) if template_xy is not None else "None",
+                        "x_error": (axis_match or {}).get("xError", "None"),
+                        "y_error": (axis_match or {}).get("yError", "None"),
+                        "matched": bool(axis_match.get("matched") if axis_match else False),
                     }
                 )
                 continue
@@ -552,11 +635,12 @@ class CutTypologyMatchingService:
                 continue
 
             variant_label = str(match.get("variantLabel") or "None")
-            is_cross = bool(match.get("isCrossTemplate"))
-            x_cut = str(match.get("xTemplate") or "None") if is_cross else variant_label
-            y_cut = str(match.get("yTemplate") or "None") if is_cross else variant_label
-            x_ratio = match.get("xRatio")
-            y_ratio = match.get("yRatio")
+            x_cut = str((axis_match or {}).get("xCut") or "None")
+            y_cut = str((axis_match or {}).get("yCut") or "None")
+            x_ratio = (axis_match or {}).get("xRatio")
+            y_ratio = (axis_match or {}).get("yRatio")
+            x_error = (axis_match or {}).get("xError", "None")
+            y_error = (axis_match or {}).get("yError", "None")
 
             template_xy: Optional[List[int]] = None
             if isinstance(x_ratio, (int, float)) and isinstance(y_ratio, (int, float)):
@@ -576,9 +660,9 @@ class CutTypologyMatchingService:
                     "template_uv": str([x_ratio, y_ratio]) if x_ratio is not None and y_ratio is not None else "None",
                     "boss_xy": str(boss_xy),
                     "template_xy": str(template_xy) if template_xy is not None else "None",
-                    "x_error": match.get("xError", "None"),
-                    "y_error": match.get("yError", "None"),
-                    "matched": bool(match.get("xRatio") is not None and match.get("yRatio") is not None),
+                    "x_error": x_error,
+                    "y_error": y_error,
+                    "matched": bool(axis_match.get("matched") if axis_match else False),
                 }
             )
 
