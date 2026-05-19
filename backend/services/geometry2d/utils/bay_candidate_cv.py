@@ -22,6 +22,8 @@ class Node:
     xy: Tuple[int, int]
     source: str
     boss_id: Optional[str] = None
+    ideal_uv: Optional[Tuple[float, float]] = None
+    ideal_xy: Optional[Tuple[int, int]] = None
 
 
 def collect_boss_nodes(
@@ -33,6 +35,21 @@ def collect_boss_nodes(
     for row in boss_rows:
         uv = (float(row["uv"][0]), float(row["uv"][1]))  # type: ignore[index]
         px, py = unit_to_image(uv, roi)
+
+        ideal_raw = row.get("idealUv")
+        ideal_uv: Optional[Tuple[float, float]] = None
+        ideal_xy: Optional[Tuple[int, int]] = None
+        if isinstance(ideal_raw, (list, tuple)) and len(ideal_raw) == 2:
+            try:
+                iu = float(ideal_raw[0])
+                iv = float(ideal_raw[1])
+                ix, iy = unit_to_image((iu, iv), roi)
+                ideal_uv = (iu, iv)
+                ideal_xy = (int(round(ix)), int(round(iy)))
+            except (TypeError, ValueError):
+                ideal_uv = None
+                ideal_xy = None
+
         nodes.append(
             Node(
                 node_id=str(row["id"]),
@@ -40,6 +57,8 @@ def collect_boss_nodes(
                 xy=(int(round(px)), int(round(py))),
                 source=str(row.get("source", "raw")),
                 boss_id=str(row.get("label", row["id"])),
+                ideal_uv=ideal_uv,
+                ideal_xy=ideal_xy,
             )
         )
     return nodes
