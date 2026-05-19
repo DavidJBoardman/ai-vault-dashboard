@@ -546,6 +546,7 @@ export default function Step4Geometry2DPage() {
                   showReconstructionNodes={controller.activeSection === "reconstruct" ? controller.reconstructLayers.showNodes : false}
                   reconstructionResult={controller.activeSection === "reconstruct" ? controller.reconstructResult : null}
                   reconstructionView={controller.reconstructionView}
+                  showIdealisedOverlay={controller.showIdealisedOverlay}
                   reconstructionPreviewBosses={controller.activeSection === "reconstruct" ? controller.reconstructPreviewBosses : []}
                   selectedReconstructionEdgeKey={controller.activeSection === "reconstruct" ? selectedReconstructionEdgeKey : null}
                   onReconstructionEdgeSelect={controller.activeSection === "reconstruct" ? handleSelectReconstructionEdge : undefined}

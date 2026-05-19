@@ -73,6 +73,7 @@ interface ProjectionCanvasProps {
   showReconstructionNodes?: boolean;
   reconstructionResult?: Geometry2DBayPlanRunResult | null;
   reconstructionView?: "measured" | "ideal";
+  showIdealisedOverlay?: boolean;
   reconstructionPreviewBosses?: Geometry2DBayPlanBossPoint[];
   selectedReconstructionEdgeKey?: string | null;
   onReconstructionEdgeSelect?: (edgeKey: string | null) => void;
@@ -120,6 +121,7 @@ export function ProjectionCanvas({
   showReconstructionNodes = false,
   reconstructionResult = null,
   reconstructionView = "measured",
+  showIdealisedOverlay = false,
   reconstructionPreviewBosses = [],
   selectedReconstructionEdgeKey = null,
   onReconstructionEdgeSelect,
@@ -215,6 +217,20 @@ export function ProjectionCanvas({
       y: ideal.y,
       source: "ideal",
     };
+  });
+  // Overlay paints the OTHER node set with reduced opacity, so the user can
+  // compare measured vs idealised residuals at a glance. matched=false marks
+  // bosses without a 4C ideal — they're skipped in the overlay paint pass.
+  const reconstructionOverlayNodes: Array<{ x: number; y: number; matched: boolean }> = reconstructionMeasuredNodes.map((measured, idx) => {
+    const ideal = reconstructionIdealNodes[idx];
+    const overlayIsIdeal = reconstructionView !== "ideal";
+    const hasIdeal = !!(ideal && ideal.x !== null && ideal.y !== null);
+    if (overlayIsIdeal) {
+      return hasIdeal
+        ? { x: ideal!.x as number, y: ideal!.y as number, matched: true }
+        : { x: measured.x, y: measured.y, matched: false };
+    }
+    return { x: measured.x, y: measured.y, matched: hasIdeal };
   });
   const reconstructionEdges = reconstructionResult?.edges || [];
   const reconstructionCandidateEdges = reconstructionResult?.candidateEdges || [];
@@ -1106,6 +1122,53 @@ export function ProjectionCanvas({
         context.stroke();
         context.restore();
       });
+    }
+
+    if (showReconstruction && showIdealisedOverlay && reconstructionOverlayNodes.length > 0) {
+      context.save();
+      context.strokeStyle = reconstructionView === "ideal" ? "#ff7a18" : "#a78bfa";
+      context.globalAlpha = 0.55;
+      context.lineWidth = 2.2;
+      context.setLineDash([6, 6]);
+      reconstructionEdges.forEach((edge) => {
+        const start = reconstructionOverlayNodes[edge.a];
+        const end = reconstructionOverlayNodes[edge.b];
+        if (!start || !end || !start.matched || !end.matched) return;
+        context.beginPath();
+        context.moveTo(projectToCanvasX(start.x), projectToCanvasY(start.y));
+        context.lineTo(projectToCanvasX(end.x), projectToCanvasY(end.y));
+        context.stroke();
+      });
+      context.restore();
+
+      // Snap lines: thin grey dashed segment from measured to ideal position.
+      context.save();
+      context.strokeStyle = "#94a3b8";
+      context.globalAlpha = 0.45;
+      context.lineWidth = 1.0;
+      context.setLineDash([3, 3]);
+      reconstructionMeasuredNodes.forEach((measured, idx) => {
+        const ideal = reconstructionIdealNodes[idx];
+        if (!ideal || ideal.x === null || ideal.y === null) return;
+        context.beginPath();
+        context.moveTo(projectToCanvasX(measured.x), projectToCanvasY(measured.y));
+        context.lineTo(projectToCanvasX(ideal.x as number), projectToCanvasY(ideal.y as number));
+        context.stroke();
+      });
+      context.restore();
+
+      // Overlay node rings.
+      context.save();
+      context.strokeStyle = reconstructionView === "ideal" ? "#ff7a18" : "#6d28d9";
+      context.globalAlpha = 0.75;
+      context.lineWidth = 1.6;
+      reconstructionOverlayNodes.forEach((node) => {
+        if (!node.matched) return;
+        context.beginPath();
+        context.arc(projectToCanvasX(node.x), projectToCanvasY(node.y), 5.4, 0, Math.PI * 2);
+        context.stroke();
+      });
+      context.restore();
     }
 
     if (showUsedBosses) {
