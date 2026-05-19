@@ -5,16 +5,16 @@ import { computeResidualSummary } from "./projectionCanvasUtils.ts";
 
 test("returns null when no boss carries a matched error", () => {
   const summary = computeResidualSummary([
-    { id: "A", x: 0, y: 0, source: "anchor" },
-    { id: "B", x: 0, y: 0, source: "raw", matched: false },
+    {},
+    { matched: false },
   ]);
   assert.equal(summary, null);
 });
 
 test("averages the matched per-axis errors as a percent", () => {
   const summary = computeResidualSummary([
-    { id: "B1", x: 0, y: 0, source: "raw", matched: true, matchedXError: 0.01, matchedYError: 0.02 },
-    { id: "B2", x: 0, y: 0, source: "raw", matched: true, matchedXError: 0.04, matchedYError: 0.03 },
+    { matched: true, matchedXError: 0.01, matchedYError: 0.02 },
+    { matched: true, matchedXError: 0.04, matchedYError: 0.03 },
   ]);
   assert.ok(summary);
   assert.equal(summary!.sampleCount, 2);
@@ -24,9 +24,9 @@ test("averages the matched per-axis errors as a percent", () => {
 
 test("ignores rows where either axis error is missing or non-finite", () => {
   const summary = computeResidualSummary([
-    { id: "B1", x: 0, y: 0, source: "raw", matched: true, matchedXError: 0.01, matchedYError: null },
-    { id: "B2", x: 0, y: 0, source: "raw", matched: true, matchedXError: Number.NaN, matchedYError: 0.02 },
-    { id: "B3", x: 0, y: 0, source: "raw", matched: true, matchedXError: 0.03, matchedYError: 0.04 },
+    { matched: true, matchedXError: 0.01, matchedYError: null },
+    { matched: true, matchedXError: Number.NaN, matchedYError: 0.02 },
+    { matched: true, matchedXError: 0.03, matchedYError: 0.04 },
   ]);
   assert.ok(summary);
   assert.equal(summary!.sampleCount, 1);

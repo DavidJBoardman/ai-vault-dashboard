@@ -21,7 +21,7 @@ import {
   Geometry2DBayPlanRunParams,
   Geometry2DBayPlanRunResult,
 } from "@/lib/api";
-import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import { computeResidualSummary, getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 import { ChevronDown, ChevronUp, CircleHelp, Download, Network, Plus, RefreshCw, RotateCcw, Settings2, Trash2 } from "lucide-react";
 
 const RECONSTRUCTION_PARAM_FALLBACKS = {
@@ -361,6 +361,10 @@ export function BayPlanReconstructionPanel({
   const reconstructionStatusLabel = isRunning ? "Running" : result ? "Result ready" : "Awaiting run";
   const formattedLastRunAt = lastRunAt ? new Date(lastRunAt).toLocaleString("en-GB") : null;
   const resultReconstructionMode = result?.params?.reconstructionMode === "delaunay" ? "delaunay" : "current";
+  const residualSummary = useMemo(
+    () => (result?.usedBosses ? computeResidualSummary(result.usedBosses) : null),
+    [result?.usedBosses]
+  );
   const overallScoreLabel =
     typeof result?.overallScore === "number" && Number.isFinite(result.overallScore)
       ? result.overallScore.toFixed(3)
@@ -547,6 +551,11 @@ export function BayPlanReconstructionPanel({
               {edgeEvidenceLabel && boundaryCoverageLabel && degreeSatisfactionLabel ? (
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Evidence {edgeEvidenceLabel} · Boundary {boundaryCoverageLabel} · Degree {degreeSatisfactionLabel}
+                </p>
+              ) : null}
+              {residualSummary ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Residual: mean {residualSummary.meanPercent.toFixed(2)}% · max {residualSummary.maxPercent.toFixed(2)}% ({residualSummary.sampleCount} matched)
                 </p>
               ) : null}
 

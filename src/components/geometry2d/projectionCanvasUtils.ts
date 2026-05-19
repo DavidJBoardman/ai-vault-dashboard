@@ -101,14 +101,13 @@ export interface ResidualSummary {
   sampleCount: number;
 }
 
-interface ResidualInput {
-  matched?: boolean | null;
-  matchedXError?: number | null;
-  matchedYError?: number | null;
-  [key: string]: unknown;
-}
-
-export function computeResidualSummary(bosses: ReadonlyArray<ResidualInput>): ResidualSummary | null {
+export function computeResidualSummary(
+  bosses: ReadonlyArray<{
+    matched?: boolean | null;
+    matchedXError?: number | null;
+    matchedYError?: number | null;
+  }>
+): ResidualSummary | null {
   const residuals: number[] = [];
   for (const boss of bosses) {
     if (boss.matched !== true) continue;
