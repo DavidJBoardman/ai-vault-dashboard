@@ -33,8 +33,9 @@ Vault Analyser forms part of the wider project **Virtual Vaults: Using AI to pro
 ## Recommended reading order
 
 1. [Installation](installation.md)
-2. [Before You Start](workflow/pipeline.md)
-3. [Step 1 to Step 8](workflow/step-1-upload.md)
+2. [Getting Started](workflow/getting-started.md)
+3. [Before You Start](workflow/pipeline.md)
+4. [Step 1 to Step 8](workflow/step-1-upload.md)
 
 If you only need the software workflow, stay inside the `Workflow` section. The `System` page is only for readers who want a light technical orientation.
 
