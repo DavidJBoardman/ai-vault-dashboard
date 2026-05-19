@@ -359,7 +359,11 @@ export function ProjectionCanvas({
     return { x, y, label: corner.label };
   });
 
-  const reconstructionEdgePalette = ["#ff7a18", "#22c55e", "#38bdf8", "#f43f5e", "#facc15", "#a78bfa", "#14b8a6", "#fb7185"];
+  // Single colour for auto-selected ribs so the palette can carry semantic
+  // weight elsewhere (manual edges in red, delaunay constraint families in
+  // their typed palette, hover/selection highlights). Cycling colours per
+  // edge index were decorative and made users read meaning into noise.
+  const reconstructionEdgeColour = "#ff7a18";
   const starcutOverlayPalette: Record<number, string> = {
     2: "#f97316",
     3: "#22c55e",
@@ -1017,7 +1021,7 @@ export function ProjectionCanvas({
               : delaunayStyle.stroke
             : isManual
               ? "#ef4444"
-              : reconstructionEdgePalette[edgeIndex % reconstructionEdgePalette.length];
+              : reconstructionEdgeColour;
         context.save();
         context.strokeStyle = stroke;
         context.lineWidth =
@@ -1390,7 +1394,7 @@ export function ProjectionCanvas({
                   </>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 rounded border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-white/80">
-                    <span className="h-0 w-4 border-t-2" style={{ borderColor: reconstructionEdgePalette[0] }} />
+                    <span className="h-0 w-4 border-t-2" style={{ borderColor: reconstructionEdgeColour }} />
                     Reconstructed ribs
                   </span>
                 )
@@ -1865,7 +1869,7 @@ export function ProjectionCanvas({
                           : delaunayStyle.stroke
                         : isManual
                           ? "#ef4444"
-                          : reconstructionEdgePalette[idx % reconstructionEdgePalette.length];
+                          : reconstructionEdgeColour;
                     return (
                       <g key={`re-edge-${idx}`}>
                         {isSelectedEdge && (
