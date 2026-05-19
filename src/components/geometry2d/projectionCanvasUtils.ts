@@ -41,7 +41,9 @@ export interface DelaunayConstraintStyle {
 
 export function getReconstructionBossStyle(source: string): ReconstructionBossStyle {
   if (source === "ideal") {
-    return { fill: "#ffffff", stroke: "#0ea5e9", label: "Ideal match" };
+    // Distinct violet fill so idealised nodes do not collide visually with the
+    // cyan corner-anchor styling. Used in Step 4D's "Idealised" view toggle.
+    return { fill: "#c4b5fd", stroke: "#6d28d9", label: "Idealised node" };
   }
   if (source === "anchor") {
     // Match the cyan styling used for corner reference points in steps 4B / 4C

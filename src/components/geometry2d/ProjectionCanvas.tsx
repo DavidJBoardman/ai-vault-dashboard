@@ -234,7 +234,7 @@ export function ProjectionCanvas({
   const showReconstruction = showReconstructionOverlay && reconstructionEdges.length > 0;
   const runUsedBosses = reconstructionResult?.usedBosses || [];
   const idealBosses = reconstructionResult?.idealBosses || [];
-  const usedBosses =
+  const measuredUsedBosses =
     runUsedBosses.length > 0
       ? runUsedBosses
       : idealBosses.length > 0
@@ -244,6 +244,21 @@ export function ProjectionCanvas({
           : reconstructionNodes
               .filter((node) => node.source === "boss")
               .map((node) => ({ id: node.id, x: node.x, y: node.y, source: "raw" }));
+  // In Idealised view we want the rendered markers + letters to move with the
+  // edges, so swap each used-boss to its ideal coordinate when available. Bosses
+  // 4C could not match keep their measured position so they remain visible.
+  const usedBosses =
+    reconstructionView === "ideal" && reconstructionIdealNodes.length > 0
+      ? measuredUsedBosses.map((boss) => {
+          const matchIdx = reconstructionMeasuredNodes.findIndex(
+            (n) => String(n.bossId ?? n.id) === String(boss.id)
+          );
+          if (matchIdx < 0) return boss;
+          const ideal = reconstructionIdealNodes[matchIdx];
+          if (!ideal || ideal.x === null || ideal.y === null) return boss;
+          return { ...boss, x: ideal.x, y: ideal.y, source: "ideal" };
+        })
+      : measuredUsedBosses;
   const showUsedBosses = showReconstructionNodes && usedBosses.length > 0;
   const showInspectMode =
     showReconstruction &&
@@ -1064,6 +1079,17 @@ export function ProjectionCanvas({
           context.arc(x, y, 4.4, 0, Math.PI * 2);
           context.fill();
           context.stroke();
+          if (boss.source === "ideal") {
+            // Idealised nodes get a thicker outer ring so they read as a
+            // distinct, template-derived reference vs the measured markers.
+            context.save();
+            context.strokeStyle = style.stroke;
+            context.lineWidth = 2.2;
+            context.beginPath();
+            context.arc(x, y, 8.2, 0, Math.PI * 2);
+            context.stroke();
+            context.restore();
+          }
         }
 
         context.font = "bold 12px sans-serif";
@@ -1270,6 +1296,12 @@ export function ProjectionCanvas({
         <CardContent>
           <div ref={previewFrameRef} className="overflow-hidden rounded-lg border border-white/10 bg-black">
             <div className="flex min-h-12 flex-wrap items-center gap-2 border-b border-white/10 bg-black px-3 py-2">
+              {showReconstruction && reconstructionView === "ideal" && (
+                <span className="inline-flex items-center gap-1.5 rounded border border-violet-400/40 bg-violet-500/15 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-violet-100">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "#c4b5fd", boxShadow: "0 0 0 1.5px #6d28d9" }} />
+                  Idealised view · derived from Step 4C
+                </span>
+              )}
               {showComparisonLegend && (
                 <>
                   {showOriginalComparison && (
