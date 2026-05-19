@@ -22,6 +22,27 @@ export function getNodePointTag(point: { label?: string; id?: number; pointType?
   return point.id !== undefined ? String(point.id) : "";
 }
 
+// Number of decimals retained for any cut-typology table cell. Picked at 4
+// because uv coordinates are ratios in [-1, 1] so ±0.00005 is well below the
+// matching tolerance, but the rendered values stay legible.
+export const CUT_TYPOLOGY_DECIMALS = 4;
+
+export function formatCutTypologyValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  if (!str) return "";
+  // Round any decimal token with more than CUT_TYPOLOGY_DECIMALS digits after
+  // the point. Tokens that already fit (e.g. "0.5", "1.0") are left alone so
+  // we don't artificially pad short values.
+  return str.replace(/-?\d+\.\d+/g, (match) => {
+    const decimals = match.split(".")[1]?.length ?? 0;
+    if (decimals <= CUT_TYPOLOGY_DECIMALS) return match;
+    const num = Number.parseFloat(match);
+    if (!Number.isFinite(num)) return match;
+    return num.toFixed(CUT_TYPOLOGY_DECIMALS);
+  });
+}
+
 export function getCompactNodeLabel(label: string | number | null | undefined): string {
   const raw = String(label ?? "").trim();
   if (!raw) return "";

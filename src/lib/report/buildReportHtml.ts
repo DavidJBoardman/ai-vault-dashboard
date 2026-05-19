@@ -1,4 +1,4 @@
-import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import { formatCutTypologyValue, getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 import packageJson from "../../../package.json";
 import type { ReportData } from "./geometry2dReport";
 
@@ -143,10 +143,10 @@ function renderCutTypology(data: ReportData): string {
           if (col === "uv_error") {
             const score = parseUvError(String(raw));
             const cls = Number.isFinite(score) && score > HIGH_ERROR_TOL ? "vr-num vr-error-high" : "vr-num";
-            return `<td class="${cls}">${escape(raw)}</td>`;
+            return `<td class="${cls}">${escape(formatCutTypologyValue(raw))}</td>`;
           }
           const cls = numericCols.has(col) ? "vr-num" : "";
-          return `<td class="${cls}">${escape(raw)}</td>`;
+          return `<td class="${cls}">${escape(formatCutTypologyValue(raw))}</td>`;
         })
         .join("");
       return `<tr>${cells}</tr>`;

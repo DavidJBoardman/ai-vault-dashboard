@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import type { Project } from "@/lib/store";
-import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import { formatCutTypologyValue, getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 import { buildBayPlanDxf } from "@/lib/geometry2d/bayPlanDxf";
 
 export interface BayProportionCandidate {
@@ -478,10 +478,21 @@ export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
     )
   );
 
+  const cutTypologyExportRows = data.cutTypology.rows.map((row) => {
+    const out: Record<string, string> = {};
+    for (const col of Object.keys(row)) {
+      if (col === "point_label") {
+        out[col] = getCompactNodeLabel(row.point_label || row.boss_id) || row.point_label || "";
+      } else {
+        out[col] = formatCutTypologyValue(row[col]);
+      }
+    }
+    return out;
+  });
   zip.file(
     "cut-typology.csv",
     toCsv(
-      data.cutTypology.rows,
+      cutTypologyExportRows,
       data.cutTypology.columns.length > 0 ? data.cutTypology.columns : undefined
     )
   );

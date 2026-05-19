@@ -6,7 +6,7 @@ import { Columns3, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import { formatCutTypologyValue, getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 import {
   getMatchColumnClass,
   getUvErrorSeverity,
@@ -288,7 +288,7 @@ export function CutTypologyMatchTable({
             if (column === "point_label") {
               return escapeValue(getCompactNodeLabel(row.point_label || row.boss_id) || row.point_label || "");
             }
-            return escapeValue(row[column] || "");
+            return escapeValue(formatCutTypologyValue(row[column]));
           })
           .join(",")
       ),
@@ -459,7 +459,7 @@ export function CutTypologyMatchTable({
                           })()
                         ) : column === "uv_error" && variant === "diagnostic" ? (
                           <div className="inline-flex items-center gap-1.5">
-                            <span>{row[column] || ""}</span>
+                            <span>{formatCutTypologyValue(row[column])}</span>
                             {(() => {
                               const severity = getUvErrorSeverity(parseUvErrorScore(row.uv_error));
                               return (
@@ -468,7 +468,7 @@ export function CutTypologyMatchTable({
                             })()}
                           </div>
                         ) : (
-                          row[column] || ""
+                          formatCutTypologyValue(row[column])
                         )}
                       </td>
                     ))}
@@ -485,7 +485,7 @@ export function CutTypologyMatchTable({
                         ) : column === "point_label" ? (
                           getCompactNodeLabel(row.point_label || row.boss_id) || row.point_label || ""
                         ) : (
-                          row[column] || ""
+                          formatCutTypologyValue(row[column])
                         )}
                       </td>
                     ))}
