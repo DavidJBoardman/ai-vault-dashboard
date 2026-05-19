@@ -123,6 +123,7 @@ def _load_raw_boss_rows(project_dir: Path) -> List[Dict[str, Any]]:
                 "id": boss_id,
                 "uv": (float(centroid_uv["u"]), float(centroid_uv["v"])),
                 "source": "raw",
+                "idealUv": None,
             }
         )
     return _sort_boss_rows(rows)
@@ -166,6 +167,7 @@ def _load_prepared_reference_rows(project_dir: Path) -> Optional[List[Dict[str, 
                 "uv": image_to_unit((x, y), roi),
                 "source": "anchor" if point_type == "corner" else str(row.get("source", "manual")),
                 "pointType": point_type,
+                "idealUv": None,
             }
         )
 
@@ -201,44 +203,62 @@ def load_reference_rows(project_dir: Path) -> List[Dict[str, Any]]:
             raw_uv = _parse_uv_pair(str(row.get("boss_uv", "")))
             base_row = base_by_id.get(boss_id)
 
+            ideal_passthrough = ideal_uv if matched else None
+
             if point_type == "corner":
                 label = str((base_row or {}).get("label", boss_id))
-                if matched and ideal_uv is not None:
-                    resolved[boss_id] = {"id": boss_id, "label": label, "uv": ideal_uv, "source": "anchor", "pointType": "corner"}
-                    continue
-                if raw_uv is not None:
-                    resolved[boss_id] = {"id": boss_id, "label": label, "uv": raw_uv, "source": "anchor", "pointType": "corner"}
+                # Corners keep the existing precedence (ideal when matched, else raw)
+                # but always carry ideal_uv alongside as a passthrough.
+                primary_uv = ideal_uv if (matched and ideal_uv is not None) else raw_uv
+                if primary_uv is not None:
+                    resolved[boss_id] = {
+                        "id": boss_id,
+                        "label": label,
+                        "uv": primary_uv,
+                        "source": "anchor",
+                        "pointType": "corner",
+                        "idealUv": ideal_passthrough,
+                    }
                     continue
                 fallback = base_by_id.get(boss_id)
                 if fallback:
-                    resolved[boss_id] = fallback
+                    resolved[boss_id] = {**fallback, "idealUv": ideal_passthrough}
                 continue
 
-            if matched and ideal_uv is not None:
-                resolved[boss_id] = {
-                    "id": boss_id,
-                    "label": str((base_row or {}).get("label", boss_id)),
-                    "uv": ideal_uv,
-                    "source": "ideal",
-                    "pointType": "boss",
-                }
-                continue
+            # Boss: always prefer the raw measured uv; carry idealUv as a passthrough
+            # so downstream code can derive the idealised plan without losing scan data.
+            label = str((base_row or {}).get("label", boss_id))
             if raw_uv is not None:
                 resolved[boss_id] = {
                     "id": boss_id,
-                    "label": str((base_row or {}).get("label", boss_id)),
+                    "label": label,
                     "uv": raw_uv,
                     "source": str((base_row or {}).get("source", "raw")),
                     "pointType": "boss",
+                    "idealUv": ideal_passthrough,
+                    "matched": matched,
+                }
+                continue
+            if ideal_uv is not None:
+                # No measured uv recorded — fall back to ideal as primary, but keep
+                # the passthrough field set so consumers can detect this case.
+                resolved[boss_id] = {
+                    "id": boss_id,
+                    "label": label,
+                    "uv": ideal_uv,
+                    "source": "ideal",
+                    "pointType": "boss",
+                    "idealUv": ideal_passthrough,
+                    "matched": matched,
                 }
                 continue
             fallback = base_by_id.get(boss_id)
             if fallback:
-                resolved[boss_id] = fallback
+                resolved[boss_id] = {**fallback, "idealUv": ideal_passthrough}
 
     for boss_id, row in base_by_id.items():
         if boss_id not in resolved:
-            resolved[boss_id] = row
+            resolved[boss_id] = {**row, "idealUv": row.get("idealUv")}
     return _sort_boss_rows(list(resolved.values()))
 
 
