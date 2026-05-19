@@ -58,6 +58,7 @@ import {
   Redo2,
   CheckCircle2,
   ChevronDown,
+  Info,
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
@@ -171,6 +172,7 @@ export default function Step3SegmentationPage() {
   const [textPrompts, setTextPrompts] = useState<string[]>(["rib", "boss stone"]);
   const [newPrompt, setNewPrompt] = useState("");
   const [showAdvancedPrompts, setShowAdvancedPrompts] = useState(false);
+  const [showBoxTip, setShowBoxTip] = useState(false);
   
   // Segmentation state
   const [masks, setMasks] = useState<SegmentationMask[]>([]);
@@ -1990,7 +1992,7 @@ export default function Step3SegmentationPage() {
                         <p className="text-muted-foreground mt-0.5">Masks outside the ROI will be removed automatically.</p>
                       )}
                       {autoSegStatus === "done" && (
-                        <p className="text-muted-foreground mt-0.5">Use the tools below to refine or add more features.</p>
+                        <p className="text-muted-foreground mt-0.5">Check the image — boss stones are sometimes missed. Use Box select to add any that are missing.</p>
                       )}
                     </div>
                   </div>
@@ -2010,6 +2012,45 @@ export default function Step3SegmentationPage() {
                   )}
                   {autoSegStatus === "done" ? "Re-run Segmentation" : "Run SAM Segmentation"}
                 </Button>
+
+                {/* Box-select tip — shown after segmentation completes */}
+                {roiConfirmed && (autoSegStatus === "done" || autoSegStatus === "error") && (
+                  <div className="rounded-lg border border-border/50 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowBoxTip(v => !v)}
+                      className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
+                    >
+                      <Info className="w-3 h-3 shrink-0 text-primary/70" />
+                      <span className="flex-1">Missing boss stones or ribs?</span>
+                      <ChevronDown className={cn("w-3 h-3 transition-transform", showBoxTip && "rotate-180")} />
+                    </button>
+                    {showBoxTip && (
+                      <div className="px-2.5 pb-2.5 pt-1 space-y-2 border-t border-border/40 bg-muted/20">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          Use the <strong className="text-foreground">Box</strong> tool to show the model an example of a missed feature — it will then search the whole image for similar ones.
+                        </p>
+                        <ol className="space-y-1.5 text-xs text-muted-foreground list-none">
+                          <li className="flex gap-2">
+                            <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] font-semibold flex items-center justify-center">1</span>
+                            <span>Select the <strong className="text-foreground">Box</strong> tool in the grid below.</span>
+                          </li>
+                          <li className="flex gap-2">
+                            <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] font-semibold flex items-center justify-center">2</span>
+                            <span>Drag a box around a clear, well-lit example on the image. Name it <code className="bg-muted px-1 rounded text-[10px]">boss stone</code> or <code className="bg-muted px-1 rounded text-[10px]">rib</code>.</span>
+                          </li>
+                          <li className="flex gap-2">
+                            <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] font-semibold flex items-center justify-center">3</span>
+                            <span>Click <strong className="text-foreground">Find Similar</strong> — the model searches the full image for matching features.</span>
+                          </li>
+                        </ol>
+                        <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+                          Add a <strong>negative box</strong> (toggle the +/− button) over shadows or adjacent masonry to help the model avoid false matches.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Custom prompts — collapsed by default */}
                 <div className={cn("space-y-1.5", !roiConfirmed && "opacity-40 pointer-events-none")}>
