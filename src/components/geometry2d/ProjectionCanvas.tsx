@@ -1145,7 +1145,7 @@ export function ProjectionCanvas({
       reconstructionEdges.forEach((edge) => {
         const start = reconstructionOverlayNodes[edge.a];
         const end = reconstructionOverlayNodes[edge.b];
-        if (!start || !end || !start.matched || !end.matched) return;
+        if (!start || !end) return;
         context.beginPath();
         context.moveTo(projectToCanvasX(start.x), projectToCanvasY(start.y));
         context.lineTo(projectToCanvasX(end.x), projectToCanvasY(end.y));
@@ -2124,7 +2124,7 @@ export function ProjectionCanvas({
                       {reconstructionEdges.map((edge, idx) => {
                         const start = reconstructionOverlayNodes[edge.a];
                         const end = reconstructionOverlayNodes[edge.b];
-                        if (!start || !end || !start.matched || !end.matched) return null;
+                        if (!start || !end) return null;
                         const overlayStroke = reconstructionView === "ideal" ? "#ff7a18" : "#c4b5fd";
                         return (
                           <g key={`re-overlay-edge-${idx}`}>
