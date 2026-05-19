@@ -1,9 +1,19 @@
-const RIB_LAYER = "BAY_RIBS";
-const NODE_LAYER = "BAY_NODES";
+const RIB_LAYER_MEASURED = "BAY_RIBS_MEASURED";
+const NODE_LAYER_MEASURED = "BAY_NODES_MEASURED";
+const RIB_LAYER_IDEAL = "BAY_RIBS_IDEAL";
+const NODE_LAYER_IDEAL = "BAY_NODES_IDEAL";
 
 export interface BayPlanDxfNode {
   x: number;
   y: number;
+  label?: string | null;
+  id?: string | number | null;
+  bossId?: string | number | null;
+}
+
+export interface BayPlanDxfIdealNode {
+  x: number | null;
+  y: number | null;
   label?: string | null;
   id?: string | number | null;
   bossId?: string | number | null;
@@ -16,6 +26,7 @@ export interface BayPlanDxfEdge {
 
 export interface BayPlanDxfInput {
   nodes: BayPlanDxfNode[];
+  nodesIdeal?: BayPlanDxfIdealNode[];
   edges: BayPlanDxfEdge[];
 }
 
@@ -53,14 +64,14 @@ function layerRecord(handle: number, name: string, colour: number): string[] {
   ];
 }
 
-function lineEntity(handle: number, x1: number, y1: number, x2: number, y2: number): string[] {
+function lineEntity(handle: number, layerName: string, x1: number, y1: number, x2: number, y2: number): string[] {
   return [
     "0",
     "LINE",
     "5",
     handle.toString(16).toUpperCase(),
     "8",
-    RIB_LAYER,
+    layerName,
     "10",
     formatNumber(x1),
     "20",
@@ -76,14 +87,14 @@ function lineEntity(handle: number, x1: number, y1: number, x2: number, y2: numb
   ];
 }
 
-function circleEntity(handle: number, x: number, y: number, radius: number): string[] {
+function circleEntity(handle: number, layerName: string, x: number, y: number, radius: number): string[] {
   return [
     "0",
     "CIRCLE",
     "5",
     handle.toString(16).toUpperCase(),
     "8",
-    NODE_LAYER,
+    layerName,
     "10",
     formatNumber(x),
     "20",
@@ -99,12 +110,13 @@ export function buildBayPlanDxf(result: BayPlanDxfInput): { text: string; ribCou
   const entities: string[] = [];
   let handle = 0x50;
   let ribCount = 0;
+  const nodeRadius = 4;
 
   for (const edge of result.edges || []) {
     const start = result.nodes?.[edge.a];
     const end = result.nodes?.[edge.b];
     if (!start || !end) continue;
-    entities.push(...lineEntity(handle, start.x, start.y, end.x, end.y));
+    entities.push(...lineEntity(handle, RIB_LAYER_MEASURED, start.x, start.y, end.x, end.y));
     handle += 1;
     ribCount += 1;
   }
@@ -114,11 +126,27 @@ export function buildBayPlanDxf(result: BayPlanDxfInput): { text: string; ribCou
   }
 
   let nodeCount = 0;
-  const nodeRadius = 4;
   for (const node of result.nodes || []) {
-    entities.push(...circleEntity(handle, node.x, node.y, nodeRadius));
+    entities.push(...circleEntity(handle, NODE_LAYER_MEASURED, node.x, node.y, nodeRadius));
     handle += 1;
     nodeCount += 1;
+  }
+
+  const idealNodes = result.nodesIdeal || [];
+  if (idealNodes.length > 0) {
+    for (const edge of result.edges || []) {
+      const start = idealNodes[edge.a];
+      const end = idealNodes[edge.b];
+      if (!start || !end) continue;
+      if (start.x === null || start.y === null || end.x === null || end.y === null) continue;
+      entities.push(...lineEntity(handle, RIB_LAYER_IDEAL, start.x, start.y, end.x, end.y));
+      handle += 1;
+    }
+    for (const node of idealNodes) {
+      if (node.x === null || node.y === null) continue;
+      entities.push(...circleEntity(handle, NODE_LAYER_IDEAL, node.x, node.y, nodeRadius));
+      handle += 1;
+    }
   }
 
   const text = [
@@ -141,9 +169,11 @@ export function buildBayPlanDxf(result: BayPlanDxfInput): { text: string; ribCou
     "2",
     "LAYER",
     "70",
-    "2",
-    ...layerRecord(0xA, RIB_LAYER, 5),
-    ...layerRecord(0xB, NODE_LAYER, 3),
+    "4",
+    ...layerRecord(0xA, RIB_LAYER_MEASURED, 5),
+    ...layerRecord(0xB, NODE_LAYER_MEASURED, 3),
+    ...layerRecord(0xC, RIB_LAYER_IDEAL, 4),
+    ...layerRecord(0xD, NODE_LAYER_IDEAL, 6),
     "0",
     "ENDTAB",
     "0",
