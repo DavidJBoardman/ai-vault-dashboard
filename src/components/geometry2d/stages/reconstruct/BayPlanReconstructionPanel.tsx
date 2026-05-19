@@ -754,13 +754,17 @@ export function BayPlanReconstructionPanel({
           </Card>
 
           <div className="grid gap-3">
-            <Button className="w-full gap-2" onClick={onRun} disabled={isLoadingState || isRunning || isExportingDxf}>
+            <Button
+              variant={result ? "outline" : "default"}
+              className="w-full gap-2"
+              onClick={onRun}
+              disabled={isLoadingState || isRunning || isExportingDxf}
+            >
               <RefreshCw className={`h-4 w-4 ${isRunning ? "animate-spin" : ""}`} />
               {isRunning ? "Running reconstruction..." : result ? "Run reconstruction again" : "Run reconstruction"}
             </Button>
             <Button
               type="button"
-              variant="outline"
               className="w-full gap-2"
               onClick={onExportDxf}
               disabled={!result || isLoadingState || isRunning || isExportingDxf}
