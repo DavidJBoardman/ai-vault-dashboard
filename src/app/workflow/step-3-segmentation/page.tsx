@@ -173,6 +173,9 @@ export default function Step3SegmentationPage() {
   const [newPrompt, setNewPrompt] = useState("");
   const [showAdvancedPrompts, setShowAdvancedPrompts] = useState(false);
   const [showBoxTip, setShowBoxTip] = useState(false);
+  type SegResult = { type: "success" | "error" | "warning"; message: string } | null;
+  const [boxSegResult, setBoxSegResult] = useState<SegResult>(null);
+  const [polySegResult, setPolySegResult] = useState<SegResult>(null);
   
   // Segmentation state
   const [masks, setMasks] = useState<SegmentationMask[]>([]);
@@ -1549,7 +1552,14 @@ export default function Step3SegmentationPage() {
     if (!selectedProjection || drawnBoxes.length === 0) return;
     
     setIsProcessing(true);
-    setProcessingMessage(`Segmenting with ${drawnBoxes.length} box${drawnBoxes.length > 1 ? "es" : ""}...`);
+    setBoxSegResult(null);
+
+    const firstBoxName = drawnBoxes.find(box => box.name?.trim())?.name?.trim();
+    setProcessingMessage(
+      firstBoxName
+        ? `Searching for "${firstBoxName}" across the full image…`
+        : "Searching for matching features across the full image…"
+    );
     pushToHistory(masks);
 
     try {
@@ -1558,24 +1568,17 @@ export default function Step3SegmentationPage() {
         label: box.label,
       }));
 
-      // Get the FIRST box name only - this is what will label the detected objects
-      // Don't mix with existing text prompts, as that causes labeling confusion
-      const firstBoxName = drawnBoxes.find(box => box.name?.trim())?.name?.trim();
-      
       const response = await runSegmentation({
         projectionId: selectedProjection.id,
         mode: firstBoxName ? "combined" : "box",
         boxes: boxPrompts,
-        // Only pass the box name, not existing text prompts
         textPrompts: firstBoxName ? [firstBoxName] : undefined,
       });
-      
-      console.log("Box segmentation response:", response);
-      
+
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
       const newMasks = data?.masks || [];
-      
+
       if (isSuccess) {
         if (newMasks.length > 0) {
           setMasks(prev => {
@@ -1589,15 +1592,17 @@ export default function Step3SegmentationPage() {
             return allMasks;
           });
           setDrawnBoxes([]);
+          setBoxSegResult({ type: "success", message: `Found ${newMasks.length} feature${newMasks.length !== 1 ? "s" : ""}. Boxes cleared — draw new ones to search again.` });
         } else {
-          alert("No similar objects found for the selected region(s). Try drawing a box around a more distinct feature.");
+          setBoxSegResult({ type: "warning", message: "Nothing matched. Try a box around a clearer example, or add a negative box (−) over shadows or adjacent masonry to guide the search." });
         }
       } else {
         const errorMsg = response.error || data?.error;
-        alert(`Segmentation failed: ${errorMsg || "Unknown error"}`);
+        setBoxSegResult({ type: "error", message: `Segmentation failed: ${errorMsg || "Unknown error"}` });
       }
     } catch (error) {
       console.error("Box segmentation error:", error);
+      setBoxSegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -1609,7 +1614,14 @@ export default function Step3SegmentationPage() {
     if (!selectedProjection || drawnPolygons.length === 0) return;
     
     setIsProcessing(true);
-    setProcessingMessage(`Segmenting with ${drawnPolygons.length} polygon${drawnPolygons.length > 1 ? "s" : ""}...`);
+    setPolySegResult(null);
+
+    const firstName = drawnPolygons.find(p => p.name?.trim())?.name?.trim();
+    setProcessingMessage(
+      firstName
+        ? `Searching for "${firstName}" within the drawn region…`
+        : "Searching for features within the drawn region…"
+    );
     pushToHistory(masks);
     
     try {
@@ -1628,22 +1640,17 @@ export default function Step3SegmentationPage() {
         };
       });
       
-      // Get the first polygon name
-      const firstName = drawnPolygons.find(p => p.name?.trim())?.name?.trim();
-      
       const response = await runSegmentation({
         projectionId: selectedProjection.id,
         mode: firstName ? "combined" : "box",
         boxes: boxPrompts,
         textPrompts: firstName ? [firstName] : undefined,
       });
-      
-      console.log("Polygon segmentation response:", response);
-      
+
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
       const newMasks = data?.masks || [];
-      
+
       if (isSuccess) {
         if (newMasks.length > 0) {
           setMasks(prev => {
@@ -1657,15 +1664,17 @@ export default function Step3SegmentationPage() {
             return allMasks;
           });
           setDrawnPolygons([]);
+          setPolySegResult({ type: "success", message: `Found ${newMasks.length} feature${newMasks.length !== 1 ? "s" : ""}. Polygons cleared — draw new ones to search again.` });
         } else {
-          alert("No objects found in the selected polygon region(s).");
+          setPolySegResult({ type: "warning", message: "Nothing found in the selected region. Try a larger polygon or use a different label." });
         }
       } else {
         const errorMsg = response.error || data?.error;
-        alert(`Segmentation failed: ${errorMsg || "Unknown error"}`);
+        setPolySegResult({ type: "error", message: `Segmentation failed: ${errorMsg || "Unknown error"}` });
       }
     } catch (error) {
       console.error("Polygon segmentation error:", error);
+      setPolySegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -1720,12 +1729,16 @@ export default function Step3SegmentationPage() {
             }, 0);
             return allMasks;
           });
+          // autoSegStatus / summary computed by the useEffect watching isProcessing
         } else {
-          alert(`No objects found matching your prompts. Try different terms like:\n• "rib" - vault ribs\n• "arch" - arched sections\n• "stone" - stone surfaces\n• "boss" - decorative bosses`);
+          // No masks returned — set status directly rather than waiting for the useEffect
+          setAutoSegSummary("Nothing detected. Try adjusting the ROI, or use the Box tool to show the model a clear example.");
+          setAutoSegStatus("error");
         }
       } else {
         console.error("Segmentation failed:", errorMsg);
-        alert(`Segmentation failed: ${errorMsg || "Unknown error"}`);
+        setAutoSegSummary(`Segmentation failed: ${errorMsg || "Unknown error"}`);
+        setAutoSegStatus("error");
       }
     } catch (error) {
       console.error("Segmentation error:", error);
@@ -2255,6 +2268,19 @@ export default function Step3SegmentationPage() {
                       )}
                       Find Similar
                     </Button>
+                    {boxSegResult && (
+                      <div className={cn(
+                        "flex items-start gap-1.5 p-2 rounded text-xs",
+                        boxSegResult.type === "success" && "bg-green-500/10 text-green-400",
+                        boxSegResult.type === "warning" && "bg-amber-500/10 text-amber-400",
+                        boxSegResult.type === "error"   && "bg-destructive/10 text-destructive",
+                      )}>
+                        {boxSegResult.type === "success"
+                          ? <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" />
+                          : <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />}
+                        <span className="leading-relaxed">{boxSegResult.message}</span>
+                      </div>
+                    )}
                   </div>
                 )}
                 
@@ -2363,6 +2389,19 @@ export default function Step3SegmentationPage() {
                         )}
                         Find in Polygons
                       </Button>
+                    )}
+                    {polySegResult && (
+                      <div className={cn(
+                        "flex items-start gap-1.5 p-2 rounded text-xs",
+                        polySegResult.type === "success" && "bg-green-500/10 text-green-400",
+                        polySegResult.type === "warning" && "bg-amber-500/10 text-amber-400",
+                        polySegResult.type === "error"   && "bg-destructive/10 text-destructive",
+                      )}>
+                        {polySegResult.type === "success"
+                          ? <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" />
+                          : <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />}
+                        <span className="leading-relaxed">{polySegResult.message}</span>
+                      </div>
                     )}
                   </div>
                 )}
@@ -3281,11 +3320,13 @@ export default function Step3SegmentationPage() {
                     {/* Processing overlay */}
                     {isProcessing && (
                       <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center">
-                        <div className="text-center space-y-3">
+                        <div className="text-center space-y-3 max-w-xs px-4">
                           <Loader2 className="w-10 h-10 animate-spin mx-auto text-primary" />
-                          <p className="text-sm font-medium">{processingMessage || "Processing..."}</p>
+                          <p className="text-sm font-medium">{processingMessage || "Processing…"}</p>
                           <p className="text-xs text-muted-foreground">
-                            This may take a minute for large images
+                            {processingMessage?.startsWith("Loading SAM")
+                              ? "The model loads once per session — subsequent runs are faster."
+                              : "This may take a moment for large images. Masks outside the ROI will be removed automatically."}
                           </p>
                         </div>
                       </div>
