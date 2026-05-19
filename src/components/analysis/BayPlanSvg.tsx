@@ -36,9 +36,13 @@ function idealPosition(
   return null;
 }
 
-const EDGE_CONSTRAINT = "#0ea5e9";
-const EDGE_AUTO = "#f59e0b";
-const EDGE_MANUAL = "#facc15";
+// Match Step 4D's ProjectionCanvas: a single rib colour regardless of
+// constraint vs auto (only line weight differs), manual edits in red, and
+// idealised ribs in purple. Keeps the report visually identical to the
+// preview the user just saw in 4D.
+const EDGE_MEASURED = "#ff7a18";
+const EDGE_MANUAL = "#ef4444";
+const EDGE_IDEAL = "#a78bfa";
 const NODE_FILL = "#ffffff";
 const NODE_STROKE = "#0ea5e9";
 
@@ -140,11 +144,10 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
             const a = nodeForEdgeIndex(reconstructNodes, edge.a);
             const b = nodeForEdgeIndex(reconstructNodes, edge.b);
             if (!a || !b) return null;
-            const stroke = edge.isManual
-              ? EDGE_MANUAL
-              : edge.isConstraint
-                ? EDGE_CONSTRAINT
-                : EDGE_AUTO;
+            const stroke = edge.isManual ? EDGE_MANUAL : EDGE_MEASURED;
+            // Match 4D: constraint edges read thicker than auto edges,
+            // manual edits thicker still.
+            const widthMultiplier = edge.isManual ? 1.6 : edge.isConstraint ? 1.35 : 1.0;
             return (
               <line
                 key={`edge-${i}`}
@@ -153,9 +156,9 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
                 x2={b.x}
                 y2={b.y}
                 stroke={stroke}
-                strokeWidth={edgeWidth}
+                strokeWidth={edgeWidth * widthMultiplier}
                 strokeLinecap="round"
-                opacity={0.85}
+                opacity={edge.isManual ? 0.98 : 0.88}
               />
             );
           })}
@@ -173,7 +176,7 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
                   y1={a.y}
                   x2={b.x}
                   y2={b.y}
-                  stroke="#a855f7"
+                  stroke={EDGE_IDEAL}
                   strokeWidth={edgeWidth}
                   strokeLinecap="round"
                   strokeDasharray={`${edgeWidth * 4} ${edgeWidth * 3}`}
@@ -190,7 +193,7 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
                   cy={pos.y}
                   r={radius * 0.75}
                   fill="none"
-                  stroke="#a855f7"
+                  stroke={EDGE_IDEAL}
                   strokeWidth={radius * 0.3}
                 />
               );
