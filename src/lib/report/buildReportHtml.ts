@@ -5,16 +5,6 @@ import type { ReportData } from "./geometry2dReport";
 const NEAR_EQUIVALENT_TOL = 0.005;
 const HIGH_ERROR_TOL = 0.005;
 
-const REPORT_MATCH_COLUMNS: Array<{ key: string; label: string; align?: "left" | "right" }> = [
-  { key: "boss_id", label: "ID", align: "right" },
-  { key: "point_label", label: "Label" },
-  { key: "point_type", label: "Type" },
-  { key: "x_cut", label: "x cut", align: "right" },
-  { key: "y_cut", label: "y cut", align: "right" },
-  { key: "uv_error", label: "uv error", align: "right" },
-  { key: "matched", label: "Matched" },
-];
-
 function escape(value: unknown): string {
   return String(value ?? "").replace(/[<>&"']/g, (c) =>
     ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[c] || c)
@@ -114,8 +104,8 @@ function renderBayProportion(data: ReportData): string {
 }
 
 function renderCutTypology(data: ReportData): string {
-  const { rows, bossesMatched, variantsMatched } = data.cutTypology;
-  if (rows.length === 0) {
+  const { columns, rows, bossesMatched, variantsMatched } = data.cutTypology;
+  if (rows.length === 0 || columns.length === 0) {
     return `
 <section class="vr-section">
   <h2>Cut typology</h2>
@@ -123,25 +113,42 @@ function renderCutTypology(data: ReportData): string {
 </section>`;
   }
 
-  const tableRows = rows
+  const numericCols = new Set(
+    columns.filter((col) =>
+      rows.some((row) => {
+        const raw = row[col];
+        if (raw == null || raw === "") return false;
+        return Number.isFinite(Number.parseFloat(String(raw)));
+      })
+    )
+  );
+
+  const headerCells = columns
+    .map((col) => `<th${numericCols.has(col) ? ' class="num"' : ""}>${escape(col)}</th>`)
+    .join("");
+
+  const bodyRows = rows
     .map((row) => {
-      const cells = REPORT_MATCH_COLUMNS.map(({ key, align }) => {
-        let raw = row[key] ?? "";
-        if (key === "point_label") {
-          raw = getCompactNodeLabel(row.point_label || row.boss_id) || row.point_label || "";
-        }
-        if (key === "matched") {
-          const isMatched = String(raw).toLowerCase() === "true";
-          return `<td><span class="vr-pill ${isMatched ? "vr-pill-ok" : "vr-pill-bad"}">${isMatched ? "matched" : "unmatched"}</span></td>`;
-        }
-        if (key === "uv_error") {
-          const score = parseUvError(String(raw));
-          const cls = Number.isFinite(score) && score > HIGH_ERROR_TOL ? "vr-num vr-error-high" : "vr-num";
+      const cells = columns
+        .map((col) => {
+          const raw = row[col] ?? "";
+          if (col === "matched") {
+            const isMatched = String(raw).toLowerCase() === "true";
+            return `<td><span class="vr-pill ${isMatched ? "vr-pill-ok" : "vr-pill-bad"}">${isMatched ? "matched" : "unmatched"}</span></td>`;
+          }
+          if (col === "point_label") {
+            const compact = getCompactNodeLabel(row.point_label || row.boss_id);
+            return `<td>${escape(compact || raw)}</td>`;
+          }
+          if (col === "uv_error") {
+            const score = parseUvError(String(raw));
+            const cls = Number.isFinite(score) && score > HIGH_ERROR_TOL ? "vr-num vr-error-high" : "vr-num";
+            return `<td class="${cls}">${escape(raw)}</td>`;
+          }
+          const cls = numericCols.has(col) ? "vr-num" : "";
           return `<td class="${cls}">${escape(raw)}</td>`;
-        }
-        const cls = align === "right" ? "vr-num" : "";
-        return `<td class="${cls}">${escape(raw)}</td>`;
-      }).join("");
+        })
+        .join("");
       return `<tr>${cells}</tr>`;
     })
     .join("");
@@ -151,8 +158,8 @@ function renderCutTypology(data: ReportData): string {
   <h2>Cut typology</h2>
   <p class="vr-muted">${bossesMatched} boss${bossesMatched === 1 ? "" : "es"} matched across ${variantsMatched} typology variant${variantsMatched === 1 ? "" : "s"}.</p>
   <table class="vr-table vr-table-compact">
-    <thead><tr>${REPORT_MATCH_COLUMNS.map(({ label, align }) => `<th${align === "right" ? ' class="num"' : ""}>${escape(label)}</th>`).join("")}</tr></thead>
-    <tbody>${tableRows}</tbody>
+    <thead><tr>${headerCells}</tr></thead>
+    <tbody>${bodyRows}</tbody>
   </table>
 </section>`;
 }
