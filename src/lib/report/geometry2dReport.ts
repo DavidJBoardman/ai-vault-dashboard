@@ -12,6 +12,7 @@ export interface BayProportionCandidate {
 
 export interface ReconstructNode {
   id: string;
+  bossId: string | null;
   label: string;
   x: number;
   y: number;
@@ -20,6 +21,7 @@ export interface ReconstructNode {
 
 export interface ReconstructIdealNode {
   id: string;
+  bossId: string | null;
   label: string;
   x: number | null;
   y: number | null;
@@ -310,6 +312,7 @@ export function selectReportData(
     )
     .map((n) => ({
       id: String(n.id ?? ""),
+      bossId: n.bossId != null ? String(n.bossId) : null,
       label: getCompactNodeLabel(n.bossId ?? n.label ?? n.id ?? ""),
       x: n.x,
       y: n.y,
@@ -331,6 +334,7 @@ export function selectReportData(
   const reconstructIdealRaw = geom.reconstruct?.result?.nodesIdeal ?? [];
   const reconstructIdeal: ReconstructIdealNode[] = reconstructIdealRaw.map((n) => ({
     id: String(n.id ?? ""),
+    bossId: n.bossId != null ? String(n.bossId) : null,
     label: getCompactNodeLabel(n.bossId ?? n.label ?? n.id ?? ""),
     x: typeof n.x === "number" ? n.x : null,
     y: typeof n.y === "number" ? n.y : null,
@@ -431,6 +435,7 @@ function buildBayPlanMetadata(data: ReportData) {
     nodes: data.reconstruct.nodes.map((node, index) => ({
       index,
       id: node.id,
+      bossId: node.bossId,
       label: node.label,
       x: node.x,
       y: node.y,
@@ -439,6 +444,7 @@ function buildBayPlanMetadata(data: ReportData) {
       ? data.reconstruct.nodesIdeal.map((node, index) => ({
           index,
           id: node.id,
+          bossId: node.bossId,
           label: node.label,
           x: node.x,
           y: node.y,
@@ -487,15 +493,21 @@ export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
   if (data.reconstruct.nodes.length > 0 && data.reconstruct.edges.length > 0) {
     try {
       const { text } = buildBayPlanDxf({
-        nodes: data.reconstruct.nodes,
+        nodes: data.reconstruct.nodes.map((n) => ({
+          id: n.id || null,
+          bossId: n.bossId,
+          label: n.label,
+          x: n.x,
+          y: n.y,
+        })),
         nodesIdeal:
           data.reconstruct.nodesIdeal.length > 0
             ? data.reconstruct.nodesIdeal.map((n) => ({
                 id: n.id || null,
-                bossId: n.id || null,
+                bossId: n.bossId,
+                label: n.label,
                 x: n.x,
                 y: n.y,
-                label: n.label,
               }))
             : undefined,
         edges: data.reconstruct.edges,
