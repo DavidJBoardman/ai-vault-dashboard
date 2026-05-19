@@ -18,6 +18,14 @@ export interface ReconstructNode {
   source: string;
 }
 
+export interface ReconstructIdealNode {
+  id: string;
+  label: string;
+  x: number | null;
+  y: number | null;
+  source: string;
+}
+
 export interface ReconstructEdge {
   a: number;
   b: number;
@@ -75,6 +83,7 @@ export interface ReportData {
   referencePoints: ReferencePoint[];
   reconstruct: {
     nodes: ReconstructNode[];
+    nodesIdeal: ReconstructIdealNode[];
     edges: ReconstructEdge[];
   };
   roi: RoiBox | null;
@@ -131,6 +140,15 @@ interface PersistedReconstructNode {
   source?: string;
 }
 
+interface PersistedReconstructIdealNode {
+  id?: string | number | null;
+  bossId?: string | number | null;
+  label?: string;
+  x?: number | null;
+  y?: number | null;
+  source?: string;
+}
+
 interface PersistedReconstructEdge {
   a?: number;
   b?: number;
@@ -142,6 +160,7 @@ interface PersistedReconstructEdge {
 interface ReconstructPersisted {
   result?: {
     nodes?: PersistedReconstructNode[];
+    nodesIdeal?: PersistedReconstructIdealNode[];
     edges?: PersistedReconstructEdge[];
   };
 }
@@ -307,6 +326,15 @@ export function selectReportData(
       isManual: Boolean(e.isManual),
     }));
 
+  const reconstructIdealRaw = geom.reconstruct?.result?.nodesIdeal ?? [];
+  const reconstructIdeal: ReconstructIdealNode[] = reconstructIdealRaw.map((n) => ({
+    id: String(n.id ?? ""),
+    label: getCompactNodeLabel(n.bossId ?? n.label ?? n.id ?? ""),
+    x: typeof n.x === "number" ? n.x : null,
+    y: typeof n.y === "number" ? n.y : null,
+    source: String(n.source ?? "ideal"),
+  }));
+
   const templateSettings = (geom.template as { settings?: { matchingThreshold?: number | string } })
     ?.settings;
   const matchingThreshold =
@@ -346,6 +374,7 @@ export function selectReportData(
     referencePoints,
     reconstruct: {
       nodes: reconstructNodes,
+      nodesIdeal: reconstructIdeal,
       edges: reconstructEdges,
     },
     roi,
@@ -370,6 +399,7 @@ export function toCsv(
 }
 
 function buildBayPlanMetadata(data: ReportData) {
+  const hasIdeal = data.reconstruct.nodesIdeal.some((n) => n.x !== null && n.y !== null);
   return {
     exportType: "step-4d-bay-plan-dxf",
     generatedAt: data.generatedAt,
@@ -387,8 +417,14 @@ function buildBayPlanMetadata(data: ReportData) {
     nodeCount: data.reconstruct.nodes.length,
     ribCount: data.reconstruct.edges.length,
     layers: {
-      BAY_RIBS: "Reconstructed rib line segments",
-      BAY_NODES: "Node marker circles",
+      BAY_RIBS_MEASURED: "Reconstructed rib line segments (measured boss positions)",
+      BAY_NODES_MEASURED: "Node markers at measured boss positions",
+      ...(hasIdeal
+        ? {
+            BAY_RIBS_IDEAL: "Ribs reprojected onto the matched 4C cut-typology template",
+            BAY_NODES_IDEAL: "Node markers at idealised boss positions (measured fallback if no 4C match)",
+          }
+        : {}),
     },
     nodes: data.reconstruct.nodes.map((node, index) => ({
       index,
@@ -397,6 +433,15 @@ function buildBayPlanMetadata(data: ReportData) {
       x: node.x,
       y: node.y,
     })),
+    nodesIdeal: hasIdeal
+      ? data.reconstruct.nodesIdeal.map((node, index) => ({
+          index,
+          id: node.id,
+          label: node.label,
+          x: node.x,
+          y: node.y,
+        }))
+      : [],
   };
 }
 
@@ -439,7 +484,20 @@ export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
 
   if (data.reconstruct.nodes.length > 0 && data.reconstruct.edges.length > 0) {
     try {
-      const { text } = buildBayPlanDxf(data.reconstruct);
+      const { text } = buildBayPlanDxf({
+        nodes: data.reconstruct.nodes,
+        nodesIdeal:
+          data.reconstruct.nodesIdeal.length > 0
+            ? data.reconstruct.nodesIdeal.map((n) => ({
+                id: n.id || null,
+                bossId: n.id || null,
+                x: n.x,
+                y: n.y,
+                label: n.label,
+              }))
+            : undefined,
+        edges: data.reconstruct.edges,
+      });
       zip.file("bay-plan.dxf", text);
       zip.file("bay-plan-metadata.json", JSON.stringify(buildBayPlanMetadata(data), null, 2));
     } catch {
