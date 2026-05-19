@@ -392,6 +392,16 @@ class BayPlanNode(BaseModel):
     y: int
 
 
+class BayPlanIdealNode(BaseModel):
+    id: Optional[str] = None
+    bossId: Optional[str] = None
+    source: str = "ideal"
+    u: Optional[float] = None
+    v: Optional[float] = None
+    x: Optional[int] = None
+    y: Optional[int] = None
+
+
 class BayPlanEdge(BaseModel):
     a: int
     b: int
@@ -496,6 +506,7 @@ class BayPlanRunResult(BaseModel):
     overallScoreBreakdown: Dict[str, float] = Field(default_factory=dict)
     params: Dict[str, Any]
     nodes: List[BayPlanNode] = Field(default_factory=list)
+    nodesIdeal: List[BayPlanIdealNode] = Field(default_factory=list)
     edges: List[BayPlanEdge] = Field(default_factory=list)
     comparison: Optional[BayPlanComparisonResult] = None
     bossSpokes: List[BayPlanSpoke] = Field(default_factory=list)
