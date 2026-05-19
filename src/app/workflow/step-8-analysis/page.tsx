@@ -178,6 +178,21 @@ export default function Step8AnalysisPage() {
     [summarySnapshot],
   );
 
+  const step4ReconstructLastRunAt = useMemo<string | null>(() => {
+    const geom = (currentProject?.steps?.[4]?.data ?? {}) as {
+      geometry2d?: { reconstruct?: { lastRunAt?: string | null } };
+    };
+    return geom.geometry2d?.reconstruct?.lastRunAt ?? null;
+  }, [currentProject]);
+
+  const summaryIsStale = useMemo(() => {
+    if (!summarySnapshot || !step4ReconstructLastRunAt) return false;
+    const snapshotMs = Date.parse(summarySnapshot.generatedAt);
+    const step4Ms = Date.parse(step4ReconstructLastRunAt);
+    if (!Number.isFinite(snapshotMs) || !Number.isFinite(step4Ms)) return false;
+    return step4Ms > snapshotMs;
+  }, [summarySnapshot, step4ReconstructLastRunAt]);
+
   const ribAverages = useMemo(() => {
     const lengths = ribRows.map((row) => row.length).filter(isFiniteNumber);
     const impostDistances = ribRows.map((row) => row.impostDistance).filter(isFiniteNumber);
@@ -424,6 +439,15 @@ export default function Step8AnalysisPage() {
               {summaryError && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
                   {summaryError}
+                </div>
+              )}
+
+              {summaryIsStale && summarySnapshot && step4ReconstructLastRunAt && (
+                <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-800">
+                  Step 4 reconstruction was updated on{" "}
+                  {new Date(step4ReconstructLastRunAt).toLocaleString()}, after the saved
+                  Step 7B summary ({new Date(summarySnapshot.generatedAt).toLocaleString()}).
+                  Return to Step 7 and continue to refresh these tables.
                 </div>
               )}
 
