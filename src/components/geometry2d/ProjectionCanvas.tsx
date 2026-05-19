@@ -1147,10 +1147,11 @@ export function ProjectionCanvas({
       });
       context.restore();
 
-      // Snap lines: thin grey dashed segment from measured to ideal position.
+      // Snap lines: magenta dashed segment from measured to ideal position so
+      // it doesn't collide visually with the cyan corner-anchor strokes.
       context.save();
-      context.strokeStyle = "#94a3b8";
-      context.globalAlpha = 0.45;
+      context.strokeStyle = "#ec4899";
+      context.globalAlpha = 0.85;
       context.lineWidth = 1.0;
       context.setLineDash([3, 3]);
       reconstructionMeasuredNodes.forEach((measured, idx) => {
@@ -2154,7 +2155,7 @@ export function ProjectionCanvas({
                             y1={measured.y}
                             x2={ideal.x}
                             y2={ideal.y}
-                            stroke="#22d3ee"
+                            stroke="#ec4899"
                             strokeWidth={4}
                             strokeDasharray="6 6"
                             opacity={0.95}
