@@ -401,6 +401,7 @@ export function useStep4Geometry2DController() {
   const [isLoadingTemplateMatchCsv, setIsLoadingTemplateMatchCsv] = useState(false);
   const [reconstructResult, setReconstructResult] = useState<Geometry2DReconstructRunResult | null>(null);
   const [reconstructionView, setReconstructionView] = useState<"measured" | "ideal">("measured");
+  const [showIdealisedOverlay, setShowIdealisedOverlay] = useState<boolean>(false);
   const [reconstructPreviewBosses, setReconstructPreviewBosses] = useState<Geometry2DReconstructBossPoint[]>([]);
   const [reconstructLastRunAt, setReconstructLastRunAt] = useState<string | undefined>(undefined);
   const [reconstructStatePath, setReconstructStatePath] = useState<string | undefined>(undefined);
@@ -2177,6 +2178,8 @@ export function useStep4Geometry2DController() {
     reconstructResult,
     reconstructionView,
     setReconstructionView,
+    showIdealisedOverlay,
+    setShowIdealisedOverlay,
     reconstructPreviewBosses,
     reconstructLastRunAt,
     reconstructStatePath,
