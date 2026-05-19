@@ -737,7 +737,7 @@ export default function Step2ProjectionPage() {
                 ) : (
                   <>
                     <Plus className="w-4 h-4" />
-                    Add Projection
+                    Generate Projection
                   </>
                 )}
               </Button>
@@ -775,7 +775,7 @@ export default function Step2ProjectionPage() {
                     No projections generated yet
                   </p>
                   <p className="text-xs text-muted-foreground/70">
-                    Select a view and click "Add Projection"
+                    Select a view and click "Generate Projection"
                   </p>
                 </div>
               ) : (
@@ -1072,7 +1072,7 @@ export default function Step2ProjectionPage() {
                           <span className="text-sm font-medium capitalize">{perspective} View Selected</span>
                         </div>
                         <span className="text-xs text-muted-foreground">
-                          — Rotate the view to inspect, then click "Add Projection" to capture
+                          — Rotate the view to inspect, then click "Generate Projection" to capture
                         </span>
                       </div>
                       
