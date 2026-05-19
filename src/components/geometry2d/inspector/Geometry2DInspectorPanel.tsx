@@ -64,6 +64,8 @@ interface Geometry2DInspectorPanelProps {
   onSaveBayPlanManualEdges: (edges: Geometry2DBayPlanEdge[]) => void;
   onSelectBayPlanEdge: (edgeKey: string | null) => void;
   reconstructView?: "controls" | "manualEdit";
+  reconstructionView: "measured" | "ideal";
+  onChangeReconstructionView: (next: "measured" | "ideal") => void;
 }
 
 export function Geometry2DInspectorPanel({
@@ -112,6 +114,8 @@ export function Geometry2DInspectorPanel({
   onSaveBayPlanManualEdges,
   onSelectBayPlanEdge,
   reconstructView = "controls",
+  reconstructionView,
+  onChangeReconstructionView,
 }: Geometry2DInspectorPanelProps) {
   return (
     <div className={`${containerClassName || "lg:col-span-3"} space-y-4`}>
@@ -170,6 +174,8 @@ export function Geometry2DInspectorPanel({
           onSaveManualEdges={onSaveBayPlanManualEdges}
           onSelectEdge={onSelectBayPlanEdge}
           view={reconstructView}
+          reconstructionView={reconstructionView}
+          onChangeReconstructionView={onChangeReconstructionView}
         />
       )}
     </div>

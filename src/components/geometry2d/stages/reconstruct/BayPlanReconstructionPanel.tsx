@@ -58,6 +58,10 @@ interface BayPlanReconstructionPanelProps {
   // "manualEdit" = the rib edit table card. Splitting them lets step 4D show
   // each as its own tab in the left rail without nuking shared internal state.
   view?: "controls" | "manualEdit";
+  // Whether the rendered graph should show measured boss positions (the
+  // default scoring substrate) or the idealised template positions from 4C.
+  reconstructionView: "measured" | "ideal";
+  onChangeReconstructionView: (next: "measured" | "ideal") => void;
 }
 
 function asNumber(value: unknown, fallback: number): number {
@@ -184,9 +188,15 @@ export function BayPlanReconstructionPanel({
   onSaveManualEdges,
   onSelectEdge,
   view = "controls",
+  reconstructionView,
+  onChangeReconstructionView,
 }: BayPlanReconstructionPanelProps) {
   const showControls = view === "controls";
   const showManualEdit = view === "manualEdit";
+  const hasIdealPositions = useMemo(() => {
+    const ideal = result?.nodesIdeal || [];
+    return ideal.some((n) => n.u !== null && n.v !== null);
+  }, [result?.nodesIdeal]);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [showScoreBreakdown, setShowScoreBreakdown] = useState(false);
   // Default expanded — the parent step gates this card behind a dedicated
@@ -460,6 +470,32 @@ export function BayPlanReconstructionPanel({
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             <Badge variant={result ? "secondary" : "outline"}>{reconstructionStatusLabel}</Badge>
             {formattedLastRunAt ? <span>Last run: {formattedLastRunAt}</span> : <span>No reconstruction run yet.</span>}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground">View</span>
+            <div className="inline-flex rounded-md border bg-background">
+              <Button
+                type="button"
+                variant={reconstructionView === "measured" ? "default" : "ghost"}
+                size="sm"
+                className="rounded-r-none"
+                onClick={() => onChangeReconstructionView("measured")}
+              >
+                Measured
+              </Button>
+              <Button
+                type="button"
+                variant={reconstructionView === "ideal" ? "default" : "ghost"}
+                size="sm"
+                className="rounded-l-none"
+                disabled={!hasIdealPositions}
+                title={hasIdealPositions ? "" : "No matched bosses from Step 4C"}
+                onClick={() => onChangeReconstructionView("ideal")}
+              >
+                Idealised
+              </Button>
+            </div>
           </div>
 
           {result ? (

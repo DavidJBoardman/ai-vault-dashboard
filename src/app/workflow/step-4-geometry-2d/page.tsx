@@ -343,6 +343,8 @@ export default function Step4Geometry2DPage() {
                   onExportBayPlanDxf={controller.handleExportBayPlanDxf}
                   onSaveBayPlanManualEdges={controller.handleSaveManualReconstructionEdges}
                   onSelectBayPlanEdge={handleSelectReconstructionEdge}
+                  reconstructionView={controller.reconstructionView}
+                  onChangeReconstructionView={controller.setReconstructionView}
                 />
               ) : isRoiStage ? (
                 <RoiEvidenceLayersCard
