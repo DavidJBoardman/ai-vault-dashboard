@@ -56,6 +56,8 @@ import {
   Tag,
   Undo2,
   Redo2,
+  CheckCircle2,
+  ChevronDown,
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
@@ -165,9 +167,10 @@ export default function Step3SegmentationPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState("");
   
-  // Text prompts for guided segmentation
-  const [textPrompts, setTextPrompts] = useState<string[]>([]);
+  // Text prompts for guided segmentation — rib + boss stone are the defaults
+  const [textPrompts, setTextPrompts] = useState<string[]>(["rib", "boss stone"]);
   const [newPrompt, setNewPrompt] = useState("");
+  const [showAdvancedPrompts, setShowAdvancedPrompts] = useState(false);
   
   // Segmentation state
   const [masks, setMasks] = useState<SegmentationMask[]>([]);
@@ -234,6 +237,14 @@ export default function Step3SegmentationPage() {
   // Mask label overlay toggle
   const [showMaskLabels, setShowMaskLabels] = useState(false);
 
+  // Auto-segmentation status feedback
+  type AutoSegStatus = "idle" | "running" | "done" | "error";
+  const [autoSegStatus, setAutoSegStatus] = useState<AutoSegStatus>("idle");
+  const [autoSegSummary, setAutoSegSummary] = useState("");
+  // Deferred trigger: set true after ROI confirmation so the useEffect fires
+  // once React has applied roiConfirmed=true (ensuring filterMasksByROI works)
+  const [pendingAutoSegment, setPendingAutoSegment] = useState(false);
+
   // Undo/redo history for mask operations
   const maskHistoryRef = useRef<SegmentationMask[][]>([]);
   const maskFutureRef = useRef<SegmentationMask[][]>([]);
@@ -275,6 +286,35 @@ export default function Step3SegmentationPage() {
   }, [currentProject?.segmentations, masks.length]);
 
   useEffect(() => { masksRef.current = masks; }, [masks]);
+
+  // Fire auto-segmentation once React has committed roiConfirmed=true
+  useEffect(() => {
+    if (!pendingAutoSegment || !roiConfirmed || isProcessing) return;
+    setPendingAutoSegment(false);
+    setAutoSegStatus("running");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void handleAutoSegment();
+  // handleAutoSegment is intentionally omitted — it is a plain function that
+  // is recreated each render and always captures fresh state values.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAutoSegment, roiConfirmed, isProcessing]);
+
+  // Derive auto-seg summary once processing finishes
+  useEffect(() => {
+    if (autoSegStatus !== "running" || isProcessing) return;
+    const ribCount = masks.filter(m => getBaseLabel(m.label).toLowerCase() === "rib").length;
+    const bossCount = masks.filter(m => getBaseLabel(m.label).toLowerCase() === "boss stone").length;
+    if (ribCount > 0 || bossCount > 0) {
+      const parts: string[] = [];
+      if (ribCount > 0) parts.push(`${ribCount} rib${ribCount !== 1 ? "s" : ""}`);
+      if (bossCount > 0) parts.push(`${bossCount} boss stone${bossCount !== 1 ? "s" : ""}`);
+      setAutoSegSummary(`Found ${parts.join(" and ")}`);
+      setAutoSegStatus("done");
+    } else {
+      setAutoSegSummary("No ribs or boss stones detected — try adjusting the ROI or add custom prompts.");
+      setAutoSegStatus("error");
+    }
+  }, [isProcessing, autoSegStatus, masks]);
 
   const pushToHistory = useCallback((snapshot: SegmentationMask[]) => {
     maskHistoryRef.current = [snapshot, ...maskHistoryRef.current].slice(0, 10);
@@ -1091,8 +1131,18 @@ export default function Step3SegmentationPage() {
     }
 
     setRoiConfirmed(true);
-    setShowMaskLabels(true); // make the A-D labels immediately visible
-    setActiveTool("box");    // nudge user toward segmentation
+    setShowMaskLabels(true);
+    setActiveTool("box");
+
+    // Auto-run rib + boss stone segmentation if no non-corner masks exist yet
+    const nonCornerCount = masks.filter(
+      m => getBaseLabel(m.label).toLowerCase() !== "corner"
+    ).length;
+    if (nonCornerCount === 0) {
+      setAutoSegStatus("idle");
+      setAutoSegSummary("");
+      setPendingAutoSegment(true);
+    }
   };
 
   // Apply ROI - delete rib masks outside ROI using backend pixel-overlap classification
@@ -1624,15 +1674,22 @@ export default function Step3SegmentationPage() {
     if (!selectedProjection) return;
     
     setIsProcessing(true);
-    setProcessingMessage("Loading SAM model...");
+    setAutoSegStatus("running");
+    setProcessingMessage("Loading SAM model…");
     pushToHistory(masks);
 
     try {
       const hasPrompts = textPrompts.length > 0;
+      const isDefaultTargets =
+        textPrompts.length === 2 &&
+        textPrompts.includes("rib") &&
+        textPrompts.includes("boss stone");
       setProcessingMessage(
-        hasPrompts 
-          ? `Segmenting with prompts: ${textPrompts.join(", ")}...`
-          : "Running automatic segmentation..."
+        isDefaultTargets
+          ? "Searching for ribs and boss stones…"
+          : hasPrompts
+          ? `Searching for ${textPrompts.join(", ")}…`
+          : "Running automatic segmentation…"
       );
       
       const response = await runSegmentation({
@@ -1907,79 +1964,39 @@ export default function Step3SegmentationPage() {
                     </p>
                   </div>
                 )}
-                {/* Text Prompts Input */}
-                <div className={cn("space-y-1.5", !roiConfirmed && "opacity-40 pointer-events-none")}>
-                  <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Type className="w-3 h-3" />
-                    Text Prompts
-                  </Label>
-                  
-                  {/* Quick Presets */}
-                  <div className="flex flex-wrap gap-1">
-                    {["rib", "boss stone"].map((preset) => (
-                      <button
-                        key={preset}
-                        onClick={() => {
-                          if (!textPrompts.includes(preset)) {
-                            setTextPrompts(prev => [...prev, preset]);
-                          }
-                        }}
-                        disabled={textPrompts.includes(preset)}
-                        className={cn(
-                          "px-2 py-0.5 text-xs rounded border transition-colors",
-                          textPrompts.includes(preset)
-                            ? "bg-primary/20 border-primary/50 text-primary cursor-default"
-                            : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"
-                        )}
-                      >
-                        {preset}
-                      </button>
-                    ))}
-                  </div>
-                  
-                  {/* Custom Input */}
-                  <div className="flex gap-1.5">
-                    <Input
-                      placeholder="Or type custom..."
-                      value={newPrompt}
-                      onChange={(e) => setNewPrompt(e.target.value)}
-                      onKeyDown={handlePromptKeyDown}
-                      className="flex-1 h-7 text-xs"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={handleAddPrompt}
-                      disabled={!newPrompt.trim()}
-                    >
-                      <Plus className="w-3 h-3" />
-                    </Button>
-                  </div>
-                  
-                  {/* Selected Prompt Tags */}
-                  {textPrompts.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-1 border-t border-dashed">
-                      <span className="text-xs text-muted-foreground/50 mr-1">Selected:</span>
-                      {textPrompts.map((prompt) => (
-                        <Badge
-                          key={prompt}
-                          variant="secondary"
-                          className="gap-0.5 pr-0.5 text-xs py-0"
-                        >
-                          {prompt}
-                          <button
-                            onClick={() => handleRemovePrompt(prompt)}
-                            className="ml-0.5 hover:bg-destructive/20 hover:text-destructive rounded-full p-0.5"
-                          >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
-                        </Badge>
-                      ))}
+
+                {/* Auto-segmentation status feedback */}
+                {roiConfirmed && (autoSegStatus === "running" || autoSegStatus === "done" || autoSegStatus === "error") && (
+                  <div className={cn(
+                    "flex items-start gap-2 p-2 rounded-lg border text-xs",
+                    autoSegStatus === "running" && "bg-primary/10 border-primary/20",
+                    autoSegStatus === "done"    && "bg-green-500/10 border-green-500/20",
+                    autoSegStatus === "error"   && "bg-amber-500/10 border-amber-500/20",
+                  )}>
+                    {autoSegStatus === "running" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary mt-0.5 shrink-0" />
+                    ) : autoSegStatus === "done" ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-400 mt-0.5 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+                    )}
+                    <div>
+                      <p className="font-medium">
+                        {autoSegStatus === "running"
+                          ? processingMessage || "Searching…"
+                          : autoSegSummary}
+                      </p>
+                      {autoSegStatus === "running" && (
+                        <p className="text-muted-foreground mt-0.5">Masks outside the ROI will be removed automatically.</p>
+                      )}
+                      {autoSegStatus === "done" && (
+                        <p className="text-muted-foreground mt-0.5">Use the tools below to refine or add more features.</p>
+                      )}
                     </div>
-                  )}
-                </div>
-                
+                  </div>
+                )}
+
+                {/* SAM run button */}
                 <Button
                   size="sm"
                   className="w-full gap-1.5"
@@ -1991,8 +2008,92 @@ export default function Step3SegmentationPage() {
                   ) : (
                     <Wand2 className="w-3 h-3" />
                   )}
-                  {textPrompts.length > 0 ? "Run SAM Segmentation" : "Run SAM Segmentation"}
+                  {autoSegStatus === "done" ? "Re-run Segmentation" : "Run SAM Segmentation"}
                 </Button>
+
+                {/* Custom prompts — collapsed by default */}
+                <div className={cn("space-y-1.5", !roiConfirmed && "opacity-40 pointer-events-none")}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedPrompts(v => !v)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <ChevronDown className={cn("w-3 h-3 transition-transform", showAdvancedPrompts && "rotate-180")} />
+                    <Type className="w-3 h-3" />
+                    Custom prompts
+                    {textPrompts.length > 0 && (
+                      <span className="ml-1 px-1 rounded bg-primary/20 text-primary text-[10px]">{textPrompts.length}</span>
+                    )}
+                  </button>
+
+                  {showAdvancedPrompts && (
+                    <div className="space-y-1.5 pl-1 border-l border-border/40">
+                      {/* Quick Presets */}
+                      <div className="flex flex-wrap gap-1">
+                        {["rib", "boss stone"].map((preset) => (
+                          <button
+                            key={preset}
+                            onClick={() => {
+                              if (!textPrompts.includes(preset)) {
+                                setTextPrompts(prev => [...prev, preset]);
+                              }
+                            }}
+                            disabled={textPrompts.includes(preset)}
+                            className={cn(
+                              "px-2 py-0.5 text-xs rounded border transition-colors",
+                              textPrompts.includes(preset)
+                                ? "bg-primary/20 border-primary/50 text-primary cursor-default"
+                                : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"
+                            )}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Custom Input */}
+                      <div className="flex gap-1.5">
+                        <Input
+                          placeholder="Add custom prompt…"
+                          value={newPrompt}
+                          onChange={(e) => setNewPrompt(e.target.value)}
+                          onKeyDown={handlePromptKeyDown}
+                          className="flex-1 h-7 text-xs"
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={handleAddPrompt}
+                          disabled={!newPrompt.trim()}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      </div>
+
+                      {/* Active prompt tags */}
+                      {textPrompts.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-1 border-t border-dashed">
+                          {textPrompts.map((prompt) => (
+                            <Badge
+                              key={prompt}
+                              variant="secondary"
+                              className="gap-0.5 pr-0.5 text-xs py-0"
+                            >
+                              {prompt}
+                              <button
+                                onClick={() => handleRemovePrompt(prompt)}
+                                className="ml-0.5 hover:bg-destructive/20 hover:text-destructive rounded-full p-0.5"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 
                 <div className="grid grid-cols-2 gap-1.5">
                   {[
