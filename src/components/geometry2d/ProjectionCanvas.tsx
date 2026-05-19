@@ -1425,12 +1425,7 @@ export function ProjectionCanvas({
         <CardContent>
           <div ref={previewFrameRef} className="overflow-hidden rounded-lg border border-white/10 bg-black">
             <div className="flex min-h-12 flex-wrap items-center gap-2 border-b border-white/10 bg-black px-3 py-2">
-              {showReconstruction && reconstructionView === "ideal" && (
-                <span className="inline-flex items-center gap-1.5 rounded border border-violet-400/40 bg-violet-500/15 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-violet-100">
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "#c4b5fd", boxShadow: "0 0 0 1.5px #6d28d9" }} />
-                  Idealised view · derived from Step 4C
-                </span>
-              )}
+
               {showComparisonLegend && (
                 <>
                   {showOriginalComparison && (
