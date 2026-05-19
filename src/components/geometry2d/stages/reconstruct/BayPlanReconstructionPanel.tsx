@@ -202,7 +202,6 @@ export function BayPlanReconstructionPanel({
     return ideal.some((n) => n.u !== null && n.v !== null);
   }, [result?.nodesIdeal]);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [showScoreBreakdown, setShowScoreBreakdown] = useState(false);
   // Default expanded — the parent step gates this card behind a dedicated
   // "Manual edit" tab now, so collapsing it again from inside is redundant.
   const [showManualRibEdits, setShowManualRibEdits] = useState(true);
@@ -533,20 +532,9 @@ export function BayPlanReconstructionPanel({
 
           {result && resultReconstructionMode === "current" ? (
             <div className="rounded-md border border-border/70 bg-muted/10 px-3 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Score</p>
-                  <p className="mt-1 text-sm font-semibold leading-none">{overallScoreLabel}</p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-2 text-xs"
-                  onClick={() => setShowScoreBreakdown((prev) => !prev)}
-                >
-                  {showScoreBreakdown ? "Hide" : "Show"}
-                  {showScoreBreakdown ? <ChevronUp className="ml-1 h-3.5 w-3.5" /> : <ChevronDown className="ml-1 h-3.5 w-3.5" />}
-                </Button>
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Score</p>
+                <p className="mt-1 text-sm font-semibold leading-none">{overallScoreLabel}</p>
               </div>
               {edgeEvidenceLabel && boundaryCoverageLabel && degreeSatisfactionLabel ? (
                 <p className="mt-2 text-[11px] text-muted-foreground">
@@ -559,34 +547,32 @@ export function BayPlanReconstructionPanel({
                 </p>
               ) : null}
 
-              {showScoreBreakdown ? (
-                <div className="mt-3 space-y-2 border-t border-border/60 pt-3 text-xs">
-                  <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
-                    <span className="text-muted-foreground">Edge evidence</span>
-                    <span className="font-medium">{edgeEvidenceLabel ?? "0.00"}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
-                    <span className="text-muted-foreground">Boundary coverage</span>
-                    <span className="font-medium">
-                      {boundaryCoverageLabel ?? "0.00"}
-                      {selectedBoundaryEdgeCount !== null && mandatoryBoundaryEdgeCount !== null
-                        ? ` (${selectedBoundaryEdgeCount}/${mandatoryBoundaryEdgeCount})`
-                        : ""}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
-                    <span className="text-muted-foreground">Degree satisfaction</span>
-                    <span className="font-medium">{degreeSatisfactionLabel ?? "0.00"}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
-                    <span className="text-muted-foreground">Mutual support</span>
-                    <span className="font-medium">
-                      {mutualSupportLabel ?? "0.00"}
-                      {selectedNonBoundaryEdgeCount !== null ? ` (${selectedNonBoundaryEdgeCount} ribs)` : ""}
-                    </span>
-                  </div>
+              <div className="mt-3 space-y-2 border-t border-border/60 pt-3 text-xs">
+                <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
+                  <span className="text-muted-foreground">Edge evidence</span>
+                  <span className="font-medium">{edgeEvidenceLabel ?? "0.00"}</span>
                 </div>
-              ) : null}
+                <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
+                  <span className="text-muted-foreground">Boundary coverage</span>
+                  <span className="font-medium">
+                    {boundaryCoverageLabel ?? "0.00"}
+                    {selectedBoundaryEdgeCount !== null && mandatoryBoundaryEdgeCount !== null
+                      ? ` (${selectedBoundaryEdgeCount}/${mandatoryBoundaryEdgeCount})`
+                      : ""}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
+                  <span className="text-muted-foreground">Degree satisfaction</span>
+                  <span className="font-medium">{degreeSatisfactionLabel ?? "0.00"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
+                  <span className="text-muted-foreground">Mutual support</span>
+                  <span className="font-medium">
+                    {mutualSupportLabel ?? "0.00"}
+                    {selectedNonBoundaryEdgeCount !== null ? ` (${selectedNonBoundaryEdgeCount} ribs)` : ""}
+                  </span>
+                </div>
+              </div>
             </div>
           ) : result && resultReconstructionMode === "delaunay" ? (
             <div className="rounded-md border border-border/70 bg-muted/10 px-3 py-2.5 text-xs text-muted-foreground">
