@@ -503,7 +503,9 @@ export function BayPlanReconstructionPanel({
           </div>
 
           <Label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background/60 px-3 py-2 text-xs font-medium">
-            <span className="text-muted-foreground">Show idealised overlay</span>
+            <span className="text-muted-foreground">
+              {reconstructionView === "ideal" ? "Show measured overlay" : "Show idealised overlay"}
+            </span>
             <Checkbox
               checked={showIdealisedOverlay}
               disabled={!hasIdealPositions}

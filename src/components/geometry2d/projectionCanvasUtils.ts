@@ -51,20 +51,22 @@ export function getReconstructionBossStyle(
   if (source === "manual") {
     // Idealised view tints the fill violet to signal "this point is now
     // showing its idealised position" but keeps the amber ring so the user
-    // can still see it was a manual node.
+    // can still see it was a manual node. The mode banner above the legend
+    // already carries the "idealised view" qualifier, so the chip label
+    // stays "Manual node" in both views.
     return idealisedView
-      ? { fill: "#c4b5fd", stroke: "#facc15", label: "Manual node (idealised)" }
+      ? { fill: "#c4b5fd", stroke: "#facc15", label: "Manual node" }
       : { fill: "#facc15", stroke: "#78350f", label: "Manual node" };
   }
   if (source === "ideal") {
     // Explicit "ideal" source — legacy code paths before the measured-
     // precedence rewrite. Renders the same as a detected boss in idealised
     // view.
-    return { fill: "#c4b5fd", stroke: "#6d28d9", label: "Idealised node" };
+    return { fill: "#c4b5fd", stroke: "#6d28d9", label: "Detected node" };
   }
   // Detected/raw/auto bosses.
   return idealisedView
-    ? { fill: "#c4b5fd", stroke: "#6d28d9", label: "Idealised node" }
+    ? { fill: "#c4b5fd", stroke: "#6d28d9", label: "Detected node" }
     : { fill: "#cbd5e1", stroke: "#334155", label: "Detected node" };
 }
 
