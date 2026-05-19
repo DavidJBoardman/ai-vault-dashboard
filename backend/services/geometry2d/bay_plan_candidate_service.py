@@ -33,6 +33,40 @@ from services.geometry2d.utils.bay_candidate_io import (
 from services.geometry2d.utils.bay_candidate_render import render_candidate_debug
 
 
+def _node_to_payload(node: Node) -> Dict[str, Any]:
+    return {
+        "id": node.node_id,
+        "bossId": node.boss_id,
+        "source": str(node.source),
+        "u": float(node.uv[0]),
+        "v": float(node.uv[1]),
+        "x": int(node.xy[0]),
+        "y": int(node.xy[1]),
+    }
+
+
+def _node_to_ideal_payload(node: Node) -> Dict[str, Any]:
+    if node.ideal_uv is None or node.ideal_xy is None:
+        return {
+            "id": node.node_id,
+            "bossId": node.boss_id,
+            "source": "ideal",
+            "u": None,
+            "v": None,
+            "x": None,
+            "y": None,
+        }
+    return {
+        "id": node.node_id,
+        "bossId": node.boss_id,
+        "source": "ideal",
+        "u": float(node.ideal_uv[0]),
+        "v": float(node.ideal_uv[1]),
+        "x": int(node.ideal_xy[0]),
+        "y": int(node.ideal_xy[1]),
+    }
+
+
 DEFAULT_CANDIDATE_PARAMS: Dict[str, Any] = {
     "angleToleranceDeg": 10.0,
     "candidateMinScore": 0.36,
@@ -187,6 +221,41 @@ class BayPlanCandidateService:
             if not bool(delaunay.get("available", False)):
                 raise RuntimeError(str(delaunay.get("error") or "Delaunay reconstruction is unavailable."))
 
+            id_to_node = {node.node_id: node for node in nodes}
+            delaunay_nodes = delaunay.get("nodes", [])
+            delaunay_ideal_nodes: List[Dict[str, Any]] = []
+            for raw in delaunay_nodes:
+                if not isinstance(raw, dict):
+                    delaunay_ideal_nodes.append(
+                        {"id": None, "bossId": None, "source": "ideal", "u": None, "v": None, "x": None, "y": None}
+                    )
+                    continue
+                src = id_to_node.get(str(raw.get("id", "")))
+                if src is None or src.ideal_uv is None or src.ideal_xy is None:
+                    delaunay_ideal_nodes.append(
+                        {
+                            "id": raw.get("id"),
+                            "bossId": raw.get("bossId"),
+                            "source": "ideal",
+                            "u": None,
+                            "v": None,
+                            "x": None,
+                            "y": None,
+                        }
+                    )
+                else:
+                    delaunay_ideal_nodes.append(
+                        {
+                            "id": raw.get("id"),
+                            "bossId": raw.get("bossId"),
+                            "source": "ideal",
+                            "u": float(src.ideal_uv[0]),
+                            "v": float(src.ideal_uv[1]),
+                            "x": int(src.ideal_xy[0]),
+                            "y": int(src.ideal_xy[1]),
+                        }
+                    )
+
             payload: Dict[str, Any] = {
                 "projectDir": str(project_dir),
                 "outputDir": str(bay_plan_dir(project_dir)),
@@ -211,7 +280,8 @@ class BayPlanCandidateService:
                 "overallScore": 0.0,
                 "overallScoreBreakdown": {},
                 "params": params,
-                "nodes": delaunay.get("nodes", []),
+                "nodes": delaunay_nodes,
+                "nodesIdeal": delaunay_ideal_nodes,
                 "edges": delaunay.get("edges", []),
                 "candidateEdges": [],
                 "comparison": None,
@@ -325,18 +395,8 @@ class BayPlanCandidateService:
             "fallbackApplied": False,
             "fallbackReason": "",
             "params": params,
-            "nodes": [
-                {
-                    "id": node.node_id,
-                    "bossId": node.boss_id,
-                    "source": str(node.source),
-                    "u": float(node.uv[0]),
-                    "v": float(node.uv[1]),
-                    "x": int(node.xy[0]),
-                    "y": int(node.xy[1]),
-                }
-                for node in nodes
-            ],
+            "nodes": [_node_to_payload(node) for node in nodes],
+            "nodesIdeal": [_node_to_ideal_payload(node) for node in nodes],
             "edges": [
                 {
                     "a": int(edge["a"]),
