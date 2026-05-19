@@ -93,3 +93,35 @@ export function getDelaunayConstraintStyle(family?: string | null): DelaunayCons
     label: "ROI constraint",
   };
 }
+
+
+export interface ResidualSummary {
+  meanPercent: number;
+  maxPercent: number;
+  sampleCount: number;
+}
+
+interface ResidualInput {
+  matched?: boolean | null;
+  matchedXError?: number | null;
+  matchedYError?: number | null;
+  [key: string]: unknown;
+}
+
+export function computeResidualSummary(bosses: ReadonlyArray<ResidualInput>): ResidualSummary | null {
+  const residuals: number[] = [];
+  for (const boss of bosses) {
+    if (boss.matched !== true) continue;
+    const xErr = typeof boss.matchedXError === "number" && Number.isFinite(boss.matchedXError) ? boss.matchedXError : null;
+    const yErr = typeof boss.matchedYError === "number" && Number.isFinite(boss.matchedYError) ? boss.matchedYError : null;
+    if (xErr === null || yErr === null) continue;
+    residuals.push(Math.hypot(xErr, yErr));
+  }
+  if (residuals.length === 0) return null;
+  const sum = residuals.reduce((acc, v) => acc + v, 0);
+  return {
+    meanPercent: (sum / residuals.length) * 100,
+    maxPercent: Math.max(...residuals) * 100,
+    sampleCount: residuals.length,
+  };
+}

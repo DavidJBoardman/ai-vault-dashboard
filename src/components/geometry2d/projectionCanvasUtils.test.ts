@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeResidualSummary } from "./projectionCanvasUtils";
+import { computeResidualSummary } from "./projectionCanvasUtils.ts";
 
 test("returns null when no boss carries a matched error", () => {
   const summary = computeResidualSummary([
