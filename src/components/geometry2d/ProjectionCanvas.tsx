@@ -72,6 +72,7 @@ interface ProjectionCanvasProps {
   showReconstructionOverlay?: boolean;
   showReconstructionNodes?: boolean;
   reconstructionResult?: Geometry2DBayPlanRunResult | null;
+  reconstructionView?: "measured" | "ideal";
   reconstructionPreviewBosses?: Geometry2DBayPlanBossPoint[];
   selectedReconstructionEdgeKey?: string | null;
   onReconstructionEdgeSelect?: (edgeKey: string | null) => void;
@@ -118,6 +119,7 @@ export function ProjectionCanvas({
   showReconstructionOverlay = false,
   showReconstructionNodes = false,
   reconstructionResult = null,
+  reconstructionView = "measured",
   reconstructionPreviewBosses = [],
   selectedReconstructionEdgeKey = null,
   onReconstructionEdgeSelect,
@@ -197,7 +199,23 @@ export function ProjectionCanvas({
   const showCornerGuideLegend = showRoiCornerGuides && showROI && bossHoverInfoMode === "nodes";
   const showAnyRoiLayer = showROI || showOriginalComparison || showUpdatedComparison;
   const projectionResolution = selectedProjection?.settings?.resolution || 2048;
-  const reconstructionNodes = reconstructionResult?.nodes || [];
+  const reconstructionMeasuredNodes = reconstructionResult?.nodes || [];
+  const reconstructionIdealNodes = reconstructionResult?.nodesIdeal || [];
+  const reconstructionNodes = reconstructionMeasuredNodes.map((measured, idx) => {
+    if (reconstructionView !== "ideal") return measured;
+    const ideal = reconstructionIdealNodes[idx];
+    if (!ideal || ideal.u === null || ideal.v === null || ideal.x === null || ideal.y === null) {
+      return measured;
+    }
+    return {
+      ...measured,
+      u: ideal.u,
+      v: ideal.v,
+      x: ideal.x,
+      y: ideal.y,
+      source: "ideal",
+    };
+  });
   const reconstructionEdges = reconstructionResult?.edges || [];
   const reconstructionCandidateEdges = reconstructionResult?.candidateEdges || [];
   const reconstructionMode = reconstructionResult?.params?.reconstructionMode === "delaunay" ? "delaunay" : "current";
