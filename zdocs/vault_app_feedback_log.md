@@ -216,15 +216,15 @@ No issues logged.
 </details>
 
 <details>
-<summary><strong>- [ ] GEO-03 · Bay plan should be derived from measured boss locations, not idealised ones</strong></summary>
+<summary><strong>- [x] GEO-03 · Bay plan should prioritise measured boss locations over idealised template positions</strong></summary>
 
 | Field | Detail |
 |---|---|
 | **Category** | 2D Geometry |
 | **Type** | ✨ Enhancement |
 | **Priority** | 🔴 High |
-| **Issue** | The bay plan matching algorithm currently aligns to the idealised boss layout. It should instead match against the raw measured boss locations (reference points), with the idealised plan derived from the measured fit — not the other way around. |
-| **Recommendation** | Reverse the matching direction: fit the bay plan to measured boss positions first, then derive the idealised/schematic plan from that fit. Provide an intuitive way to inspect the fit (e.g. show measured vs idealised side-by-side with residuals, allow manual nudging of reference points). |
+| **Issue** | Bay-plan reconstruction currently prefers idealised template positions from Step 4C when a match exists. For scan-derived geometry, measured boss/reference locations should remain the primary node geometry; idealised positions should support interpretation, comparison, or optional regularisation rather than silently replacing measured locations. |
+| **Recommendation** | Change reconstruction node precedence so Step 4D uses measured/reference boss locations by default. Keep idealised/template positions as an overlay or explicit optional mode, and provide fit diagnostics showing measured vs idealised positions, residuals, and any nodes affected by regularisation. |
 
 </details>
 

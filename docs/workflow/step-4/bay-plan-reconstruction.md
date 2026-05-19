@@ -25,7 +25,7 @@ Start with the default settings. Tune the advanced parameters below only if the 
 
 ### 2. Run reconstruction
 
-The backend loads the saved node points from sub-stage 4B (preferring ideal template positions from 4C where available) and the grouped rib-segmentation mask. It then:
+The backend loads the **measured** boss positions saved by sub-stage 4B (the raw segmented locations, not the idealised template positions from 4C) along with the grouped rib-segmentation mask. The idealised template positions from 4C are kept alongside as a parallel view but are not used for graph scoring — they're scored against the rib mask, which lives in measured-image space. The reconstruction then:
 
 1. **Generates candidate edges** — for each node, finds nearby neighbours in distinct directions and scores each edge by rib-mask overlap.[^1] An alternative Delaunay mode is available when mask evidence is weak.[^2]
 2. **Selects the final graph** — adds boundary edges first, then greedily adds candidates in score order (subject to degree limits and optional planarity), and repairs any under-connected nodes.
@@ -41,6 +41,9 @@ The backend loads the saved node points from sub-stage 4B (preferring ideal temp
 ### 3. Inspect and edit
 
 - Compare the graph against the underlying projection and masks using the layer toggles.
+- Use the **Measured / Idealised** view toggle at the top of the panel to switch the rendered node positions:
+    - **Measured** (default) — bosses sit at their segmented positions in the projection image. This is the graph the reconstruction algorithm was scored against.
+    - **Idealised** — bosses snap to the nearest cut-line ratios of the template variant matched in Step 4C. Bosses that 4C could not match remain at their measured position in both views. The toggle is disabled when no 4C matches exist.
 - Add missing edges or remove wrong ones manually. Manual edits are saved alongside the computed graph.
 
 If the graph has obvious errors, try the following before editing manually:
@@ -52,10 +55,12 @@ If the graph has obvious errors, try the following before editing manually:
 
 ### 4. Export the plan as DXF
 
-Once the graph has been reviewed, use the `DXF` export to save the reconstructed bay plan. The export includes:
+Once the graph has been reviewed, use the `DXF` export to save the reconstructed bay plan. The export emits four CAD layers so both views are available downstream:
 
-- the final node set, including saved manual corrections
-- the reconstructed plan edges that define the 2D rib layout
+- `BAY_RIBS_MEASURED` and `BAY_NODES_MEASURED` — the measured (segmented) graph used for scoring.
+- `BAY_RIBS_IDEAL` and `BAY_NODES_IDEAL` — the idealised view derived from Step 4C. Bosses without a 4C match are omitted from these layers.
+
+The final node set (including saved manual corrections) and the reconstructed plan edges that define the 2D rib layout are written into both layer groups.
 
 Use this file when you need a CAD-readable record of the Step 4 result before continuing to the 3D reprojection stages.
 
