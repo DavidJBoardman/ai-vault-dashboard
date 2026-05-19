@@ -357,9 +357,16 @@ export function BayPlanReconstructionPanel({
   const reconstructionStatusLabel = isRunning ? "Running" : result ? "Result ready" : "Awaiting run";
   const formattedLastRunAt = lastRunAt ? new Date(lastRunAt).toLocaleString("en-GB") : null;
   const resultReconstructionMode = result?.params?.reconstructionMode === "delaunay" ? "delaunay" : "current";
+  const idealAvailableCount = useMemo(() => {
+    const ideal = result?.nodesIdeal || [];
+    return ideal.reduce(
+      (acc, node) => (node.u !== null && node.v !== null ? acc + 1 : acc),
+      0,
+    );
+  }, [result?.nodesIdeal]);
   const idealReferenceSummary = result
-    ? `${result.idealBossUsedCount}/${result.bossCount} boss references used ideal matched positions from Step 4C, plus ${result.cornerAnchorCount} ROI corner anchor${result.cornerAnchorCount === 1 ? "" : "s"}.`
-    : "Reconstruction uses the ideal matched boss references from Step 4C when they are available, plus ROI corner anchors.";
+    ? `Reconstruction uses ${result.bossCount} measured boss reference${result.bossCount === 1 ? "" : "s"} plus ${result.cornerAnchorCount} ROI corner anchor${result.cornerAnchorCount === 1 ? "" : "s"}. ${idealAvailableCount}/${result.bossCount} have idealised positions from Step 4C available for comparison.`
+    : "Reconstruction uses the measured boss locations as the scoring substrate. Idealised positions from Step 4C are kept alongside as a comparison view when available.";
   const overallScoreLabel =
     typeof result?.overallScore === "number" && Number.isFinite(result.overallScore)
       ? result.overallScore.toFixed(3)
