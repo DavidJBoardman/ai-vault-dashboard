@@ -2118,19 +2118,30 @@ export function ProjectionCanvas({
                         const start = reconstructionOverlayNodes[edge.a];
                         const end = reconstructionOverlayNodes[edge.b];
                         if (!start || !end || !start.matched || !end.matched) return null;
-                        const overlayStroke = reconstructionView === "ideal" ? "#ff7a18" : "#a78bfa";
+                        const overlayStroke = reconstructionView === "ideal" ? "#ff7a18" : "#c4b5fd";
                         return (
-                          <line
-                            key={`re-overlay-edge-${idx}`}
-                            x1={start.x}
-                            y1={start.y}
-                            x2={end.x}
-                            y2={end.y}
-                            stroke={overlayStroke}
-                            strokeWidth={5.5}
-                            strokeDasharray="14 10"
-                            opacity={0.7}
-                          />
+                          <g key={`re-overlay-edge-${idx}`}>
+                            {/* Dark stroke behind so the overlay reads against the bright primary edges. */}
+                            <line
+                              x1={start.x}
+                              y1={start.y}
+                              x2={end.x}
+                              y2={end.y}
+                              stroke="#0f172a"
+                              strokeWidth={11}
+                              opacity={0.55}
+                            />
+                            <line
+                              x1={start.x}
+                              y1={start.y}
+                              x2={end.x}
+                              y2={end.y}
+                              stroke={overlayStroke}
+                              strokeWidth={7}
+                              strokeDasharray="18 12"
+                              opacity={0.95}
+                            />
+                          </g>
                         );
                       })}
                       {reconstructionMeasuredNodes.map((measured, idx) => {
@@ -2143,26 +2154,27 @@ export function ProjectionCanvas({
                             y1={measured.y}
                             x2={ideal.x}
                             y2={ideal.y}
-                            stroke="#94a3b8"
-                            strokeWidth={2.5}
+                            stroke="#22d3ee"
+                            strokeWidth={4}
                             strokeDasharray="6 6"
-                            opacity={0.6}
+                            opacity={0.95}
                           />
                         );
                       })}
                       {reconstructionOverlayNodes.map((node, idx) => {
                         if (!node.matched) return null;
-                        const overlayStroke = reconstructionView === "ideal" ? "#ff7a18" : "#6d28d9";
+                        const overlayStroke = reconstructionView === "ideal" ? "#ff7a18" : "#7c3aed";
+                        const overlayFill = reconstructionView === "ideal" ? "#fed7aa" : "#ddd6fe";
                         return (
                           <circle
                             key={`re-overlay-node-${idx}`}
                             cx={node.x}
                             cy={node.y}
-                            r={9}
-                            fill="none"
+                            r={14}
+                            fill={overlayFill}
                             stroke={overlayStroke}
-                            strokeWidth={3}
-                            opacity={0.8}
+                            strokeWidth={4}
+                            opacity={0.95}
                           />
                         );
                       })}
