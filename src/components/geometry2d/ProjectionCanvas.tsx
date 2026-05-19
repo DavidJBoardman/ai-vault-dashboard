@@ -2196,33 +2196,45 @@ export function ProjectionCanvas({
                         const style = getReconstructionBossStyle(boss.source);
                         return (
                           <>
-                      <circle
-                        cx={(boss.x / projectionResolution) * 100}
-                        cy={(boss.y / projectionResolution) * 100}
-                        r="0.8"
-                        fill={style.fill}
-                        stroke={style.stroke}
-                        strokeWidth="0.3"
-                      />
-                      <text
-                        x={(boss.x / projectionResolution) * 100 + 1.06}
-                        y={(boss.y / projectionResolution) * 100 - 0.92}
-                        fill="#000000"
-                        opacity="0.9"
-                        fontSize="2.05"
-                        fontWeight="700"
-                      >
-                        {getCompactNodeLabel(boss.id)}
-                      </text>
-                      <text
-                        x={(boss.x / projectionResolution) * 100 + 1}
-                        y={(boss.y / projectionResolution) * 100 - 1}
-                        fill="#ffffff"
-                        fontSize="2"
-                        fontWeight="700"
-                      >
-                        {getCompactNodeLabel(boss.id)}
-                      </text>
+                            <circle
+                              cx={(boss.x / projectionResolution) * 100}
+                              cy={(boss.y / projectionResolution) * 100}
+                              r="0.8"
+                              fill={style.fill}
+                              stroke={style.stroke}
+                              strokeWidth="0.3"
+                            />
+                            {(() => {
+                              const label = getCompactNodeLabel(boss.id);
+                              const pillWidth = 0.95 + 1.05 * label.length;
+                              const pillHeight = 2.4;
+                              const pillX = (boss.x / projectionResolution) * 100 + 0.6;
+                              const pillY = (boss.y / projectionResolution) * 100 - 2.8;
+                              return (
+                                <>
+                                  <rect
+                                    x={pillX}
+                                    y={pillY}
+                                    width={pillWidth}
+                                    height={pillHeight}
+                                    rx="0.6"
+                                    ry="0.6"
+                                    fill="#0f172a"
+                                    opacity="0.78"
+                                  />
+                                  <text
+                                    x={pillX + pillWidth / 2}
+                                    y={pillY + pillHeight - 0.55}
+                                    fill="#ffffff"
+                                    fontSize="2"
+                                    fontWeight="700"
+                                    textAnchor="middle"
+                                  >
+                                    {label}
+                                  </text>
+                                </>
+                              );
+                            })()}
                           </>
                         );
                       })()}
