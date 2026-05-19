@@ -246,6 +246,11 @@ export interface Geometry2DBayPlanBossPoint {
   x: number;
   y: number;
   source: string;
+  matched?: boolean | null;
+  matchedXTemplateLabel?: string | null;
+  matchedYTemplateLabel?: string | null;
+  matchedXError?: number | null;
+  matchedYError?: number | null;
 }
 
 export interface Geometry2DBayPlanStateResult {
