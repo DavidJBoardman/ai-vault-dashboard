@@ -284,6 +284,16 @@ export interface Geometry2DBayPlanNode {
   y: number;
 }
 
+export interface Geometry2DBayPlanIdealNode {
+  id: string | null;
+  bossId?: string | null;
+  source: "ideal";
+  u: number | null;
+  v: number | null;
+  x: number | null;
+  y: number | null;
+}
+
 export interface Geometry2DBayPlanEdge {
   a: number;
   b: number;
@@ -300,6 +310,7 @@ export interface Geometry2DBayPlanComparisonResult {
   edgeCount: number;
   constraintFamilies: string[];
   nodes: Geometry2DBayPlanNode[];
+  nodesIdeal: Geometry2DBayPlanIdealNode[];
   edges: Geometry2DBayPlanEdge[];
 }
 
@@ -356,6 +367,7 @@ export interface Geometry2DBayPlanRunResult {
   overallScoreBreakdown: Record<string, number>;
   params: Record<string, unknown>;
   nodes: Geometry2DBayPlanNode[];
+  nodesIdeal: Geometry2DBayPlanIdealNode[];
   edges: Geometry2DBayPlanEdge[];
   comparison?: Geometry2DBayPlanComparisonResult | null;
   bossSpokes: Geometry2DBayPlanSpoke[];
