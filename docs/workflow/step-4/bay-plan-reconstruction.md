@@ -53,6 +53,26 @@ If the graph has obvious errors, try the following before editing manually:
 - Lower **candidate max distance** if the graph connects nodes across the bay that should not be linked.
 - Switch **reconstruction mode** to `delaunay` for comparison — if it produces a cleaner graph, the rib-mask evidence may be too noisy for angular-nearest.
 
+### Inspect-mode hover popup
+
+Switch the canvas tool to **Inspect** (top-right canvas toolbar) and hover a labelled boss. The popup shows the Step 4C match result for that boss:
+
+- **Cut typology** — the matched axis cuts (e.g., `starcut_n=3 × starcut_n=2`).
+- **Errors** — how far each axis was from the nearest cut-line ratio, as a percentage.
+- **Match status** — `matched` (both axes within tolerance) or `no match`.
+
+Use this to find bosses where 4C struggled before deciding whether to re-run matching or move on.
+
+### Idealised overlay
+
+Tick **Show idealised overlay** in the bay-plan panel to paint the *other* view as a faded comparison alongside the active one:
+
+- In Measured view, the overlay renders the idealised graph in violet dashed lines.
+- In Idealised view, the overlay renders the measured graph in orange dashed lines.
+- Thin grey snap lines connect each measured boss to its idealised counterpart, making per-boss residuals readable at a glance.
+
+The overlay is disabled until at least one boss has an idealised position from Step 4C.
+
 ### 4. Export the plan as DXF
 
 Once the graph has been reviewed, use the `DXF` export to save the reconstructed bay plan. The export emits four CAD layers so both views are available downstream:
