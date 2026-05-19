@@ -234,7 +234,7 @@ export function ProjectionCanvas({
   const showReconstruction = showReconstructionOverlay && reconstructionEdges.length > 0;
   const runUsedBosses = reconstructionResult?.usedBosses || [];
   const idealBosses = reconstructionResult?.idealBosses || [];
-  const measuredUsedBosses =
+  const measuredUsedBosses: Geometry2DBayPlanBossPoint[] =
     runUsedBosses.length > 0
       ? runUsedBosses
       : idealBosses.length > 0
@@ -485,6 +485,25 @@ export function ProjectionCanvas({
     return nearest;
   };
 
+  const findNearestUsedBossAtPointer = (
+    event: React.MouseEvent<HTMLDivElement>
+  ) => {
+    if (usedBosses.length === 0) return null;
+    const rect = getViewportRect(event);
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    let nearest: { boss: typeof usedBosses[number]; distance: number } | null = null;
+    for (const boss of usedBosses) {
+      const x = (boss.x / projectionResolution) * rect.width;
+      const y = (boss.y / projectionResolution) * rect.height;
+      const distance = Math.hypot(pointerX - x, pointerY - y);
+      if (!nearest || distance < nearest.distance) {
+        nearest = { boss, distance };
+      }
+    }
+    return nearest;
+  };
+
   const toProjectionCoordinates = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = getViewportRect(event);
     const nx = clamp01((event.clientX - rect.left) / rect.width);
@@ -640,6 +659,36 @@ export function ProjectionCanvas({
       }
       setHoveredReconstructionEdge(null);
     } else if (showReconstruction && !isPanningView && !panActive) {
+      const nearestBossInRecon = findNearestUsedBossAtPointer(event);
+      if (nearestBossInRecon && nearestBossInRecon.distance <= 11) {
+        const boss = nearestBossInRecon.boss;
+        const hostRect = event.currentTarget.getBoundingClientRect();
+        const matched = Boolean(boss.matched ?? (boss.matchedXTemplateLabel && boss.matchedYTemplateLabel));
+        setHoveredBoss({
+          id: Number.isFinite(Number(boss.id)) ? Number(boss.id) : 0,
+          label: String(boss.id),
+          tag: String(boss.id),
+          pointType: boss.source === "anchor" ? "corner" : "boss",
+          source: boss.source,
+          x: event.clientX - hostRect.left,
+          y: event.clientY - hostRect.top,
+          hostWidth: hostRect.width,
+          hostHeight: hostRect.height,
+          px: boss.x,
+          py: boss.y,
+          u: 0,
+          v: 0,
+          xTemplateLabel: boss.matchedXTemplateLabel ?? null,
+          yTemplateLabel: boss.matchedYTemplateLabel ?? null,
+          xError: boss.matchedXError ?? null,
+          yError: boss.matchedYError ?? null,
+          matched,
+          outOfBounds: false,
+        });
+        setHoveredReconstructionEdge(null);
+        return;
+      }
+      setHoveredBoss(null);
       const nearestEdge = findNearestEdgeAtPointer(event, reconstructionEdges);
       if (nearestEdge && nearestEdge.distance <= edgeHoverThresholdPx) {
         const hostRect = event.currentTarget.getBoundingClientRect();
