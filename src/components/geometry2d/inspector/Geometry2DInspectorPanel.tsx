@@ -66,6 +66,8 @@ interface Geometry2DInspectorPanelProps {
   reconstructView?: "controls" | "manualEdit";
   reconstructionView: "measured" | "ideal";
   onChangeReconstructionView: (next: "measured" | "ideal") => void;
+  showIdealisedOverlay: boolean;
+  onChangeShowIdealisedOverlay: (next: boolean) => void;
 }
 
 export function Geometry2DInspectorPanel({
@@ -116,6 +118,8 @@ export function Geometry2DInspectorPanel({
   reconstructView = "controls",
   reconstructionView,
   onChangeReconstructionView,
+  showIdealisedOverlay,
+  onChangeShowIdealisedOverlay,
 }: Geometry2DInspectorPanelProps) {
   return (
     <div className={`${containerClassName || "lg:col-span-3"} space-y-4`}>
@@ -176,6 +180,8 @@ export function Geometry2DInspectorPanel({
           view={reconstructView}
           reconstructionView={reconstructionView}
           onChangeReconstructionView={onChangeReconstructionView}
+          showIdealisedOverlay={showIdealisedOverlay}
+          onChangeShowIdealisedOverlay={onChangeShowIdealisedOverlay}
         />
       )}
     </div>

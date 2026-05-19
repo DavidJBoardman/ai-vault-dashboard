@@ -345,6 +345,8 @@ export default function Step4Geometry2DPage() {
                   onSelectBayPlanEdge={handleSelectReconstructionEdge}
                   reconstructionView={controller.reconstructionView}
                   onChangeReconstructionView={controller.setReconstructionView}
+                  showIdealisedOverlay={controller.showIdealisedOverlay}
+                  onChangeShowIdealisedOverlay={controller.setShowIdealisedOverlay}
                 />
               ) : isRoiStage ? (
                 <RoiEvidenceLayersCard
