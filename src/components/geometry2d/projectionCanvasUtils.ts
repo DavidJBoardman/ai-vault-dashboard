@@ -31,15 +31,21 @@ export function formatCutTypologyValue(value: string | number | null | undefined
   if (value === null || value === undefined) return "";
   const str = String(value);
   if (!str) return "";
-  // Round any decimal token with more than CUT_TYPOLOGY_DECIMALS digits after
-  // the point. Tokens that already fit (e.g. "0.5", "1.0") are left alone so
-  // we don't artificially pad short values.
-  return str.replace(/-?\d+\.\d+/g, (match) => {
-    const decimals = match.split(".")[1]?.length ?? 0;
-    if (decimals <= CUT_TYPOLOGY_DECIMALS) return match;
+  // Match decimal-point numbers and scientific-notation numbers so values like
+  // "-1.1102e-16" (floating-point noise around zero) collapse to "0.0" instead
+  // of leaking exponent form into the rendered table.
+  return str.replace(/-?\d+\.\d+(?:[eE][-+]?\d+)?|-?\d+[eE][-+]?\d+/g, (match) => {
     const num = Number.parseFloat(match);
     if (!Number.isFinite(num)) return match;
-    return num.toFixed(CUT_TYPOLOGY_DECIMALS);
+    const isExponent = /[eE]/.test(match);
+    const decimals = isExponent ? Infinity : (match.split(".")[1]?.length ?? 0);
+    if (!isExponent && decimals <= CUT_TYPOLOGY_DECIMALS) return match;
+    // Round, then drop trailing zeros so "1.0000" stays "1.0" and "0.0000"
+    // (from -1.1102e-16) stays "0.0". Integers always render with one
+    // decimal to preserve the float look of the surrounding values.
+    const rounded = Number.parseFloat(num.toFixed(CUT_TYPOLOGY_DECIMALS));
+    if (Object.is(rounded, -0)) return "0.0";
+    return Number.isInteger(rounded) ? `${rounded}.0` : String(rounded);
   });
 }
 
