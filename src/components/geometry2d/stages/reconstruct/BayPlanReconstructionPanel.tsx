@@ -62,6 +62,8 @@ interface BayPlanReconstructionPanelProps {
   // default scoring substrate) or the idealised template positions from 4C.
   reconstructionView: "measured" | "ideal";
   onChangeReconstructionView: (next: "measured" | "ideal") => void;
+  showIdealisedOverlay: boolean;
+  onChangeShowIdealisedOverlay: (next: boolean) => void;
 }
 
 function asNumber(value: unknown, fallback: number): number {
@@ -190,6 +192,8 @@ export function BayPlanReconstructionPanel({
   view = "controls",
   reconstructionView,
   onChangeReconstructionView,
+  showIdealisedOverlay,
+  onChangeShowIdealisedOverlay,
 }: BayPlanReconstructionPanelProps) {
   const showControls = view === "controls";
   const showManualEdit = view === "manualEdit";
@@ -494,6 +498,15 @@ export function BayPlanReconstructionPanel({
               </Button>
             </div>
           </div>
+
+          <Label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background/60 px-3 py-2 text-xs font-medium">
+            <span className="text-muted-foreground">Show idealised overlay</span>
+            <Checkbox
+              checked={showIdealisedOverlay}
+              disabled={!hasIdealPositions}
+              onCheckedChange={(next) => onChangeShowIdealisedOverlay(next === true)}
+            />
+          </Label>
 
           {result ? (
             <div className="rounded-md border border-border/70 px-3 py-3">
