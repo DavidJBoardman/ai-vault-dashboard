@@ -400,6 +400,7 @@ export function useStep4Geometry2DController() {
   const [isRunningTemplateMatching, setIsRunningTemplateMatching] = useState(false);
   const [isLoadingTemplateMatchCsv, setIsLoadingTemplateMatchCsv] = useState(false);
   const [reconstructResult, setReconstructResult] = useState<Geometry2DReconstructRunResult | null>(null);
+  const [reconstructionView, setReconstructionView] = useState<"measured" | "ideal">("measured");
   const [reconstructPreviewBosses, setReconstructPreviewBosses] = useState<Geometry2DReconstructBossPoint[]>([]);
   const [reconstructLastRunAt, setReconstructLastRunAt] = useState<string | undefined>(undefined);
   const [reconstructStatePath, setReconstructStatePath] = useState<string | undefined>(undefined);
@@ -1563,7 +1564,11 @@ export function useStep4Geometry2DController() {
     if (!currentProject?.id || !reconstructResult) return;
     setIsExportingBayPlanDxf(true);
     try {
-      const { text, ribCount, nodeCount } = buildBayPlanDxf(reconstructResult);
+      const { text, ribCount, nodeCount } = buildBayPlanDxf({
+        nodes: reconstructResult.nodes,
+        nodesIdeal: reconstructResult.nodesIdeal,
+        edges: reconstructResult.edges,
+      });
       const saved = await downloadBayPlanDxf(text, `bay_plan_${new Date().toISOString().slice(0, 10)}.dxf`);
       if (!saved) return;
       toast({
@@ -2170,6 +2175,8 @@ export function useStep4Geometry2DController() {
     isRunningTemplateMatching,
     isLoadingTemplateMatchCsv,
     reconstructResult,
+    reconstructionView,
+    setReconstructionView,
     reconstructPreviewBosses,
     reconstructLastRunAt,
     reconstructStatePath,
