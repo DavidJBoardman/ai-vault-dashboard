@@ -377,9 +377,12 @@ export function ProjectionCanvas({
 
   // Single colour for auto-selected ribs so the palette can carry semantic
   // weight elsewhere (manual edges in red, delaunay constraint families in
-  // their typed palette, hover/selection highlights). Cycling colours per
-  // edge index were decorative and made users read meaning into noise.
-  const reconstructionEdgeColour = "#ff7a18";
+  // their typed palette, hover/selection highlights). The colour also encodes
+  // which view is active: orange for measured (the scoring substrate) and
+  // violet for idealised (matching the idealised-node fill). This keeps the
+  // overlay distinguishable in both views — when overlay is on it always
+  // paints with the *other* view's colour.
+  const reconstructionEdgeColour = reconstructionView === "ideal" ? "#a78bfa" : "#ff7a18";
   const starcutOverlayPalette: Record<number, string> = {
     2: "#f97316",
     3: "#22c55e",
@@ -1126,6 +1129,9 @@ export function ProjectionCanvas({
 
     if (showReconstruction && showIdealisedOverlay && reconstructionOverlayNodes.length > 0) {
       context.save();
+      // Overlay paints the *alternate* coordinate set, so use the *alternate*
+      // view's primary colour: orange when overlay shows measured, violet when
+      // overlay shows idealised. This is symmetric with the primary palette.
       context.strokeStyle = reconstructionView === "ideal" ? "#ff7a18" : "#a78bfa";
       context.globalAlpha = 0.55;
       context.lineWidth = 2.2;
