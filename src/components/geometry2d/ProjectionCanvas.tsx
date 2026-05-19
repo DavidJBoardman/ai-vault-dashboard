@@ -272,7 +272,10 @@ export function ProjectionCanvas({
           if (matchIdx < 0) return boss;
           const ideal = reconstructionIdealNodes[matchIdx];
           if (!ideal || ideal.x === null || ideal.y === null) return boss;
-          return { ...boss, x: ideal.x, y: ideal.y, source: "ideal" };
+          // Keep the original source ("manual" / "raw" / "anchor") so legend
+          // chips and ring colours stay informative; the boss paint loop
+          // applies the idealised-view tint via getReconstructionBossStyle.
+          return { ...boss, x: ideal.x, y: ideal.y };
         })
       : measuredUsedBosses;
   const showUsedBosses = showReconstructionNodes && usedBosses.length > 0;
@@ -300,7 +303,10 @@ export function ProjectionCanvas({
     typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "-"
   );
   const reconstructionBossLegendItems = Array.from(
-    new Map(usedBosses.map((boss) => [getReconstructionBossStyle(boss.source).label, getReconstructionBossStyle(boss.source)])).values()
+    new Map(usedBosses.map((boss) => {
+      const style = getReconstructionBossStyle(boss.source, { idealisedView: reconstructionView === "ideal" });
+      return [style.label, style];
+    })).values()
   );
   const panActive = interactionMode === "pan" || isSpacePressed;
   const edgeHoverThresholdPx = 10;
@@ -1182,7 +1188,7 @@ export function ProjectionCanvas({
       usedBosses.forEach((boss) => {
         const x = projectToCanvasX(boss.x);
         const y = projectToCanvasY(boss.y);
-        const style = getReconstructionBossStyle(boss.source);
+        const style = getReconstructionBossStyle(boss.source, { idealisedView: reconstructionView === "ideal" });
         const isAnchor = boss.source === "anchor";
         context.save();
         context.fillStyle = style.fill;
@@ -2193,7 +2199,7 @@ export function ProjectionCanvas({
                   {usedBosses.map((boss) => (
                     <g key={`used-boss-${boss.id}`}>
                       {(() => {
-                        const style = getReconstructionBossStyle(boss.source);
+                        const style = getReconstructionBossStyle(boss.source, { idealisedView: reconstructionView === "ideal" });
                         return (
                           <>
                             <circle

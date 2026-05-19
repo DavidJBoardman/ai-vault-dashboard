@@ -39,21 +39,33 @@ export interface DelaunayConstraintStyle {
   label: string;
 }
 
-export function getReconstructionBossStyle(source: string): ReconstructionBossStyle {
-  if (source === "ideal") {
-    // Distinct violet fill so idealised nodes do not collide visually with the
-    // cyan corner-anchor styling. Used in Step 4D's "Idealised" view toggle.
-    return { fill: "#c4b5fd", stroke: "#6d28d9", label: "Idealised node" };
-  }
+export function getReconstructionBossStyle(
+  source: string,
+  options: { idealisedView?: boolean } = {}
+): ReconstructionBossStyle {
+  const idealisedView = !!options.idealisedView;
   if (source === "anchor") {
-    // Match the cyan styling used for corner reference points in steps 4B / 4C
-    // so the same four nodes look consistent across the workflow.
+    // Anchors are pinned to ROI corners; same cyan styling in both views.
     return { fill: "#ffffff", stroke: "#0ea5e9", label: "Corner anchor" };
   }
   if (source === "manual") {
-    return { fill: "#facc15", stroke: "#78350f", label: "Manual node" };
+    // Idealised view tints the fill violet to signal "this point is now
+    // showing its idealised position" but keeps the amber ring so the user
+    // can still see it was a manual node.
+    return idealisedView
+      ? { fill: "#c4b5fd", stroke: "#facc15", label: "Manual node (idealised)" }
+      : { fill: "#facc15", stroke: "#78350f", label: "Manual node" };
   }
-  return { fill: "#cbd5e1", stroke: "#334155", label: "Detected node" };
+  if (source === "ideal") {
+    // Explicit "ideal" source — legacy code paths before the measured-
+    // precedence rewrite. Renders the same as a detected boss in idealised
+    // view.
+    return { fill: "#c4b5fd", stroke: "#6d28d9", label: "Idealised node" };
+  }
+  // Detected/raw/auto bosses.
+  return idealisedView
+    ? { fill: "#c4b5fd", stroke: "#6d28d9", label: "Idealised node" }
+    : { fill: "#cbd5e1", stroke: "#334155", label: "Detected node" };
 }
 
 export function getDelaunayConstraintStyle(family?: string | null): DelaunayConstraintStyle {
