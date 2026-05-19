@@ -16,8 +16,10 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
 ) {
   const { referencePoints, projectionImageDataUrl, roi, imageSize, reconstruct } = data;
   const [showBackground, setShowBackground] = useState(true);
+  const [showIdealised, setShowIdealised] = useState(false);
 
   const hasContent = referencePoints.length > 0 || reconstruct.nodes.length > 0;
+  const hasIdealised = reconstruct.nodesIdeal.some((n) => n.x !== null && n.y !== null);
 
   return (
     <section className="space-y-4">
@@ -28,23 +30,35 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
             Reconstructed ribs over the projection, oriented to the saved ROI.
           </p>
         </div>
-        {hasContent && projectionImageDataUrl && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowBackground((v) => !v)}
-            className="print:hidden"
-          >
-            {showBackground ? (
-              <>
-                <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide background
-              </>
-            ) : (
-              <>
-                <Eye className="mr-2 h-3.5 w-3.5" /> Show background
-              </>
+        {hasContent && (
+          <div className="flex items-center gap-2 print:hidden">
+            {hasIdealised && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowIdealised((v) => !v)}
+              >
+                {showIdealised ? "Hide idealised" : "Show idealised"}
+              </Button>
             )}
-          </Button>
+            {projectionImageDataUrl && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowBackground((v) => !v)}
+              >
+                {showBackground ? (
+                  <>
+                    <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide background
+                  </>
+                ) : (
+                  <>
+                    <Eye className="mr-2 h-3.5 w-3.5" /> Show background
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -59,9 +73,11 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
               roi={roi}
               referencePoints={referencePoints}
               reconstructNodes={reconstruct.nodes}
+              reconstructIdealNodes={reconstruct.nodesIdeal}
               reconstructEdges={reconstruct.edges}
               imageSize={imageSize}
               showBackground={showBackground}
+              showIdealisedOverlay={showIdealised}
             />
           </div>
           <figcaption className="text-center text-xs text-muted-foreground">
