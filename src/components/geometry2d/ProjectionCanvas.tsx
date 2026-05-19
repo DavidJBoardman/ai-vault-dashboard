@@ -2112,6 +2112,62 @@ export function ProjectionCanvas({
                       </g>
                     );
                   })}
+                  {showIdealisedOverlay && reconstructionOverlayNodes.length > 0 && (
+                    <g>
+                      {reconstructionEdges.map((edge, idx) => {
+                        const start = reconstructionOverlayNodes[edge.a];
+                        const end = reconstructionOverlayNodes[edge.b];
+                        if (!start || !end || !start.matched || !end.matched) return null;
+                        const overlayStroke = reconstructionView === "ideal" ? "#ff7a18" : "#a78bfa";
+                        return (
+                          <line
+                            key={`re-overlay-edge-${idx}`}
+                            x1={start.x}
+                            y1={start.y}
+                            x2={end.x}
+                            y2={end.y}
+                            stroke={overlayStroke}
+                            strokeWidth={5.5}
+                            strokeDasharray="14 10"
+                            opacity={0.7}
+                          />
+                        );
+                      })}
+                      {reconstructionMeasuredNodes.map((measured, idx) => {
+                        const ideal = reconstructionIdealNodes[idx];
+                        if (!ideal || ideal.x === null || ideal.y === null) return null;
+                        return (
+                          <line
+                            key={`re-overlay-snap-${idx}`}
+                            x1={measured.x}
+                            y1={measured.y}
+                            x2={ideal.x}
+                            y2={ideal.y}
+                            stroke="#94a3b8"
+                            strokeWidth={2.5}
+                            strokeDasharray="6 6"
+                            opacity={0.6}
+                          />
+                        );
+                      })}
+                      {reconstructionOverlayNodes.map((node, idx) => {
+                        if (!node.matched) return null;
+                        const overlayStroke = reconstructionView === "ideal" ? "#ff7a18" : "#6d28d9";
+                        return (
+                          <circle
+                            key={`re-overlay-node-${idx}`}
+                            cx={node.x}
+                            cy={node.y}
+                            r={9}
+                            fill="none"
+                            stroke={overlayStroke}
+                            strokeWidth={3}
+                            opacity={0.8}
+                          />
+                        );
+                      })}
+                    </g>
+                  )}
                 </svg>
               )}
 
