@@ -18,6 +18,8 @@ Vault Analyser is organised as an 8-step workflow. Each page in this section exp
 | Shortcut | Action |
 |---|---|
 | `Ctrl+S` / `Cmd+S` | Save the current project |
+| `Ctrl+Z` / `Cmd+Z` | Undo last segmentation change (Step 3) |
+| `Ctrl+Y` / `Cmd+Shift+Z` | Redo last undone change (Step 3) |
 
 ## How to work effectively
 
