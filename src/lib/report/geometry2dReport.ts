@@ -290,10 +290,12 @@ export function selectReportData(
   const matchColumns = cutTypology?.columns ?? [];
   const matchRows = cutTypology?.rows ?? [];
   const bossRows = matchRows.filter((r) => (r["point_type"] ?? "") === "boss");
+  const IGNORED_VARIANT_LABELS = new Set(["", "none", "n/a", "na", "roi_corner", "unmatched"]);
   const variantsMatched = new Set(
     matchRows
       .map((r) => r["variant_label"] ?? r["matchedVariantLabel"] ?? r["matched_variant_label"] ?? "")
-      .filter((v) => v && v !== "None" && v !== "roi_corner")
+      .map((v) => String(v).trim().toLowerCase())
+      .filter((v) => !IGNORED_VARIANT_LABELS.has(v))
   ).size;
 
   const projectionImageDataUrl =
