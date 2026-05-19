@@ -54,6 +54,8 @@ import {
   Scissors,
   Eraser,
   Tag,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
@@ -231,6 +233,14 @@ export default function Step3SegmentationPage() {
 
   // Mask label overlay toggle
   const [showMaskLabels, setShowMaskLabels] = useState(false);
+
+  // Undo/redo history for mask operations
+  const maskHistoryRef = useRef<SegmentationMask[][]>([]);
+  const maskFutureRef = useRef<SegmentationMask[][]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  // Stable ref so undo/redo callbacks always see the latest masks without stale closure
+  const masksRef = useRef<SegmentationMask[]>([]);
   
   // Get selected projection
   const selectedProjection = useMemo(() => {
@@ -263,7 +273,16 @@ export default function Step3SegmentationPage() {
       setMasks(loadedMasks);
     }
   }, [currentProject?.segmentations, masks.length]);
-  
+
+  useEffect(() => { masksRef.current = masks; }, [masks]);
+
+  const pushToHistory = useCallback((snapshot: SegmentationMask[]) => {
+    maskHistoryRef.current = [snapshot, ...maskHistoryRef.current].slice(0, 10);
+    maskFutureRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }, []);
+
   const handleAddPrompt = () => {
     const trimmed = newPrompt.trim();
     if (trimmed && !textPrompts.includes(trimmed)) {
@@ -365,6 +384,7 @@ export default function Step3SegmentationPage() {
     if (activeTool === "eraser") {
       if (!activeMaskId) return;
       e.preventDefault();
+      pushToHistory(masks);
       setIsEraserDown(true);
       eraserStrokesRef.current = [];
       const coords = getImageCoordinates(e);
@@ -1035,6 +1055,7 @@ export default function Step3SegmentationPage() {
     });
 
     // Replace any existing corner-A/B/C/D masks and add the new ones
+    pushToHistory(masks);
     setMasks((prev) => {
       const withoutOldCorners = prev.filter(
         (m) => getBaseLabel(m.label).toLowerCase() !== "corner"
@@ -1231,6 +1252,7 @@ export default function Step3SegmentationPage() {
   
   const saveEditingMask = () => {
     if (editingMaskId && editingMaskName.trim()) {
+      pushToHistory(masks);
       setMasks(prev => {
         const updated = prev.map(mask =>
           mask.id === editingMaskId
@@ -1292,25 +1314,65 @@ export default function Step3SegmentationPage() {
     }
   }, [currentProject, selectedProjectionId, setSegmentations]);
 
+  const handleUndo = useCallback(() => {
+    if (maskHistoryRef.current.length === 0) return;
+    const previous = maskHistoryRef.current[0];
+    maskFutureRef.current = [masksRef.current, ...maskFutureRef.current].slice(0, 10);
+    maskHistoryRef.current = maskHistoryRef.current.slice(1);
+    setCanUndo(maskHistoryRef.current.length > 0);
+    setCanRedo(true);
+    setMasks(previous);
+    void syncAndSave(previous);
+  }, [syncAndSave]);
+
+  const handleRedo = useCallback(() => {
+    if (maskFutureRef.current.length === 0) return;
+    const next = maskFutureRef.current[0];
+    maskHistoryRef.current = [masksRef.current, ...maskHistoryRef.current].slice(0, 10);
+    maskFutureRef.current = maskFutureRef.current.slice(1);
+    setCanUndo(true);
+    setCanRedo(maskFutureRef.current.length > 0);
+    setMasks(next);
+    void syncAndSave(next);
+  }, [syncAndSave]);
+
   // Remove a single mask and persist
   const removeMask = useCallback((maskId: string) => {
+    pushToHistory(masks);
     const updated = masks.filter(mask => mask.id !== maskId);
     setMasks(updated);
     void syncAndSave(updated);
-  }, [masks, syncAndSave]);
+  }, [masks, syncAndSave, pushToHistory]);
 
   // Remove all masks in a group and persist
   const removeGroup = useCallback((groupLabel: string) => {
+    pushToHistory(masks);
     const updated = masks.filter(
       (mask) => getBaseLabel(mask.label).toLowerCase() !== groupLabel.toLowerCase()
     );
     setMasks(updated);
     void syncAndSave(updated);
-  }, [masks, syncAndSave]);
+  }, [masks, syncAndSave, pushToHistory]);
   
-  // Keyboard handler for box/polygon interactions
+  // Keyboard handler for box/polygon interactions + undo/redo
   useEffect(() => {
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      // Undo / Redo — skip when focus is inside a text input
+      const activeTag = (document.activeElement as HTMLElement)?.tagName;
+      if (activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") {
+          e.preventDefault();
+          handleUndo();
+          return;
+        }
+        if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z") ||
+            ((e.ctrlKey || e.metaKey) && e.key === "y")) {
+          e.preventDefault();
+          handleRedo();
+          return;
+        }
+      }
+
       // Handle polygon tool
       if (activeTool === "polygon") {
         // Escape to clear current polygon
@@ -1351,7 +1413,7 @@ export default function Step3SegmentationPage() {
     
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTool, selectedBoxId, boxNamingDialog.open, currentPolygon.length, saveCurrentPolygon]);
+  }, [activeTool, selectedBoxId, boxNamingDialog.open, currentPolygon.length, saveCurrentPolygon, handleUndo, handleRedo]);
   
   // Drag and drop handlers
   const handleDragStart = (e: DragEvent<HTMLDivElement>, maskId: string) => {
@@ -1375,6 +1437,7 @@ export default function Step3SegmentationPage() {
     setDropTargetGroup(null);
 
     if (draggingMaskId) {
+      pushToHistory(masks);
       setMasks(prev => {
         const targetLower = targetGroupLabel.toLowerCase();
         const existingInGroup = prev.filter(m => {
@@ -1435,13 +1498,14 @@ export default function Step3SegmentationPage() {
     
     setIsProcessing(true);
     setProcessingMessage(`Segmenting with ${drawnBoxes.length} box${drawnBoxes.length > 1 ? "es" : ""}...`);
-    
+    pushToHistory(masks);
+
     try {
       const boxPrompts: BoxPrompt[] = drawnBoxes.map(box => ({
         coords: box.coords,
         label: box.label,
       }));
-      
+
       // Get the FIRST box name only - this is what will label the detected objects
       // Don't mix with existing text prompts, as that causes labeling confusion
       const firstBoxName = drawnBoxes.find(box => box.name?.trim())?.name?.trim();
@@ -1494,6 +1558,7 @@ export default function Step3SegmentationPage() {
     
     setIsProcessing(true);
     setProcessingMessage(`Segmenting with ${drawnPolygons.length} polygon${drawnPolygons.length > 1 ? "s" : ""}...`);
+    pushToHistory(masks);
     
     try {
       // Convert polygons to bounding boxes for SAM
@@ -1560,7 +1625,8 @@ export default function Step3SegmentationPage() {
     
     setIsProcessing(true);
     setProcessingMessage("Loading SAM model...");
-    
+    pushToHistory(masks);
+
     try {
       const hasPrompts = textPrompts.length > 0;
       setProcessingMessage(
@@ -2327,6 +2393,23 @@ export default function Step3SegmentationPage() {
                   <div className="flex items-center justify-between gap-2">
                     <CardTitle className="text-sm font-medium">Segments</CardTitle>
                     <div className="flex items-center gap-1">
+                      <button
+                        className="text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-muted disabled:opacity-30"
+                        onClick={handleUndo}
+                        disabled={!canUndo}
+                        title="Undo (Ctrl+Z)"
+                      >
+                        <Undo2 className="w-3 h-3" />
+                      </button>
+                      <button
+                        className="text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-muted disabled:opacity-30"
+                        onClick={handleRedo}
+                        disabled={!canRedo}
+                        title="Redo (Ctrl+Y)"
+                      >
+                        <Redo2 className="w-3 h-3" />
+                      </button>
+                      <span className="text-muted-foreground/50">|</span>
                       <button
                         className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted"
                         onClick={selectAllMasks}
