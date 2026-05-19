@@ -420,6 +420,11 @@ class BayPlanBossPoint(BaseModel):
     x: int
     y: int
     source: str = "raw"
+    matched: Optional[bool] = None
+    matchedXTemplateLabel: Optional[str] = None
+    matchedYTemplateLabel: Optional[str] = None
+    matchedXError: Optional[float] = None
+    matchedYError: Optional[float] = None
 
 
 class BayPlanStateSummary(BaseModel):

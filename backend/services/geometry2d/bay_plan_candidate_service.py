@@ -19,6 +19,7 @@ from services.geometry2d.utils.bay_candidate_io import (
     bay_plan_dir,
     debug_image_path,
     load_base_image,
+    load_boss_match_records,
     load_boss_rows,
     load_reference_rows,
     load_grouped_rib_mask,
@@ -188,15 +189,24 @@ class BayPlanCandidateService:
         with_match = sum(1 for row in boss_rows if str(row.get("source", "raw")) == "ideal")
         reconstruction_mode = str(params.get("reconstructionMode", "current"))
 
-        used_bosses = [
-            {
-                "id": str(row.get("label", row["id"])),
+        match_records = load_boss_match_records(project_dir)
+
+        def _used_boss_entry(row: Dict[str, Any], node: Node) -> Dict[str, Any]:
+            label = str(row.get("label", row["id"]))
+            match = match_records.get(label) or match_records.get(str(row["id"])) or {}
+            return {
+                "id": label,
                 "x": int(node.xy[0]),
                 "y": int(node.xy[1]),
                 "source": str(row.get("source", "raw")),
+                "matched": bool(match.get("matched", False)) if match else None,
+                "matchedXTemplateLabel": match.get("xTemplateLabel"),
+                "matchedYTemplateLabel": match.get("yTemplateLabel"),
+                "matchedXError": match.get("xError"),
+                "matchedYError": match.get("yError"),
             }
-            for row, node in zip(reference_rows, nodes)
-        ]
+
+        used_bosses = [_used_boss_entry(row, node) for row, node in zip(reference_rows, nodes)]
 
         if reconstruction_mode == "delaunay":
             base_nodes = [
