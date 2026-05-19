@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Download } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Columns3, Download } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 import {
   getMatchColumnClass,
-  getXyErrorSeverity,
+  getUvErrorSeverity,
   normaliseMatchCsvRows,
-  parseXyErrorScore,
+  parseUvErrorScore,
   type MatchCsvRow,
 } from "./cutTypologyMatchingUtils";
 
@@ -40,18 +41,27 @@ const REPORT_COLUMNS = [
   "y_cut",
   "boss_uv",
   "template_uv",
-  "xy_error",
+  "uv_error",
   "matched",
 ];
 
+// Diagnostic variant: these columns are part of the dataset but hidden in the
+// default view to reduce visual noise. Users can re-enable them via the
+// Columns picker; doing so also includes them in the CSV download.
+const DEFAULT_HIDDEN_DIAGNOSTIC_COLUMNS: ReadonlySet<string> = new Set([
+  "boss_id",
+  "boss_xy",
+  "template_xy",
+]);
+
 function getInitialSortDirection(column: string): "asc" | "desc" {
-  return column === "xy_error" ? "desc" : "asc";
+  return column === "uv_error" ? "desc" : "asc";
 }
 
 function getSortValue(row: MatchCsvRow, column: string): number | string {
   if (column === "boss_id") return Number(row[column] || 0);
   if (column === "matched") return String(row[column] || "").toLowerCase() === "true" ? 1 : 0;
-  if (column === "xy_error") return parseXyErrorScore(row.xy_error);
+  if (column === "uv_error") return parseUvErrorScore(row.uv_error);
   if (column === "point_label") return getCompactNodeLabel(row.point_label || row.boss_id).toLowerCase();
   return String(row[column] || "").toLowerCase();
 }
@@ -71,7 +81,7 @@ function getReportColumnClass(column: string): string {
       return "w-[150px]";
     case "template_uv":
       return "w-[100px]";
-    case "xy_error":
+    case "uv_error":
       return "w-[145px]";
     case "matched":
       return "w-[76px]";
@@ -92,15 +102,30 @@ export function CutTypologyMatchTable({
 }: CutTypologyMatchTableProps) {
   const [filterMode, setFilterMode] = useState<"all" | "matched" | "unmatched" | "highError">("all");
   const [sortConfig, setSortConfig] = useState<{ column: string; direction: "asc" | "desc" }>({
-    column: "xy_error",
+    column: "uv_error",
     direction: "desc",
   });
   const [page, setPage] = useState(0);
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => new Set<string>());
+  const [hasInitialisedVisibility, setHasInitialisedVisibility] = useState(false);
+  const [isColumnPickerOpen, setIsColumnPickerOpen] = useState(false);
+  const columnPickerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isColumnPickerOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!columnPickerRef.current) return;
+      if (columnPickerRef.current.contains(event.target as Node)) return;
+      setIsColumnPickerOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isColumnPickerOpen]);
 
   const displayMatchCsvColumns = useMemo(() => {
     if (variant === "report") {
       const available = new Set(matchCsvColumns);
-      return REPORT_COLUMNS.filter((column) => column === "xy_error" || available.has(column));
+      return REPORT_COLUMNS.filter((column) => column === "uv_error" || available.has(column));
     }
 
     const filtered = matchCsvColumns.filter(
@@ -110,13 +135,51 @@ export function CutTypologyMatchTable({
         column !== "variant_label" &&
         column !== "template_type"
     );
-    if (!filtered.includes("xy_error")) {
+    if (!filtered.includes("uv_error")) {
       const templateXyIndex = filtered.indexOf("template_xy");
       const insertAt = templateXyIndex >= 0 ? templateXyIndex + 1 : filtered.length;
-      filtered.splice(insertAt, 0, "xy_error");
+      filtered.splice(insertAt, 0, "uv_error");
     }
     return filtered;
   }, [matchCsvColumns, variant]);
+
+  useEffect(() => {
+    if (hasInitialisedVisibility) return;
+    if (displayMatchCsvColumns.length === 0) return;
+    const initial = new Set<string>();
+    for (const column of displayMatchCsvColumns) {
+      if (variant === "diagnostic" && DEFAULT_HIDDEN_DIAGNOSTIC_COLUMNS.has(column)) continue;
+      initial.add(column);
+    }
+    setVisibleColumns(initial);
+    setHasInitialisedVisibility(true);
+  }, [displayMatchCsvColumns, hasInitialisedVisibility, variant]);
+
+  const renderedColumns = useMemo(
+    () => displayMatchCsvColumns.filter((column) => visibleColumns.has(column)),
+    [displayMatchCsvColumns, visibleColumns]
+  );
+
+  const toggleColumnVisibility = (column: string) => {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(column)) {
+        next.delete(column);
+      } else {
+        next.add(column);
+      }
+      return next;
+    });
+  };
+
+  const resetColumnsToDefault = () => {
+    const next = new Set<string>();
+    for (const column of displayMatchCsvColumns) {
+      if (variant === "diagnostic" && DEFAULT_HIDDEN_DIAGNOSTIC_COLUMNS.has(column)) continue;
+      next.add(column);
+    }
+    setVisibleColumns(next);
+  };
 
   const displayMatchCsvRows = useMemo<MatchCsvRow[]>(() => normaliseMatchCsvRows(matchCsvRows), [matchCsvRows]);
   const filteredDisplayMatchCsvRows = useMemo(() => {
@@ -127,7 +190,7 @@ export function CutTypologyMatchTable({
     if (filterMode === "unmatched") {
       return displayMatchCsvRows.filter((row) => String(row.matched || "").toLowerCase() !== "true");
     }
-    return displayMatchCsvRows.filter((row) => parseXyErrorScore(row.xy_error) > 0.005);
+    return displayMatchCsvRows.filter((row) => parseUvErrorScore(row.uv_error) > 0.005);
   }, [displayMatchCsvRows, filterMode]);
 
   const sortedDisplayMatchCsvRows = useMemo(() => {
@@ -165,7 +228,7 @@ export function CutTypologyMatchTable({
     const cornerRows = displayMatchCsvRows.filter(isCornerRow);
     const matched = displayMatchCsvRows.filter((row) => String(row.matched || "").toLowerCase() === "true").length;
     const unmatched = total - matched;
-    const highError = displayMatchCsvRows.filter((row) => parseXyErrorScore(row.xy_error) > 0.005).length;
+    const highError = displayMatchCsvRows.filter((row) => parseUvErrorScore(row.uv_error) > 0.005).length;
     const bossTotal = bossRows.length;
     const bossMatched = bossRows.filter((row) => String(row.matched || "").toLowerCase() === "true").length;
     const cornerCount = cornerRows.length;
@@ -196,11 +259,13 @@ export function CutTypologyMatchTable({
   };
 
   const getStickyColumnClass = (column: string, isHeader = false): string => {
+    const bossVisible = visibleColumns.has("boss_id");
     if (column === "boss_id") {
       return `sticky left-0 ${isHeader ? "z-30 bg-background/55" : "z-20 bg-background/35"}`;
     }
     if (column === "x_cut") {
-      return `sticky left-[64px] ${isHeader ? "z-30 bg-background/55" : "z-20 bg-background/35"}`;
+      const offsetClass = bossVisible ? "left-[64px]" : "left-0";
+      return `sticky ${offsetClass} ${isHeader ? "z-30 bg-background/55" : "z-20 bg-background/35"}`;
     }
     return "";
   };
@@ -209,16 +274,16 @@ export function CutTypologyMatchTable({
     variant === "report" ? getReportColumnClass(column) : getMatchColumnClass(column);
 
   const handleDownloadMatchCsv = async () => {
-    if (displayMatchCsvRows.length === 0 || displayMatchCsvColumns.length === 0) return;
+    if (displayMatchCsvRows.length === 0 || renderedColumns.length === 0) return;
     const escapeValue = (raw: string) => {
       const value = String(raw ?? "");
       const escaped = value.replace(/"/g, "\"\"");
       return /[",\n]/.test(value) ? `"${escaped}"` : escaped;
     };
     const lines = [
-      displayMatchCsvColumns.map((column) => escapeValue(column)).join(","),
+      renderedColumns.map((column) => escapeValue(column)).join(","),
       ...displayMatchCsvRows.map((row) =>
-        displayMatchCsvColumns
+        renderedColumns
           .map((column) => {
             if (column === "point_label") {
               return escapeValue(getCompactNodeLabel(row.point_label || row.boss_id) || row.point_label || "");
@@ -269,7 +334,7 @@ export function CutTypologyMatchTable({
         )}
         <Badge variant="outline" className="ml-auto">Sorted by {sortConfig.column} {sortConfig.direction === "desc" ? "↓" : "↑"}</Badge>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {FILTER_OPTIONS.map(({ mode, label, countKey }) => (
           <Button
             key={mode}
@@ -281,18 +346,81 @@ export function CutTypologyMatchTable({
             {label} ({matchSummary[countKey]})
           </Button>
         ))}
+        {variant === "diagnostic" && displayMatchCsvColumns.length > 0 && (
+          <div className="relative ml-auto" ref={columnPickerRef}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => setIsColumnPickerOpen((prev) => !prev)}
+              aria-expanded={isColumnPickerOpen}
+              aria-haspopup="dialog"
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+              Columns ({renderedColumns.length}/{displayMatchCsvColumns.length})
+            </Button>
+            {isColumnPickerOpen && (
+              <div
+                role="dialog"
+                aria-label="Customise visible columns"
+                className="absolute right-0 z-40 mt-1 w-[240px] rounded-md border border-border bg-popover p-3 shadow-lg"
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Visible columns
+                  </p>
+                  <button
+                    type="button"
+                    className="text-[11px] text-muted-foreground hover:text-foreground"
+                    onClick={resetColumnsToDefault}
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="max-h-[260px] space-y-1.5 overflow-y-auto pr-1">
+                  {displayMatchCsvColumns.map((column) => {
+                    const checked = visibleColumns.has(column);
+                    const id = `column-toggle-${column}`;
+                    return (
+                      <label
+                        key={column}
+                        htmlFor={id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-accent/40"
+                      >
+                        <Checkbox
+                          id={id}
+                          checked={checked}
+                          onCheckedChange={() => toggleColumnVisibility(column)}
+                        />
+                        <span className="truncate">{column}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 border-t border-border/60 pt-2 text-[10px] leading-snug text-muted-foreground">
+                  The CSV download exports only the columns shown here.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div className="min-h-0 overflow-hidden rounded-md border border-border/30 bg-transparent">
         <div className={`${tableViewportClassName} w-full overflow-x-auto overflow-y-auto scrollbar-thin`}>
-          {sortedDisplayMatchCsvRows.length === 0 ? (
+          {sortedDisplayMatchCsvRows.length === 0 || renderedColumns.length === 0 ? (
             <div className="p-4 text-xs text-muted-foreground">
-              {isLoadingMatchCsv ? "Loading CSV rows..." : "No rows for this filter."}
+              {isLoadingMatchCsv
+                ? "Loading CSV rows..."
+                : renderedColumns.length === 0
+                  ? "All columns hidden — open Columns to show at least one."
+                  : "No rows for this filter."}
             </div>
           ) : (
             <table className="min-w-full table-fixed text-xs bg-transparent">
               <thead className="sticky top-0 bg-background/55 backdrop-blur">
                 <tr className="border-b border-border">
-                  {displayMatchCsvColumns.map((column) => (
+                  {renderedColumns.map((column) => (
                     <th key={column} className={`text-left font-medium px-2 py-2 whitespace-nowrap leading-[18px] my-0.5 ${getColumnClass(column)} ${getStickyColumnClass(column, true)}`}>
                       <button
                         type="button"
@@ -309,7 +437,7 @@ export function CutTypologyMatchTable({
               <tbody>
                 {visibleRows.map((row, rowIndex) => (
                   <tr key={`screen-row-${page}-${rowIndex}`} className={`${hasPagination ? "screen-only" : ""} border-b border-border/20 ${rowIndex % 2 === 0 ? "bg-background/5" : "bg-transparent"}`}>
-                    {displayMatchCsvColumns.map((column) => (
+                    {renderedColumns.map((column) => (
                       <td key={`${rowIndex}-${column}`} className={`px-2 py-1.5 text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap ${getColumnClass(column)} ${getStickyColumnClass(column)}`}>
                         {column === "matched" ? (
                           <Badge variant={String(row[column] || "").toLowerCase() === "true" ? "secondary" : "destructive"}>{String(row[column] || "")}</Badge>
@@ -329,11 +457,11 @@ export function CutTypologyMatchTable({
                               </span>
                             );
                           })()
-                        ) : column === "xy_error" && variant === "diagnostic" ? (
+                        ) : column === "uv_error" && variant === "diagnostic" ? (
                           <div className="inline-flex items-center gap-1.5">
                             <span>{row[column] || ""}</span>
                             {(() => {
-                              const severity = getXyErrorSeverity(parseXyErrorScore(row.xy_error));
+                              const severity = getUvErrorSeverity(parseUvErrorScore(row.uv_error));
                               return (
                                 <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${severity.className}`}>{severity.label}</span>
                               );
@@ -348,7 +476,7 @@ export function CutTypologyMatchTable({
                 ))}
                 {hasPagination && sortedDisplayMatchCsvRows.map((row, rowIndex) => (
                   <tr key={`print-row-${rowIndex}`} className={`print-only border-b border-border/20 ${rowIndex % 2 === 0 ? "bg-background/5" : "bg-transparent"}`}>
-                    {displayMatchCsvColumns.map((column) => (
+                    {renderedColumns.map((column) => (
                       <td key={`print-${rowIndex}-${column}`} className={`px-2 py-1.5 text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap ${getColumnClass(column)} ${getStickyColumnClass(column)}`}>
                         {column === "matched" ? (
                           <Badge variant={String(row[column] || "").toLowerCase() === "true" ? "secondary" : "destructive"}>{String(row[column] || "")}</Badge>
@@ -370,7 +498,7 @@ export function CutTypologyMatchTable({
       </div>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border/30 bg-background/80 pt-3 backdrop-blur-sm">
         <div className="flex items-center gap-2">
-          <Button type="button" size="sm" variant="outline" className="h-8" onClick={() => setSortConfig({ column: "xy_error", direction: "desc" })}>
+          <Button type="button" size="sm" variant="outline" className="h-8" onClick={() => setSortConfig({ column: "uv_error", direction: "desc" })}>
             Reset sort
           </Button>
           {hasPagination && (
@@ -386,10 +514,23 @@ export function CutTypologyMatchTable({
           )}
         </div>
         {showDownload && (
-          <Button type="button" size="sm" className="h-8 min-w-[106px] justify-center gap-1.5" onClick={handleDownloadMatchCsv} disabled={isLoadingMatchCsv || displayMatchCsvRows.length === 0 || displayMatchCsvColumns.length === 0}>
-            <Download className="h-3.5 w-3.5" />
-            Download
-          </Button>
+          <div className="flex items-center gap-2">
+            {variant === "diagnostic" && (
+              <span className="hidden text-[10px] text-muted-foreground sm:inline">
+                Exports {renderedColumns.length} of {displayMatchCsvColumns.length} columns
+              </span>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 min-w-[106px] justify-center gap-1.5"
+              onClick={handleDownloadMatchCsv}
+              disabled={isLoadingMatchCsv || displayMatchCsvRows.length === 0 || renderedColumns.length === 0}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download
+            </Button>
+          </div>
         )}
       </div>
     </div>

@@ -277,10 +277,21 @@ class CutTypologyBossMatch(BaseModel):
     yRatioIndex: Optional[int] = None
 
 
+class CutTypologyAxisCutMatch(BaseModel):
+    xCut: Optional[str] = None
+    yCut: Optional[str] = None
+    xRatio: Optional[float] = None
+    yRatio: Optional[float] = None
+    xError: Optional[float] = None
+    yError: Optional[float] = None
+    matched: bool = False
+
+
 class CutTypologyBossResult(NodePoint):
     matchedAny: bool
     matchedCount: int
     matches: List[CutTypologyBossMatch] = Field(default_factory=list)
+    axisCutMatch: Optional[CutTypologyAxisCutMatch] = None
 
 
 class CutTypologyVariantResult(CutTypologyOverlayVariant):

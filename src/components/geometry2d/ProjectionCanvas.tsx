@@ -154,6 +154,8 @@ export function ProjectionCanvas({
     v: number;
     xTemplateLabel?: string | null;
     yTemplateLabel?: string | null;
+    xError?: number | null;
+    yError?: number | null;
     matched: boolean;
     outOfBounds: boolean;
   } | null>(null);
@@ -245,6 +247,9 @@ export function ProjectionCanvas({
     if (source === "ideal") return "Ideal match";
     return source || "Unknown";
   };
+  const formatCutErrorPercent = (value?: number | null) => (
+    typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "-"
+  );
   const reconstructionBossLegendItems = Array.from(
     new Map(usedBosses.map((boss) => [getReconstructionBossStyle(boss.source).label, getReconstructionBossStyle(boss.source)])).values()
   );
@@ -322,6 +327,26 @@ export function ProjectionCanvas({
   });
 
   const reconstructionEdgePalette = ["#ff7a18", "#22c55e", "#38bdf8", "#f43f5e", "#facc15", "#a78bfa", "#14b8a6", "#fb7185"];
+  const starcutOverlayPalette: Record<number, string> = {
+    2: "#f97316",
+    3: "#22c55e",
+    4: "#38bdf8",
+    5: "#ec4899",
+    6: "#a78bfa",
+    7: "#eab308",
+    8: "#14b8a6",
+    9: "#f43f5e",
+    10: "#84cc16",
+    11: "#c084fc",
+    12: "#f59e0b",
+    13: "#2dd4bf",
+  };
+  const getStarcutOverlayColor = (n: number | null) => {
+    if (n !== null && starcutOverlayPalette[n]) return starcutOverlayPalette[n];
+    const fallbackPalette = Object.values(starcutOverlayPalette);
+    const index = n === null ? 0 : Math.abs(n) % fallbackPalette.length;
+    return fallbackPalette[index];
+  };
   const getTemplateOverlayStyle = (variant: Geometry2DCutTypologyOverlayVariant) => {
     const label = variant.variantLabel || "";
     if (variant.templateType === "cross" || variant.isCrossTemplate) {
@@ -347,7 +372,7 @@ export function ProjectionCanvas({
       const dash = n !== null && n >= 4 ? (n >= 6 ? [2.5, 2.5] : [6, 3]) : [];
       const svgDash = n !== null && n >= 4 ? (n >= 6 ? "0.55 0.5" : "1.2 0.8") : "none";
       return {
-        color: "#f97316",
+        color: getStarcutOverlayColor(n),
         label: n !== null ? `Standardcut n=${n}` : "Standardcut",
         canvasDash: dash,
         svgDash,
@@ -567,6 +592,8 @@ export function ProjectionCanvas({
             v: point.v,
             xTemplateLabel: point.matchedXTemplateLabel,
             yTemplateLabel: point.matchedYTemplateLabel,
+            xError: point.matchedXError,
+            yError: point.matchedYError,
             matched: bossHoverInfoMode === "matching" && hasStableMatchingEvidence ? !isUnmatched : !!(point.matchedXTemplateLabel && point.matchedYTemplateLabel),
             outOfBounds: point.outOfBounds,
           });
@@ -1984,11 +2011,11 @@ export function ProjectionCanvas({
                     ),
                   }}
                 >
-                  <p className="mb-1 font-semibold">
-                    {hoveredBoss.tag} <span className="text-muted-foreground">#{hoveredBoss.id}</span>
-                  </p>
                   {bossHoverInfoMode === "nodes" ? (
                     <>
+                      <p className="mb-1 font-semibold">
+                        {hoveredBoss.tag} <span className="text-muted-foreground">#{hoveredBoss.id}</span>
+                      </p>
                       <div className="grid grid-cols-[62px_1fr] gap-x-2 gap-y-1">
                         <p className="text-muted-foreground">Label</p>
                         <p className="text-foreground">{hoveredBoss.label || "-"}</p>
@@ -2010,30 +2037,36 @@ export function ProjectionCanvas({
                       </p>
                     </>
                   ) : (
-                    <div className="grid grid-cols-[62px_1fr] gap-x-2 gap-y-1">
-                      <p className="text-muted-foreground">Label</p>
-                      <p className="text-foreground">{hoveredBoss.label || "-"}</p>
-                      <p className="text-muted-foreground">Type</p>
-                      <p className={hoveredBoss.pointType === "corner" ? "text-cyan-300" : "text-foreground"}>
-                        {formatPointType(hoveredBoss.pointType)}
+                    <>
+                      <p className="mb-1 font-semibold">
+                        {hoveredBoss.tag} <span className="text-muted-foreground">#{hoveredBoss.id}</span>
                       </p>
-                      <p className="text-muted-foreground">Source</p>
-                      <p className={hoveredBoss.source === "manual" ? "text-amber-300" : "text-emerald-300"}>
-                        {formatPointSource(hoveredBoss.source)}
-                      </p>
-                      <p className="text-muted-foreground">Boss uv</p>
-                      <p className="font-mono text-foreground">
-                        {hoveredBoss.u.toFixed(4)}, {hoveredBoss.v.toFixed(4)}
-                      </p>
-                      <p className="text-muted-foreground">X cut</p>
-                      <p className="text-cyan-300">{hoveredBoss.xTemplateLabel ?? "-"}</p>
-                      <p className="text-muted-foreground">Y cut</p>
-                      <p className="text-cyan-300">{hoveredBoss.yTemplateLabel ?? "-"}</p>
-                      <p className="text-muted-foreground">Matched</p>
-                      <p className={hoveredBoss.matched ? "text-emerald-300" : "text-red-300"}>
-                        {hoveredBoss.matched ? "Yes" : "No"}
-                      </p>
-                    </div>
+                      {hoveredBoss.pointType === "corner" ? (
+                        <div className="space-y-1">
+                          <p className="text-cyan-300">ROI corner reference</p>
+                          <p className="text-muted-foreground">
+                            Defines the bay boundary and UV frame; corners are not matched to x/y cuts.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-[52px_1fr] gap-x-2 gap-y-1">
+                          <p className="text-muted-foreground">x cut:</p>
+                          <p className="flex items-baseline justify-between gap-2 font-medium text-cyan-300">
+                            <span>{hoveredBoss.xTemplateLabel ?? "-"}</span>
+                            <span className="text-muted-foreground tabular-nums">{formatCutErrorPercent(hoveredBoss.xError)}</span>
+                          </p>
+                          <p className="text-muted-foreground">y cut:</p>
+                          <p className="flex items-baseline justify-between gap-2 font-medium text-cyan-300">
+                            <span>{hoveredBoss.yTemplateLabel ?? "-"}</span>
+                            <span className="text-muted-foreground tabular-nums">{formatCutErrorPercent(hoveredBoss.yError)}</span>
+                          </p>
+                          <p className="text-muted-foreground">status:</p>
+                          <p className={hoveredBoss.matched ? "text-emerald-300" : "text-red-300"}>
+                            {hoveredBoss.matched ? "matched" : "unmatched"}
+                          </p>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}

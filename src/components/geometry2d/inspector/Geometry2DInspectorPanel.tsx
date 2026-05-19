@@ -48,7 +48,7 @@ interface Geometry2DInspectorPanelProps {
   onMatchingShowPrimaryOverlays: () => void;
   onRunMatching: () => void;
   onLoadMatchingCsv: () => void;
-  onGoToNodePreparation: () => void;
+  matchingAdvancedParamsFocusSignal?: number;
   bayPlanResult: Geometry2DBayPlanRunResult | null;
   bayPlanLastRunAt?: string;
   bayPlanParams?: Geometry2DBayPlanRunParams;
@@ -96,7 +96,7 @@ export function Geometry2DInspectorPanel({
   onMatchingShowPrimaryOverlays,
   onRunMatching,
   onLoadMatchingCsv,
-  onGoToNodePreparation,
+  matchingAdvancedParamsFocusSignal,
   bayPlanResult,
   bayPlanLastRunAt,
   bayPlanParams,
@@ -149,7 +149,7 @@ export function Geometry2DInspectorPanel({
           onShowPrimaryOverlays={onMatchingShowPrimaryOverlays}
           onRunMatching={onRunMatching}
           onLoadMatchCsv={onLoadMatchingCsv}
-          onGoToNodes={onGoToNodePreparation}
+          advancedParamsFocusSignal={matchingAdvancedParamsFocusSignal}
         />
       )}
 

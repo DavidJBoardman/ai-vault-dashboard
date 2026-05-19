@@ -11,7 +11,7 @@ const REPORT_MATCH_COLUMNS: Array<{ key: string; label: string; align?: "left" |
   { key: "point_type", label: "Type" },
   { key: "x_cut", label: "x cut", align: "right" },
   { key: "y_cut", label: "y cut", align: "right" },
-  { key: "xy_error", label: "xy error", align: "right" },
+  { key: "uv_error", label: "uv error", align: "right" },
   { key: "matched", label: "Matched" },
 ];
 
@@ -25,7 +25,7 @@ function fmt(n: number | null | undefined, d = 4): string {
   return typeof n === "number" && Number.isFinite(n) ? n.toFixed(d) : "n/a";
 }
 
-function parseXyError(value: string | undefined): number {
+function parseUvError(value: string | undefined): number {
   if (!value) return Number.NaN;
   const n = Number.parseFloat(value);
   return Number.isFinite(n) ? n : Number.NaN;
@@ -134,8 +134,8 @@ function renderCutTypology(data: ReportData): string {
           const isMatched = String(raw).toLowerCase() === "true";
           return `<td><span class="vr-pill ${isMatched ? "vr-pill-ok" : "vr-pill-bad"}">${isMatched ? "matched" : "unmatched"}</span></td>`;
         }
-        if (key === "xy_error") {
-          const score = parseXyError(String(raw));
+        if (key === "uv_error") {
+          const score = parseUvError(String(raw));
           const cls = Number.isFinite(score) && score > HIGH_ERROR_TOL ? "vr-num vr-error-high" : "vr-num";
           return `<td class="${cls}">${escape(raw)}</td>`;
         }

@@ -31,6 +31,7 @@ export default function Step4Geometry2DPage() {
   const controller = useStep4Geometry2DController();
   const [selectedReconstructionEdgeKey, setSelectedReconstructionEdgeKey] = useState<string | null>(null);
   const [stageToolTab, setStageToolTab] = useState<"controls" | "manualEdit" | "overlays">("controls");
+  const [matchingAdvancedParamsFocusSignal, setMatchingAdvancedParamsFocusSignal] = useState(0);
   const hasInitialisedRoiEvidenceLayers = useRef(false);
   const hasInitialisedNodeLayers = useRef(false);
   const hasInitialisedMatchingLayers = useRef(false);
@@ -42,6 +43,7 @@ export default function Step4Geometry2DPage() {
   const hasSavedNodes = controller.templatePoints.length > 0 && !controller.hasTemplatePointChanges;
   const hasMatchingResult = !!controller.templateLastRunAt;
   const hasReconstructionResult = !!controller.reconstructLastRunAt;
+  const matchingUnmatchedCount = controller.matchingUnmatchedNodeIds.length;
   const hasVisibleReferenceSegmentationLayers = Object.values(controller.groupVisibility).some((info) => info.visible > 0);
   const isStep4Busy =
     controller.isAnalysing ||
@@ -326,7 +328,7 @@ export default function Step4Geometry2DPage() {
                   onMatchingShowPrimaryOverlays={controller.handleTemplateShowPrimaryOverlays}
                   onRunMatching={controller.handleRunTemplateMatching}
                   onLoadMatchingCsv={controller.handleLoadTemplateMatchCsv}
-                  onGoToNodePreparation={() => controller.handleWorkflowSectionChange("nodes")}
+                  matchingAdvancedParamsFocusSignal={matchingAdvancedParamsFocusSignal}
                   bayPlanResult={controller.reconstructResult}
                   bayPlanLastRunAt={controller.reconstructLastRunAt}
                   bayPlanParams={controller.reconstructParams}
@@ -550,6 +552,46 @@ export default function Step4Geometry2DPage() {
                         : "none"
                   }
                 />
+                {isMatchingStage && matchingUnmatchedCount > 0 && (
+                  <Card className="border-amber-500/35 bg-amber-500/10">
+                    <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 space-y-1.5">
+                        <div className="flex items-center gap-2 text-amber-200">
+                          <AlertCircle className="h-4 w-4 shrink-0" />
+                          <p className="text-sm font-medium">
+                            {matchingUnmatchedCount} node{matchingUnmatchedCount === 1 ? "" : "s"} did not find a match
+                          </p>
+                        </div>
+                        <p className="text-xs leading-relaxed text-amber-100/80">
+                          Highlighted in the preview. If a point is misplaced, adjust it in 4B. If it looks correct but
+                          narrowly misses a cut line, increase the point-to-cut tolerance in Advanced parameters, then run
+                          matching again.
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          onClick={() => controller.handleWorkflowSectionChange("nodes")}
+                        >
+                          Back to 4B
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          onClick={() => {
+                            setStageToolTab("controls");
+                            setMatchingAdvancedParamsFocusSignal((value) => value + 1);
+                          }}
+                        >
+                          Review tolerance
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             </div>
           </div>

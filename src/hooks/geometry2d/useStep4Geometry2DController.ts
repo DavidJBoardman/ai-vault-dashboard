@@ -43,6 +43,7 @@ import {
 } from "@/components/geometry2d/types";
 import { toast } from "@/components/ui/use-toast";
 import { buildBayPlanDxf, downloadBayPlanDxf } from "@/lib/geometry2d/bayPlanDxf";
+import { filterSegmentationsByGroupIds, getSegmentationGroupId } from "@/lib/geometry2d/segmentationGrouping";
 import {
   buildPerBossTypologySummary,
   collectPrimaryReadingOverlayLabelsFromPerBoss,
@@ -136,12 +137,12 @@ const DEFAULT_ROI: ROIState = {
 
 const DEFAULT_TEMPLATE_PARAMS: Geometry2DTemplateStateParams = {
   starcutMin: 2,
-  starcutMax: 6,
+  starcutMax: 7,
   includeStarcut: true,
   includeInner: true,
   includeOuter: true,
-  allowCrossTemplate: true,
-  tolerance: 0.015,
+  allowCrossTemplate: false,
+  tolerance: 0.05,
 };
 
 const ROI_INSIDE_MARGIN_UV = 0.02;
@@ -194,7 +195,7 @@ function sanitizeTemplateParams(params: Partial<Geometry2DTemplateStateParams> |
     includeStarcut: !!merged.includeStarcut,
     includeInner: !!merged.includeInner,
     includeOuter: !!merged.includeOuter,
-    allowCrossTemplate: !!merged.allowCrossTemplate,
+    allowCrossTemplate: false,
     tolerance: Math.max(0.001, Math.min(0.1, Number(merged.tolerance))),
   };
 }
@@ -278,7 +279,10 @@ function withMatchedTemplateCoordinates(
   return points.map((point) => {
     const row = byId.get(point.id);
     const simplest = row ? selectSimplestMatch(row.matches || []) : undefined;
-    if (!simplest || typeof simplest.xRatio !== "number" || typeof simplest.yRatio !== "number") {
+    const axisMatch = row?.axisCutMatch;
+    const xRatio = typeof axisMatch?.xRatio === "number" ? axisMatch.xRatio : simplest?.xRatio;
+    const yRatio = typeof axisMatch?.yRatio === "number" ? axisMatch.yRatio : simplest?.yRatio;
+    if (typeof xRatio !== "number" || typeof yRatio !== "number") {
       return {
         ...point,
         matchedTemplateX: null,
@@ -286,18 +290,22 @@ function withMatchedTemplateCoordinates(
         matchedVariantLabel: null,
         matchedXTemplateLabel: null,
         matchedYTemplateLabel: null,
+        matchedXError: null,
+        matchedYError: null,
       };
     }
-    const xTemplateLabel = formatTemplateLabel(simplest.xTemplate || simplest.variantLabel);
-    const yTemplateLabel = formatTemplateLabel(simplest.yTemplate || simplest.variantLabel);
-    const templatePixel = roiUvToPixel(simplest.xRatio, simplest.yRatio, roi);
+    const xTemplateLabel = formatTemplateLabel(axisMatch?.xCut || simplest?.xTemplate || simplest?.variantLabel);
+    const yTemplateLabel = formatTemplateLabel(axisMatch?.yCut || simplest?.yTemplate || simplest?.variantLabel);
+    const templatePixel = roiUvToPixel(xRatio, yRatio, roi);
     return {
       ...point,
       matchedTemplateX: Math.round(templatePixel.x),
       matchedTemplateY: Math.round(templatePixel.y),
-      matchedVariantLabel: simplest.variantLabel || null,
+      matchedVariantLabel: simplest?.variantLabel || null,
       matchedXTemplateLabel: xTemplateLabel,
       matchedYTemplateLabel: yTemplateLabel,
+      matchedXError: typeof axisMatch?.xError === "number" ? axisMatch.xError : simplest?.xError ?? null,
+      matchedYError: typeof axisMatch?.yError === "number" ? axisMatch.yError : simplest?.yError ?? null,
     };
   });
 }
@@ -325,6 +333,8 @@ function withMatchedTemplateCoordinatesFromCsv(
       matchedVariantLabel: matched ? parseOptionalMatchCsvValue(row?.variant_label) : null,
       matchedXTemplateLabel: matched ? formatTemplateLabel(parseOptionalMatchCsvValue(row?.x_cut)) : null,
       matchedYTemplateLabel: matched ? formatTemplateLabel(parseOptionalMatchCsvValue(row?.y_cut)) : null,
+      matchedXError: matched && row?.x_error ? Number(row.x_error) : null,
+      matchedYError: matched && row?.y_error ? Number(row.y_error) : null,
     };
   });
 }
@@ -339,6 +349,8 @@ function templatePointMatchDecorationSignature(points: Geometry2DTemplateBossPoi
         matchedVariantLabel: point.matchedVariantLabel ?? null,
         matchedXTemplateLabel: point.matchedXTemplateLabel ?? null,
         matchedYTemplateLabel: point.matchedYTemplateLabel ?? null,
+        matchedXError: point.matchedXError ?? null,
+        matchedYError: point.matchedYError ?? null,
       }))
       .sort((a, b) => a.id - b.id)
   );
@@ -536,7 +548,7 @@ export function useStep4Geometry2DController() {
     }
 
     return Object.entries(groupedSegmentations).map(([label, segs]) => ({
-      groupId: segs[0]?.groupId || label.toLowerCase().replace(/\s+/g, "_"),
+      groupId: segs[0] ? getSegmentationGroupId(segs[0]) : label.toLowerCase().replace(/\s+/g, "_"),
       label,
       color: segs[0]?.color || "#888888",
     }));
@@ -677,8 +689,7 @@ export function useStep4Geometry2DController() {
   const visibleMasks = segmentations.filter(s => s.visible);
   const reconstructionVisibleMasks = useMemo(() => {
     if (reconstructLayers.visibleSegmentationGroups.length === 0) return [];
-    const visibleGroupIds = new Set(reconstructLayers.visibleSegmentationGroups);
-    return segmentations.filter((seg) => !!seg.groupId && visibleGroupIds.has(seg.groupId));
+    return filterSegmentationsByGroupIds(segmentations, reconstructLayers.visibleSegmentationGroups);
   }, [reconstructLayers.visibleSegmentationGroups, segmentations]);
 
   const decorateTemplatePoint = useCallback((point: Geometry2DTemplateBossPoint): Geometry2DTemplateBossPoint => {

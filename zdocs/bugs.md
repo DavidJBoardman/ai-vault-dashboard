@@ -45,8 +45,11 @@ Remove Analysis page - David
 
 [x] analysis-report
 
-[] dxf [vector format] to export the plan  
-[?] anyway I can reset the segmentation?
+[] dxf [vector format] to export the plan
+
+[] Cut-Typology hoverover the reference point, the user cares more about the xcut, ycut, how could we highlight that without overwhelming the context. currently, it shows too many content
+
+[x] Cut-Typology move the unmatched notification, to the bottom of PReview?
 
 # Wiktoria
 

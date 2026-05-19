@@ -149,7 +149,7 @@ export function getMatchColumnClass(column: string): string {
     case "boss_xy":
     case "template_xy":
       return "w-[118px]";
-    case "xy_error":
+    case "uv_error":
       return "w-[180px]";
     case "matched":
       return "w-[80px]";
@@ -165,7 +165,7 @@ export function normaliseMatchCsvRows(matchCsvRows: Array<Record<string, string>
     return {
       ...row,
       boss_uv: formatUvPair(row.boss_uv),
-      xy_error:
+      uv_error:
         (!xError || xError.toLowerCase() === "none") && (!yError || yError.toLowerCase() === "none")
           ? "None"
           : `[${xError || "None"}, ${yError || "None"}]`,
@@ -173,7 +173,7 @@ export function normaliseMatchCsvRows(matchCsvRows: Array<Record<string, string>
   });
 }
 
-export function parseXyErrorScore(value: string | undefined): number {
+export function parseUvErrorScore(value: string | undefined): number {
   if (!value || value.toLowerCase() === "none") return -1;
   const match = value.match(/\[\s*([^,\]]+)\s*,\s*([^\]]+)\s*\]/);
   if (!match) return -1;
@@ -183,7 +183,7 @@ export function parseXyErrorScore(value: string | undefined): number {
   return Math.abs(x) + Math.abs(y);
 }
 
-export function getXyErrorSeverity(score: number): MatchErrorSeverity {
+export function getUvErrorSeverity(score: number): MatchErrorSeverity {
   if (score < 0) return { label: "N/A", className: "bg-muted/40 text-muted-foreground" };
   if (score > 0.01) return { label: "High", className: "bg-red-500/20 text-red-300" };
   if (score > 0.005) return { label: "Med", className: "bg-amber-500/20 text-amber-300" };
@@ -200,7 +200,9 @@ function familyFromRow(row: MatchCsvRow): string {
 }
 
 function detailLabelFromRow(row: MatchCsvRow, family: string): string {
-  if (family === "hybrid") {
+  const xCut = row.x_cut && row.x_cut !== "None" ? row.x_cut : null;
+  const yCut = row.y_cut && row.y_cut !== "None" ? row.y_cut : null;
+  if ((family === "hybrid" || (xCut && yCut && xCut !== yCut)) && xCut && yCut) {
     return `${rawVariantLabelToTitle(row.x_cut)} x ${rawVariantLabelToTitle(row.y_cut)}`;
   }
   if (family === "unresolved") {
@@ -261,7 +263,7 @@ export function buildPerBossTypologySummary(rows: MatchCsvRow[]): PerBossTypolog
         const labels: string[] = [];
         if (row.x_cut) labels.push(row.x_cut);
         if (row.y_cut) labels.push(row.y_cut);
-        if (row.variant_label && row.variant_label !== "None") labels.push(row.variant_label);
+        if (labels.length === 0 && row.variant_label && row.variant_label !== "None") labels.push(row.variant_label);
         return labels.filter((label) => {
           if (!label || label === "None") return false;
           if (dominantFamily === "standard starcut") return label.startsWith("starcut_n=");
@@ -317,15 +319,18 @@ export function collectPrimaryReadingOverlayLabelsFromPerBoss(rows: Geometry2DCu
 
   const simplifiedRows: MatchCsvRow[] = bossRows.map((row) => {
     const simplest = selectSimplestBossMatch(row.matches || []);
+    const axisMatch = row.axisCutMatch;
     const variantLabel = simplest?.variantLabel || "None";
     const isCross = !!simplest?.isCrossTemplate;
+    const fallbackXCut = isCross ? String(simplest?.xTemplate || "None") : variantLabel;
+    const fallbackYCut = isCross ? String(simplest?.yTemplate || "None") : variantLabel;
     return {
       boss_id: String(row.id),
       point_type: row.pointType,
       variant_label: variantLabel,
-      x_cut: isCross ? String(simplest?.xTemplate || "None") : variantLabel,
-      y_cut: isCross ? String(simplest?.yTemplate || "None") : variantLabel,
-      matched: simplest ? "true" : "false",
+      x_cut: String(axisMatch?.xCut || fallbackXCut),
+      y_cut: String(axisMatch?.yCut || fallbackYCut),
+      matched: axisMatch ? (axisMatch.matched ? "true" : "false") : simplest ? "true" : "false",
     };
   });
 

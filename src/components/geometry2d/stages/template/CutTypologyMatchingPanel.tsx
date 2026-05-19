@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Geometry2DCutTypologyOverlayVariant,
@@ -19,7 +19,7 @@ import { ChevronDown, ChevronUp, EyeOff, FileText, Play, RefreshCw, Sparkles } f
 import {
   buildPerBossTypologySummary,
   normaliseMatchCsvRows,
-  parseXyErrorScore,
+  parseUvErrorScore,
   rankOverlayVariants,
   type MatchCsvRow,
   variantLabelToTitle,
@@ -28,12 +28,12 @@ import { CutTypologyMatchTable } from "./CutTypologyMatchTable";
 
 const RESET_TEMPLATE_PARAMS: Geometry2DCutTypologyParams = {
   starcutMin: 2,
-  starcutMax: 6,
+  starcutMax: 7,
   includeStarcut: true,
   includeInner: true,
   includeOuter: true,
-  allowCrossTemplate: true,
-  tolerance: 0.015,
+  allowCrossTemplate: false,
+  tolerance: 0.05,
 };
 
 interface CutTypologyMatchingPanelProps {
@@ -54,7 +54,7 @@ interface CutTypologyMatchingPanelProps {
   onHideAllOverlays: () => void;
   onShowPrimaryOverlays: () => void;
   onLoadMatchCsv: () => void;
-  onGoToNodes: () => void;
+  advancedParamsFocusSignal?: number;
 }
 
 export function CutTypologyMatchingPanel({
@@ -75,11 +75,12 @@ export function CutTypologyMatchingPanel({
   onHideAllOverlays,
   onShowPrimaryOverlays,
   onLoadMatchCsv,
-  onGoToNodes,
+  advancedParamsFocusSignal = 0,
 }: CutTypologyMatchingPanelProps) {
   const [isMatchCsvOpen, setIsMatchCsvOpen] = useState(false);
   const [isTemplateOverlayOpen, setIsTemplateOverlayOpen] = useState(false);
   const [isAdvancedParamsOpen, setIsAdvancedParamsOpen] = useState(false);
+  const advancedParamsRef = useRef<HTMLDetailsElement>(null);
   const variantResultsByLabel = new Map(variantResults.map((variant) => [variant.variantLabel, variant]));
   const rankedOverlayVariants = useMemo(
     () => [...overlayVariants].sort(rankOverlayVariants),
@@ -94,6 +95,13 @@ export function CutTypologyMatchingPanel({
       onLoadMatchCsv();
     }
   }, [onLoadMatchCsv, shouldAutoLoadCsv]);
+  useEffect(() => {
+    if (advancedParamsFocusSignal <= 0) return;
+    setIsAdvancedParamsOpen(true);
+    window.requestAnimationFrame(() => {
+      advancedParamsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [advancedParamsFocusSignal]);
   const matchSummary = useMemo(() => {
     const total = displayMatchCsvRows.length;
     const isCornerRow = (row: MatchCsvRow) =>
@@ -106,7 +114,7 @@ export function CutTypologyMatchingPanel({
     const cornerRows = displayMatchCsvRows.filter(isCornerRow);
     const matched = displayMatchCsvRows.filter((row) => String(row.matched || "").toLowerCase() === "true").length;
     const unmatched = total - matched;
-    const highError = displayMatchCsvRows.filter((row) => parseXyErrorScore(row.xy_error) > 0.005).length;
+    const highError = displayMatchCsvRows.filter((row) => parseUvErrorScore(row.uv_error) > 0.005).length;
     const bossTotal = bossRows.length;
     const bossMatched = bossRows.filter((row) => String(row.matched || "").toLowerCase() === "true").length;
     const cornerCount = cornerRows.length;
@@ -126,6 +134,7 @@ export function CutTypologyMatchingPanel({
     () => Math.max(...(perBossSummary?.details.map(([, count]) => count) || [1])),
     [perBossSummary]
   );
+  const tolerancePercent = (params.tolerance * 100).toFixed(1);
 
   return (
     <>
@@ -169,7 +178,7 @@ export function CutTypologyMatchingPanel({
               </div>
               {perBossSummary.details.length > 0 ? (
                 <div className="space-y-2 border-t border-border/70 pt-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Distribution</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Matched Node Cuts</p>
                   <div className="space-y-2">
                     {perBossSummary.details.map(([detail, count]) => (
                       <div key={`${detail}-${count}`} className="grid grid-cols-[minmax(0,1fr)_44px] items-center gap-3">
@@ -204,24 +213,6 @@ export function CutTypologyMatchingPanel({
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Run matching to assess the saved reference points against the available cut families.
               </p>
-            </div>
-          )}
-
-          {perBossSummary && perBossSummary.unmatchedRows > 0 && (
-            <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-3 space-y-2">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 space-y-1">
-                  <p className="text-sm font-medium text-amber-200">
-                    {perBossSummary.unmatchedRows} node{perBossSummary.unmatchedRows === 1 ? "" : "s"} did not find a match
-                  </p>
-                  <p className="text-[11px] text-amber-100/80">
-                    These nodes are highlighted in the preview. Return to 4B to adjust their locations, then run matching again.
-                  </p>
-                </div>
-                <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={onGoToNodes}>
-                  Back to 4B
-                </Button>
-              </div>
             </div>
           )}
 
@@ -298,6 +289,7 @@ export function CutTypologyMatchingPanel({
           </details>
 
           <details
+            ref={advancedParamsRef}
             open={isAdvancedParamsOpen}
             onToggle={(event) => setIsAdvancedParamsOpen((event.currentTarget as HTMLDetailsElement).open)}
             className="rounded-md border border-border bg-card/40 px-3 py-2"
@@ -343,10 +335,10 @@ export function CutTypologyMatchingPanel({
                 </div>
               </div>
 
-              <div className="rounded-md border border-border px-2.5 py-2 space-y-1">
+              <div className="rounded-md border border-border px-2.5 py-2 space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium">Tolerance</span>
-                  <span className="text-muted-foreground">{params.tolerance.toFixed(3)}</span>
+                  <span className="font-medium">Point-to-cut tolerance</span>
+                  <span className="font-semibold tabular-nums text-foreground">±{tolerancePercent}%</span>
                 </div>
                 <Slider
                   min={0.001}
@@ -355,6 +347,21 @@ export function CutTypologyMatchingPanel({
                   value={[params.tolerance]}
                   onValueChange={(value) => onParamChange({ tolerance: value[0] ?? params.tolerance })}
                 />
+                <div className="flex justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <span>Stricter</span>
+                  <span>Looser</span>
+                </div>
+                <div className="rounded-sm border border-border/60 bg-muted/40 px-2 py-1.5 text-xs leading-relaxed text-foreground/90">
+                  <p>
+                    <span className="font-semibold tabular-nums">{params.tolerance.toFixed(3)}</span>
+                    {" = within "}
+                    <span className="font-semibold">±{tolerancePercent}%</span>
+                    {" of bay width/height."}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Lower is stricter; higher accepts rougher point placement.
+                  </p>
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -377,13 +384,6 @@ export function CutTypologyMatchingPanel({
                   <Checkbox
                     checked={params.includeOuter}
                     onCheckedChange={(checked) => onParamChange({ includeOuter: checked === true })}
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-border px-2.5 py-2">
-                  <p className="text-xs font-medium">Allow cross templates</p>
-                  <Checkbox
-                    checked={params.allowCrossTemplate}
-                    onCheckedChange={(checked) => onParamChange({ allowCrossTemplate: checked === true })}
                   />
                 </div>
               </div>
