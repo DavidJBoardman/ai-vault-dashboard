@@ -266,6 +266,50 @@ def load_boss_rows(project_dir: Path) -> List[Dict[str, Any]]:
     return [row for row in load_reference_rows(project_dir) if str(row.get("pointType", "boss")) == "boss"]
 
 
+def load_boss_match_records(project_dir: Path) -> Dict[str, Dict[str, Any]]:
+    """Read the 4C match CSV into a {boss_id: match-fields} mapping.
+
+    Returns an empty dict when the CSV is absent so the bay-plan run path stays
+    runnable on projects that skipped 4C.
+    """
+    cut_dir = project_dir / "2d_geometry" / "cut_typology_matching"
+    csv_path = cut_dir / "boss_cut_typology_match.csv"
+    if not csv_path.exists():
+        return {}
+
+    def _parse_error(raw: str) -> Optional[float]:
+        cleaned = str(raw or "").strip()
+        if not cleaned or cleaned.lower() == "none":
+            return None
+        try:
+            return float(cleaned)
+        except (TypeError, ValueError):
+            return None
+
+    def _parse_label(raw: str) -> Optional[str]:
+        cleaned = str(raw or "").strip()
+        if not cleaned or cleaned.lower() == "none":
+            return None
+        return cleaned
+
+    records: Dict[str, Dict[str, Any]] = {}
+    with csv_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            boss_id = str(row.get("boss_id", "")).strip()
+            if not boss_id:
+                continue
+            matched = str(row.get("matched", "")).strip().lower() in ("true", "1", "yes")
+            records[boss_id] = {
+                "xTemplateLabel": _parse_label(str(row.get("x_cut", ""))),
+                "yTemplateLabel": _parse_label(str(row.get("y_cut", ""))),
+                "xError": _parse_error(str(row.get("x_error", ""))),
+                "yError": _parse_error(str(row.get("y_error", ""))),
+                "matched": matched,
+            }
+    return records
+
+
 def _normalise_mask(mask_img: np.ndarray) -> np.ndarray:
     if mask_img.ndim == 3:
         if mask_img.shape[2] == 4:
