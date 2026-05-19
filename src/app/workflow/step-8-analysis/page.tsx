@@ -197,12 +197,26 @@ export default function Step8AnalysisPage() {
     setExportingRibs(true);
     try {
       const rows: string[] = [];
-      rows.push(["Name", "ArcRadius", "Length", "ImpostDistance", "Span", "ApexHeight", "FitError"].join(","));
+      rows.push(
+        [
+          "Name",
+          "Source",
+          "Ribs",
+          "ArcRadius",
+          "Length",
+          "ImpostDistance",
+          "Span",
+          "ApexHeight",
+          "FitError",
+        ].join(","),
+      );
 
       ribRows.forEach((row) => {
         rows.push(
           [
             toCsvCell(row.name),
+            toCsvCell(row.source),
+            toCsvCell(String(row.ribCount)),
             toCsvCell(row.arcRadiusText),
             toCsvCell(row.lengthText),
             toCsvCell(row.impostDistanceText),
@@ -224,9 +238,20 @@ export default function Step8AnalysisPage() {
     setExportingBosses(true);
     try {
       const rows: string[] = [];
-      rows.push(["BossStone", "HeightFromImpost"].join(","));
+      rows.push(
+        ["BossStone", "Group", "HeightFromImpost", "ConnectedRibs", "ApexPairs", "Source"].join(","),
+      );
       bossRows.forEach((row) => {
-        rows.push([toCsvCell(row.name), toCsvCell(row.heightFromImpostText)].join(","));
+        rows.push(
+          [
+            toCsvCell(row.name),
+            toCsvCell(row.groupId),
+            toCsvCell(row.heightFromImpostText),
+            toCsvCell(String(row.connectedRibCount)),
+            toCsvCell(String(row.apexPairCount)),
+            toCsvCell(row.source),
+          ].join(","),
+        );
       });
       downloadCsv(`boss_stones_export_${Date.now()}.csv`, rows.join("\n"));
     } finally {
