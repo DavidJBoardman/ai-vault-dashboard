@@ -744,8 +744,12 @@ export default function Step3SegmentationPage() {
       const replacedExistingIds = new Set<string>();
       for (const nm of newMasks) {
         if (!nm.bbox) continue;
+        const nmBase = getBaseLabel(nm.label).toLowerCase();
         for (const em of existingMasks) {
           if (!em.bbox) continue;
+          // Only allow same-label replacement: a boss stone must never evict a rib,
+          // and vice versa, even when they overlap at a rib junction.
+          if (getBaseLabel(em.label).toLowerCase() !== nmBase) continue;
           if (calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD &&
               (nm.predictedIou ?? 0) > (em.predictedIou ?? 0)) {
             replacedExistingIds.add(em.id);
@@ -780,12 +784,18 @@ export default function Step3SegmentationPage() {
       let newCornersSoFar = 0;
       let newBossStonesSoFar = 0;
 
-      // A new mask is a plain duplicate only when it overlaps a surviving existing mask
-      // (and the existing mask was at least as good, so it wasn't replaced above).
-      const isDuplicate = (nm: SegmentationMask) =>
-        survivingExisting.some(
-          (em) => em.bbox && nm.bbox && calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD
+      // A new mask is a duplicate only when it overlaps a surviving mask OF THE SAME LABEL TYPE.
+      // Cross-label overlap is intentional (boss stones sit at rib junctions) and must be kept.
+      const isDuplicate = (nm: SegmentationMask) => {
+        const nmBase = getBaseLabel(nm.label).toLowerCase();
+        return survivingExisting.some(
+          (em) =>
+            em.bbox &&
+            nm.bbox &&
+            getBaseLabel(em.label).toLowerCase() === nmBase &&
+            calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD
         );
+      };
 
       const colorPalette = [
         "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
@@ -864,30 +874,23 @@ export default function Step3SegmentationPage() {
             ctx.fill();
           }
           const newBase64 = canvas.toDataURL("image/png").split(",")[1];
+          // Capture the updated list synchronously from the updater so we can
+          // persist it immediately without a deferred setTimeout.
+          let updatedForSave: SegmentationMask[] = [];
           setMasks((current) => {
             const updated = current.map((m) =>
               m.id === maskId ? { ...m, maskBase64: newBase64 } : m
             );
-            setTimeout(() => {
-              setSegmentations(
-                updated.map((m) => ({
-                  id: m.id,
-                  label: m.label,
-                  color: m.color,
-                  mask: m.maskBase64,
-                  visible: m.visible,
-                  source: m.source as "auto" | "manual",
-                }))
-              );
-            }, 0);
+            updatedForSave = updated;
             return updated;
           });
+          void syncAndSave(updatedForSave);
         };
         img.src = toImageSrc(mask.maskBase64);
         return prev; // actual update happens inside img.onload
       });
     },
-    [imageSize, selectedProjection, setSegmentations]
+    [imageSize, selectedProjection, syncAndSave]
   );
 
   // Clear eraser state when switching away from eraser tool
@@ -1099,27 +1102,15 @@ export default function Step3SegmentationPage() {
       };
     });
 
-    // Replace any existing corner-A/B/C/D masks and add the new ones
-    pushToHistory(masks);
-    setMasks((prev) => {
-      const withoutOldCorners = prev.filter(
-        (m) => getBaseLabel(m.label).toLowerCase() !== "corner"
-      );
-      const updated = [...withoutOldCorners, ...cornerMasks];
-      setTimeout(() => {
-        setSegmentations(
-          updated.map((m) => ({
-            id: m.id,
-            label: m.label,
-            color: m.color,
-            mask: m.maskBase64,
-            visible: m.visible,
-            source: m.source as "auto" | "manual",
-          }))
-        );
-      }, 0);
-      return updated;
-    });
+    // Replace any existing corner-A/B/C/D masks and add the new ones.
+    // Use masksRef for the latest state after the preceding await.
+    pushToHistory(masksRef.current);
+    const withoutOldCorners = masksRef.current.filter(
+      (m) => getBaseLabel(m.label).toLowerCase() !== "corner"
+    );
+    const updatedWithCorners = [...withoutOldCorners, ...cornerMasks];
+    setMasks(updatedWithCorners);
+    void syncAndSave(updatedWithCorners);
 
     // Save ROI with corner labels to backend
     if (currentProject?.id) {
@@ -1581,17 +1572,10 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (newMasks.length > 0) {
-          setMasks(prev => {
-            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
-            setTimeout(() => {
-              setSegmentations(allMasks.map((m: SegmentationMask) => ({
-                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
-                visible: m.visible, source: m.source as "auto" | "manual",
-              })));
-            }, 0);
-            return allMasks;
-          });
+          const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, newMasks));
+          setMasks(updatedMasks);
           setDrawnBoxes([]);
+          void syncAndSave(updatedMasks);
           setBoxSegResult({ type: "success", message: `Found ${newMasks.length} feature${newMasks.length !== 1 ? "s" : ""}. Boxes cleared — draw new ones to search again.` });
         } else {
           setBoxSegResult({ type: "warning", message: "Nothing matched. Try a box around a clearer example, or add a negative box (−) over shadows or adjacent masonry to guide the search." });
@@ -1653,17 +1637,10 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (newMasks.length > 0) {
-          setMasks(prev => {
-            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
-            setTimeout(() => {
-              setSegmentations(allMasks.map((m: SegmentationMask) => ({
-                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
-                visible: m.visible, source: m.source as "auto" | "manual",
-              })));
-            }, 0);
-            return allMasks;
-          });
+          const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, newMasks));
+          setMasks(updatedMasks);
           setDrawnPolygons([]);
+          void syncAndSave(updatedMasks);
           setPolySegResult({ type: "success", message: `Found ${newMasks.length} feature${newMasks.length !== 1 ? "s" : ""}. Polygons cleared — draw new ones to search again.` });
         } else {
           setPolySegResult({ type: "warning", message: "Nothing found in the selected region. Try a larger polygon or use a different label." });
@@ -1719,17 +1696,11 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (autoMasks.length > 0) {
-          setMasks(prev => {
-            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, autoMasks));
-            setTimeout(() => {
-              setSegmentations(allMasks.map((m: SegmentationMask) => ({
-                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
-                visible: m.visible, source: m.source as "auto" | "manual",
-              })));
-            }, 0);
-            return allMasks;
-          });
-          // autoSegStatus / summary computed by the useEffect watching isProcessing
+          const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, autoMasks));
+          setMasks(updatedMasks);
+          // Fire-and-forget backend save; autoSegStatus summary computed by the
+          // useEffect that watches [isProcessing, autoSegStatus, masks].
+          void syncAndSave(updatedMasks);
         } else {
           // No masks returned — set status directly rather than waiting for the useEffect
           setAutoSegSummary("Nothing detected. Try adjusting the ROI, or use the Box tool to show the model a clear example.");
