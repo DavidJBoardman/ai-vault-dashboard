@@ -104,7 +104,7 @@ function renderBayProportion(data: ReportData): string {
 }
 
 function renderCutTypology(data: ReportData): string {
-  const { columns, rows, bossesMatched, variantsMatched } = data.cutTypology;
+  const { columns, rows, bossesTotal, bossesMatched, bossesPartial, variantsMatched } = data.cutTypology;
   if (rows.length === 0 || columns.length === 0) {
     return `
 <section class="vr-section">
@@ -112,6 +112,11 @@ function renderCutTypology(data: ReportData): string {
   <p class="vr-muted">Template matching has not been run.</p>
 </section>`;
   }
+
+  const matchedPart = `${bossesMatched} matched`;
+  const partialPart = bossesPartial > 0 ? `, ${bossesPartial} partial` : "";
+  const unmatchedCount = bossesTotal - bossesMatched - bossesPartial;
+  const unmatchedPart = unmatchedCount > 0 ? `, ${unmatchedCount} unmatched` : "";
 
   const numericCols = new Set(
     columns.filter((col) =>
@@ -132,9 +137,21 @@ function renderCutTypology(data: ReportData): string {
       const cells = columns
         .map((col) => {
           const raw = row[col] ?? "";
-          if (col === "matched") {
-            const isMatched = String(raw).toLowerCase() === "true";
-            return `<td><span class="vr-pill ${isMatched ? "vr-pill-ok" : "vr-pill-bad"}">${isMatched ? "matched" : "unmatched"}</span></td>`;
+          if (col === "matched" || col === "match_state") {
+            const explicit = String(row.match_state ?? "").trim().toLowerCase();
+            const matchedFlag = String(row.matched ?? "").trim().toLowerCase() === "true";
+            const hasX = String(row.x_cut ?? "").trim().toLowerCase() !== "none" && (row.x_cut ?? "") !== "";
+            const hasY = String(row.y_cut ?? "").trim().toLowerCase() !== "none" && (row.y_cut ?? "") !== "";
+            const state = (explicit === "matched" || explicit === "partial" || explicit === "unmatched")
+              ? explicit
+              : matchedFlag
+                ? "matched"
+                : (hasX || hasY)
+                  ? "partial"
+                  : "unmatched";
+            const cls = state === "matched" ? "vr-pill-ok" : state === "partial" ? "vr-pill-warn" : "vr-pill-bad";
+            const label = state.charAt(0).toUpperCase() + state.slice(1);
+            return `<td><span class="vr-pill ${cls}">${label}</span></td>`;
           }
           if (col === "point_label") {
             const compact = getCompactNodeLabel(row.point_label || row.boss_id);
@@ -156,7 +173,7 @@ function renderCutTypology(data: ReportData): string {
   return `
 <section class="vr-section">
   <h2>Cut typology</h2>
-  <p class="vr-muted">${bossesMatched} boss${bossesMatched === 1 ? "" : "es"} matched across ${variantsMatched} typology variant${variantsMatched === 1 ? "" : "s"}.</p>
+  <p class="vr-muted">${matchedPart}${partialPart}${unmatchedPart} of ${bossesTotal} boss${bossesTotal === 1 ? "" : "es"} across ${variantsMatched} typology variant${variantsMatched === 1 ? "" : "s"}.</p>
   <table class="vr-table vr-table-compact">
     <thead><tr>${headerCells}</tr></thead>
     <tbody>${bodyRows}</tbody>
@@ -264,6 +281,7 @@ p { margin: .25rem 0; }
   letter-spacing: .04em;
 }
 .vr-pill-ok { background: var(--ok-soft); color: var(--ok); }
+.vr-pill-warn { background: #fffbeb; color: var(--warn); }
 .vr-pill-bad { background: var(--bad-soft); color: var(--bad); }
 .vr-error-high { color: var(--warn); font-weight: 600; }
 

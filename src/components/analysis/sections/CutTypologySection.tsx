@@ -4,7 +4,11 @@ import type { ReportData } from "@/lib/report/geometry2dReport";
 import { CutTypologyMatchTable } from "@/components/geometry2d/stages/template/CutTypologyMatchTable";
 
 export function CutTypologySection({ data }: { data: ReportData }) {
-  const { rows, bossesMatched, variantsMatched } = data.cutTypology;
+  const { rows, bossesTotal, bossesMatched, bossesPartial, variantsMatched } = data.cutTypology;
+  const matchedPart = `${bossesMatched} matched`;
+  const partialPart = bossesPartial > 0 ? `, ${bossesPartial} partial` : "";
+  const unmatchedCount = bossesTotal - bossesMatched - bossesPartial;
+  const unmatchedPart = unmatchedCount > 0 ? `, ${unmatchedCount} unmatched` : "";
 
   return (
     <section className="space-y-4">
@@ -13,7 +17,7 @@ export function CutTypologySection({ data }: { data: ReportData }) {
         <p className="text-sm text-muted-foreground">
           {rows.length === 0
             ? "Template matching has not been run."
-            : `${bossesMatched} boss${bossesMatched === 1 ? "" : "es"} matched across ${variantsMatched} typology variant${variantsMatched === 1 ? "" : "s"}. This report view keeps the key matching evidence compact; the bundled CSV preserves the full original data.`}
+            : `${matchedPart}${partialPart}${unmatchedPart} of ${bossesTotal} boss${bossesTotal === 1 ? "" : "es"} across ${variantsMatched} typology variant${variantsMatched === 1 ? "" : "s"}. The bundled CSV mirrors what is shown above.`}
         </p>
       </div>
 

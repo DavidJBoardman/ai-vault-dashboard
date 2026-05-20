@@ -2,6 +2,8 @@ import JSZip from "jszip";
 import type { Project } from "@/lib/store";
 import { formatCutTypologyValue, getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
 import { buildBayPlanDxf } from "@/lib/geometry2d/bayPlanDxf";
+import { resolveGeometry2DProjection } from "@/lib/geometry2d/projectionSelection";
+import { summariseCutTypologyRows } from "@/lib/report/cutTypologySummary";
 
 export interface BayProportionCandidate {
   rank: number;
@@ -79,7 +81,9 @@ export interface ReportData {
   cutTypology: {
     columns: string[];
     rows: Array<Record<string, string>>;
+    bossesTotal: number;
     bossesMatched: number;
+    bossesPartial: number;
     variantsMatched: number;
   };
   referencePoints: ReferencePoint[];
@@ -168,6 +172,9 @@ interface ReconstructPersisted {
 }
 
 interface Geometry2DPersisted {
+  projectionId?: string;
+  projectionName?: string;
+  projectionResolution?: number;
   prep?: PrepData;
   nodes?: NodesData;
   template?: NodesData;
@@ -267,10 +274,10 @@ export function selectReportData(
     deltaFromBest: s.err - bestErr,
   }));
 
-  const selectedProjection =
-    project.projections.find((p) => p.id === project.selectedProjectionId) ??
-    project.projections[0] ??
-    null;
+  const selectedProjection = resolveGeometry2DProjection({
+    project,
+    preferStep4Projection: true,
+  });
   const resolution = pickResolution(selectedProjection);
   const roi = normaliseRoi(geom.roi, resolution);
 
@@ -291,14 +298,7 @@ export function selectReportData(
 
   const matchColumns = cutTypology?.columns ?? [];
   const matchRows = cutTypology?.rows ?? [];
-  const bossRows = matchRows.filter((r) => (r["point_type"] ?? "") === "boss");
-  const IGNORED_VARIANT_LABELS = new Set(["", "none", "n/a", "na", "roi_corner", "unmatched"]);
-  const variantsMatched = new Set(
-    matchRows
-      .map((r) => r["variant_label"] ?? r["matchedVariantLabel"] ?? r["matched_variant_label"] ?? "")
-      .map((v) => String(v).trim().toLowerCase())
-      .filter((v) => !IGNORED_VARIANT_LABELS.has(v))
-  ).size;
+  const cutTypologySummary = summariseCutTypologyRows(matchRows);
 
   const projectionImageDataUrl =
     ensureDataUrl(selectedProjection?.images?.colour) ??
@@ -354,7 +354,7 @@ export function selectReportData(
     roiPx: roi
       ? { width: roi.width, height: roi.height, rotation: roi.rotation }
       : null,
-    bossCount: bossRows.length,
+    bossCount: cutTypologySummary.bossesTotal,
     pointCount: referencePoints.length,
     matchingThreshold,
   };
@@ -374,8 +374,10 @@ export function selectReportData(
     cutTypology: {
       columns: matchColumns,
       rows: matchRows,
-      bossesMatched: bossRows.length,
-      variantsMatched,
+      bossesTotal: cutTypologySummary.bossesTotal,
+      bossesMatched: cutTypologySummary.bossesMatched,
+      bossesPartial: cutTypologySummary.bossesPartial,
+      variantsMatched: cutTypologySummary.variantsMatched,
     },
     referencePoints,
     reconstruct: {
