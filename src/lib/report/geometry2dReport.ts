@@ -1,6 +1,11 @@
 import JSZip from "jszip";
 import type { Project } from "@/lib/store";
 import { formatCutTypologyValue, getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import {
+  formatTemplateUvForRow,
+  normaliseMatchCsvRows,
+} from "@/components/geometry2d/stages/template/cutTypologyMatchingUtils";
+import { filterReportColumns } from "@/components/geometry2d/stages/template/reportColumns";
 import { buildBayPlanDxf } from "@/lib/geometry2d/bayPlanDxf";
 import { resolveGeometry2DProjection } from "@/lib/geometry2d/projectionSelection";
 import { summariseCutTypologyRows } from "@/lib/report/cutTypologySummary";
@@ -297,8 +302,18 @@ export function selectReportData(
     })
     .filter((p): p is ReferencePoint => p !== null);
 
-  const matchColumns = cutTypology?.columns ?? [];
-  const matchRows = cutTypology?.rows ?? [];
+  // Normalise rows so uv_error is synthesised from x_error / y_error in the
+  // same way the on-screen 4C and Step 8 match tables do. Otherwise the
+  // bundle CSV and report.html see empty uv_error cells (backend writes the
+  // two axes separately, never a combined column).
+  const rawMatchRows = cutTypology?.rows ?? [];
+  const matchRows = normaliseMatchCsvRows(rawMatchRows) as Array<Record<string, string>>;
+  const rawMatchColumns = cutTypology?.columns ?? [];
+  // Ensure uv_error appears in the column list once we've synthesised it, so
+  // downstream filtering can pick it up.
+  const matchColumns = rawMatchColumns.includes("uv_error")
+    ? rawMatchColumns
+    : [...rawMatchColumns, "uv_error"];
   const cutTypologySummary = summariseCutTypologyRows(matchRows);
 
   const projectionImageDataUrl =
@@ -486,11 +501,18 @@ export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
     )
   );
 
+  // Use the same column set the user sees on screen (Step 8 report variant
+  // = REPORT_COLUMNS) so the bundled CSV matches the in-app table and the
+  // bundled report.html. Apply the same per-cell formatting (compact labels,
+  // partial-axis template_uv, 4dp numeric rounding).
+  const reportColumnsForCsv = filterReportColumns(data.cutTypology.columns);
   const cutTypologyExportRows = data.cutTypology.rows.map((row) => {
     const out: Record<string, string> = {};
-    for (const col of Object.keys(row)) {
+    for (const col of reportColumnsForCsv) {
       if (col === "point_label") {
         out[col] = getCompactNodeLabel(row.point_label || row.boss_id) || row.point_label || "";
+      } else if (col === "template_uv") {
+        out[col] = formatTemplateUvForRow(row, formatCutTypologyValue);
       } else {
         out[col] = formatCutTypologyValue(row[col]);
       }
@@ -499,10 +521,7 @@ export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
   });
   zip.file(
     "cut-typology.csv",
-    toCsv(
-      cutTypologyExportRows,
-      data.cutTypology.columns.length > 0 ? data.cutTypology.columns : undefined
-    )
+    toCsv(cutTypologyExportRows, reportColumnsForCsv)
   );
 
   if (bayPlanPng) {

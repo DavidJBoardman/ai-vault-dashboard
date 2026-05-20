@@ -158,6 +158,51 @@ export function getMatchColumnClass(column: string): string {
   }
 }
 
+export type MatchState = "matched" | "partial" | "unmatched" | "reference";
+
+export function rowMatchState(row: Record<string, string>): MatchState {
+  // Corners define the bay frame; they aren't matched against typology
+  // variants. Treat them as a separate "reference" state so the UI doesn't
+  // flag them as failures.
+  const pointType = String(row["point_type"] ?? "boss").trim().toLowerCase();
+  if (pointType === "corner") return "reference";
+
+  const explicit = String(row["match_state"] ?? "").trim().toLowerCase();
+  if (explicit === "matched" || explicit === "partial" || explicit === "unmatched") {
+    return explicit;
+  }
+  // Older CSVs without match_state: derive from x_cut/y_cut/matched.
+  const matched = String(row["matched"] ?? "").trim().toLowerCase() === "true";
+  if (matched) return "matched";
+  const hasX = String(row["x_cut"] ?? "").trim().toLowerCase() !== "none" && row["x_cut"] !== "";
+  const hasY = String(row["y_cut"] ?? "").trim().toLowerCase() !== "none" && row["y_cut"] !== "";
+  return hasX || hasY ? "partial" : "unmatched";
+}
+
+export function formatTemplateUvForRow(
+  row: Record<string, string>,
+  formatValue: (value: string | number | null | undefined) => string,
+): string {
+  // Honest rendering of the matched target ratio. For full matches the
+  // backend already emits "[0.5, 0.5]"; for partial rows it emits "None" and
+  // hides the axis that did hit. Reconstruct the partial form here so the
+  // single column carries the full truth.
+  const state = rowMatchState(row);
+  const raw = String(row["template_uv"] ?? "");
+  if (state !== "partial") {
+    return formatValue(raw);
+  }
+  const xRatio = String(row["x_ratio"] ?? "").trim();
+  const yRatio = String(row["y_ratio"] ?? "").trim();
+  const xToken = xRatio && xRatio.toLowerCase() !== "none"
+    ? formatValue(xRatio)
+    : "-";
+  const yToken = yRatio && yRatio.toLowerCase() !== "none"
+    ? formatValue(yRatio)
+    : "-";
+  return `[${xToken}, ${yToken}]`;
+}
+
 export function normaliseMatchCsvRows(matchCsvRows: Array<Record<string, string>>): MatchCsvRow[] {
   return matchCsvRows.map((row) => {
     const xError = formatDecimalSix(row.x_error);

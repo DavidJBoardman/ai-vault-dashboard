@@ -1,4 +1,8 @@
 import { formatCutTypologyValue, getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import {
+  formatTemplateUvForRow,
+  rowMatchState,
+} from "@/components/geometry2d/stages/template/cutTypologyMatchingUtils";
 import { filterReportColumns } from "@/components/geometry2d/stages/template/reportColumns";
 import packageJson from "../../../package.json";
 import type { ReportData } from "./geometry2dReport";
@@ -124,33 +128,6 @@ function renderCutTypology(data: ReportData): string {
   // filter to stay in sync.
   const reportColumns = filterReportColumns(columns);
 
-  function deriveMatchState(row: Record<string, string>): "matched" | "partial" | "unmatched" | "reference" {
-    const pointType = String(row.point_type ?? "boss").trim().toLowerCase();
-    if (pointType === "corner") return "reference";
-    const explicit = String(row.match_state ?? "").trim().toLowerCase();
-    if (explicit === "matched" || explicit === "partial" || explicit === "unmatched") {
-      return explicit;
-    }
-    const matchedFlag = String(row.matched ?? "").trim().toLowerCase() === "true";
-    if (matchedFlag) return "matched";
-    const hasX = String(row.x_cut ?? "").trim().toLowerCase() !== "none" && (row.x_cut ?? "") !== "";
-    const hasY = String(row.y_cut ?? "").trim().toLowerCase() !== "none" && (row.y_cut ?? "") !== "";
-    return hasX || hasY ? "partial" : "unmatched";
-  }
-
-  function formatTemplateUv(row: Record<string, string>): string {
-    const state = deriveMatchState(row);
-    const raw = String(row.template_uv ?? "");
-    if (state !== "partial") {
-      return formatCutTypologyValue(raw);
-    }
-    const xRaw = String(row.x_ratio ?? "").trim();
-    const yRaw = String(row.y_ratio ?? "").trim();
-    const xToken = xRaw && xRaw.toLowerCase() !== "none" ? formatCutTypologyValue(xRaw) : "-";
-    const yToken = yRaw && yRaw.toLowerCase() !== "none" ? formatCutTypologyValue(yRaw) : "-";
-    return `[${xToken}, ${yToken}]`;
-  }
-
   const numericCols = new Set(
     reportColumns.filter((col) =>
       rows.some((row) => {
@@ -171,23 +148,7 @@ function renderCutTypology(data: ReportData): string {
         .map((col) => {
           const raw = row[col] ?? "";
           if (col === "matched" || col === "match_state") {
-            const pointType = String(row.point_type ?? "boss").trim().toLowerCase();
-            let state: "matched" | "partial" | "unmatched" | "reference";
-            if (pointType === "corner") {
-              state = "reference";
-            } else {
-              const explicit = String(row.match_state ?? "").trim().toLowerCase();
-              const matchedFlag = String(row.matched ?? "").trim().toLowerCase() === "true";
-              const hasX = String(row.x_cut ?? "").trim().toLowerCase() !== "none" && (row.x_cut ?? "") !== "";
-              const hasY = String(row.y_cut ?? "").trim().toLowerCase() !== "none" && (row.y_cut ?? "") !== "";
-              state = (explicit === "matched" || explicit === "partial" || explicit === "unmatched")
-                ? explicit
-                : matchedFlag
-                  ? "matched"
-                  : (hasX || hasY)
-                    ? "partial"
-                    : "unmatched";
-            }
+            const state = rowMatchState(row);
             const cls = state === "matched"
               ? "vr-pill-ok"
               : state === "partial"
@@ -203,7 +164,7 @@ function renderCutTypology(data: ReportData): string {
             return `<td>${escape(compact || raw)}</td>`;
           }
           if (col === "template_uv") {
-            return `<td>${escape(formatTemplateUv(row))}</td>`;
+            return `<td>${escape(formatTemplateUvForRow(row, formatCutTypologyValue))}</td>`;
           }
           if (col === "uv_error") {
             const score = parseUvError(String(raw));
