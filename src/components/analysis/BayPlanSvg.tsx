@@ -43,6 +43,7 @@ function idealPosition(
 const EDGE_MEASURED = "#ff7a18";
 const EDGE_MANUAL = "#ef4444";
 const EDGE_IDEAL = "#a78bfa";
+const EDGE_PARTIAL = "#f59e0b";
 const NODE_FILL = "#ffffff";
 const NODE_STROKE = "#0ea5e9";
 
@@ -169,6 +170,9 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
               const a = idealPosition(edge.a, reconstructNodes, reconstructIdealNodes);
               const b = idealPosition(edge.b, reconstructNodes, reconstructIdealNodes);
               if (!a || !b) return null;
+              const nodeA = reconstructIdealNodes[edge.a] ?? null;
+              const nodeB = reconstructIdealNodes[edge.b] ?? null;
+              const edgePartial = nodeA?.source === "partial" || nodeB?.source === "partial";
               return (
                 <line
                   key={`ideal-edge-${i}`}
@@ -176,16 +180,17 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
                   y1={a.y}
                   x2={b.x}
                   y2={b.y}
-                  stroke={EDGE_IDEAL}
+                  stroke={edgePartial ? EDGE_PARTIAL : EDGE_IDEAL}
                   strokeWidth={edgeWidth}
                   strokeLinecap="round"
                   strokeDasharray={`${edgeWidth * 4} ${edgeWidth * 3}`}
                 />
               );
             })}
-            {reconstructIdealNodes.map((_, i) => {
+            {reconstructIdealNodes.map((node, i) => {
               const pos = idealPosition(i, reconstructNodes, reconstructIdealNodes);
               if (!pos) return null;
+              const isPartial = node.source === "partial";
               return (
                 <circle
                   key={`ideal-node-${i}`}
@@ -193,8 +198,9 @@ export const BayPlanSvg = forwardRef<SVGSVGElement, BayPlanSvgProps>(function Ba
                   cy={pos.y}
                   r={radius * 0.75}
                   fill="none"
-                  stroke={EDGE_IDEAL}
+                  stroke={isPartial ? EDGE_PARTIAL : EDGE_IDEAL}
                   strokeWidth={radius * 0.3}
+                  strokeDasharray={isPartial ? `${radius * 0.6} ${radius * 0.4}` : undefined}
                 />
               );
             })}
