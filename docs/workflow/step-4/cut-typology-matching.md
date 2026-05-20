@@ -19,9 +19,6 @@ Vault Analyser tests several template families derived from this tradition:
 **Outer circlecut**
 :   Similar, but the circle passes through all four bay corners (radius = half diagonal), producing a different set of construction-line intersections.
 
-**Cross templates**
-:   Hybrid variants combining *x*-axis ratios from one family with *y*-axis ratios from another (e.g. starcut *x* + circlecut inner *y*), capturing asymmetric designs.
-
 [^1]: For a detailed account of starcut geometry and its application in medieval vaulting see [Plans — Tracing the Past](https://www.tracingthepast.org.uk/2021/04/07/designing_plans/).
 
 ## Workflow
@@ -35,12 +32,11 @@ Start with the default settings. Tune the advanced parameters below only if the 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | Starcut Min *n* | 2 | Lower bound for standard-grid divisors |
-| Starcut Max *n* | 6 | Upper bound for standard-grid divisors |
+| Starcut Max *n* | 7 | Upper bound for standard-grid divisors |
 | Include starcut | On | Enable standard *n*-by-*n* grid variants |
 | Include circlecut inner | On | Enable the inner circle variant |
 | Include circlecut outer | On | Enable the outer circle variant |
-| Include cross templates | On | Allow *x*/*y* ratios from different families |
-| Ratio tolerance | 0.01 | Maximum absolute ratio distance for a coordinate to count as matched |
+| Ratio tolerance | 0.05 | Maximum absolute ratio distance for a coordinate to count as matched |
 
 ### 2. Run matching
 
@@ -61,8 +57,7 @@ Each matched boss receives an idealised template position that can be preferred 
 
 If no template produces a believable match, try the following before moving on:
 
-- Widen the **ratio tolerance** slightly (e.g. from 0.01 to 0.02).
-- Enable **Include cross templates** if it is off.
+- Widen the **ratio tolerance** slightly if the boss positions are noisy.
 - Return to sub-stage 4B to remove any spurious reference points that may be pulling the match off.
 - Return to sub-stage 4A to check the bay proportion — a significantly wrong proportion will misplace all template ratios.
 

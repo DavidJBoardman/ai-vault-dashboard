@@ -17,6 +17,7 @@ dependencies = [
     "pydantic==2.9.2",
     "pye57>=0.4.19",
     "pymdown-extensions>=10.21.2",
+    "pytest>=9.0.3",
     "python-multipart==0.0.9",
     "safetensors>=0.7.0",
     "scikit-image==0.24.0",

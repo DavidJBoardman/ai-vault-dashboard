@@ -190,7 +190,7 @@ No issues logged.
 </details>
 
 <details>
-<summary><strong>- [ ] GEO-01 · Topology view needs two versions of boss locations</strong></summary>
+<summary><strong>- [x] GEO-01 · Topology view needs two versions of boss locations</strong></summary>
 
 | Field | Detail |
 |---|---|

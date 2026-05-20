@@ -85,3 +85,5 @@ docs/.obsidian/
 CLAUDE.md
 
 site/
+docs/superpowers*
+docs/superpowers/*
