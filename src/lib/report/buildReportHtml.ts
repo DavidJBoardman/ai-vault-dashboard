@@ -144,18 +144,30 @@ function renderCutTypology(data: ReportData): string {
         .map((col) => {
           const raw = row[col] ?? "";
           if (col === "matched" || col === "match_state") {
-            const explicit = String(row.match_state ?? "").trim().toLowerCase();
-            const matchedFlag = String(row.matched ?? "").trim().toLowerCase() === "true";
-            const hasX = String(row.x_cut ?? "").trim().toLowerCase() !== "none" && (row.x_cut ?? "") !== "";
-            const hasY = String(row.y_cut ?? "").trim().toLowerCase() !== "none" && (row.y_cut ?? "") !== "";
-            const state = (explicit === "matched" || explicit === "partial" || explicit === "unmatched")
-              ? explicit
-              : matchedFlag
-                ? "matched"
-                : (hasX || hasY)
-                  ? "partial"
-                  : "unmatched";
-            const cls = state === "matched" ? "vr-pill-ok" : state === "partial" ? "vr-pill-warn" : "vr-pill-bad";
+            const pointType = String(row.point_type ?? "boss").trim().toLowerCase();
+            let state: "matched" | "partial" | "unmatched" | "reference";
+            if (pointType === "corner") {
+              state = "reference";
+            } else {
+              const explicit = String(row.match_state ?? "").trim().toLowerCase();
+              const matchedFlag = String(row.matched ?? "").trim().toLowerCase() === "true";
+              const hasX = String(row.x_cut ?? "").trim().toLowerCase() !== "none" && (row.x_cut ?? "") !== "";
+              const hasY = String(row.y_cut ?? "").trim().toLowerCase() !== "none" && (row.y_cut ?? "") !== "";
+              state = (explicit === "matched" || explicit === "partial" || explicit === "unmatched")
+                ? explicit
+                : matchedFlag
+                  ? "matched"
+                  : (hasX || hasY)
+                    ? "partial"
+                    : "unmatched";
+            }
+            const cls = state === "matched"
+              ? "vr-pill-ok"
+              : state === "partial"
+                ? "vr-pill-warn"
+                : state === "reference"
+                  ? "vr-pill-ref"
+                  : "vr-pill-bad";
             const label = state.charAt(0).toUpperCase() + state.slice(1);
             return `<td><span class="vr-pill ${cls}">${label}</span></td>`;
           }
@@ -288,6 +300,7 @@ p { margin: .25rem 0; }
 }
 .vr-pill-ok { background: var(--ok-soft); color: var(--ok); }
 .vr-pill-warn { background: #fffbeb; color: var(--warn); }
+.vr-pill-ref { background: #ecfeff; color: #0e7490; }
 .vr-pill-bad { background: var(--bad-soft); color: var(--bad); }
 .vr-error-high { color: var(--warn); font-weight: 600; }
 

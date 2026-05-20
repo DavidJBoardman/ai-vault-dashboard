@@ -33,9 +33,15 @@ const FILTER_OPTIONS: Array<{ mode: "all" | "matched" | "unmatched" | "highError
   { mode: "highError", label: "High error", countKey: "highError" },
 ];
 
-export type MatchState = "matched" | "partial" | "unmatched";
+export type MatchState = "matched" | "partial" | "unmatched" | "reference";
 
 export function rowMatchState(row: Record<string, string>): MatchState {
+  // Corners define the bay frame; they aren't matched against typology
+  // variants at all. Treat them as a separate "reference" state so the UI
+  // doesn't flag them as failures.
+  const pointType = String(row["point_type"] ?? "boss").trim().toLowerCase();
+  if (pointType === "corner") return "reference";
+
   const explicit = String(row["match_state"] ?? "").trim().toLowerCase();
   if (explicit === "matched" || explicit === "partial" || explicit === "unmatched") {
     return explicit;
@@ -66,8 +72,13 @@ function getInitialSortDirection(column: string): "asc" | "desc" {
 function getSortValue(row: MatchCsvRow, column: string): number | string {
   if (column === "boss_id") return Number(row[column] || 0);
   if (column === "matched") {
+    // Sort order: matched > partial > reference (corners) > unmatched.
+    // Corners aren't failures, so they group above true unmatched rows.
     const state = rowMatchState(row);
-    return state === "matched" ? 2 : state === "partial" ? 1 : 0;
+    if (state === "matched") return 3;
+    if (state === "partial") return 2;
+    if (state === "reference") return 1;
+    return 0;
   }
   if (column === "uv_error") return parseUvErrorScore(row.uv_error);
   if (column === "point_label") return getCompactNodeLabel(row.point_label || row.boss_id).toLowerCase();
@@ -195,7 +206,12 @@ export function CutTypologyMatchTable({
       return displayMatchCsvRows.filter((row) => String(row.matched || "").toLowerCase() === "true");
     }
     if (filterMode === "unmatched") {
-      return displayMatchCsvRows.filter((row) => String(row.matched || "").toLowerCase() !== "true");
+      // Corners are reference anchors, not failed matches — keep them out of
+      // the "unmatched" bucket so the chip honestly counts true misses.
+      return displayMatchCsvRows.filter((row) => {
+        const state = rowMatchState(row);
+        return state === "unmatched" || state === "partial";
+      });
     }
     return displayMatchCsvRows.filter((row) => parseUvErrorScore(row.uv_error) > 0.005);
   }, [displayMatchCsvRows, filterMode]);
@@ -234,7 +250,13 @@ export function CutTypologyMatchTable({
     const bossRows = displayMatchCsvRows.filter((row) => !isCornerRow(row));
     const cornerRows = displayMatchCsvRows.filter(isCornerRow);
     const matched = displayMatchCsvRows.filter((row) => String(row.matched || "").toLowerCase() === "true").length;
-    const unmatched = total - matched;
+    // "Unmatched" excludes corners (reference anchors) since they aren't
+    // matched against any cut typology variant. Partial bosses are still
+    // included here because they share the "didn't fully match" facet.
+    const unmatched = displayMatchCsvRows.filter((row) => {
+      const state = rowMatchState(row);
+      return state === "unmatched" || state === "partial";
+    }).length;
     const highError = displayMatchCsvRows.filter((row) => parseUvErrorScore(row.uv_error) > 0.005).length;
     const bossTotal = bossRows.length;
     const bossMatched = bossRows.filter((row) => String(row.matched || "").toLowerCase() === "true").length;
@@ -452,6 +474,9 @@ export function CutTypologyMatchTable({
                           if (state === "partial") {
                             return <Badge variant="outline" className="border-amber-400 bg-amber-500/10 text-amber-300 uppercase tracking-wide">{label}</Badge>;
                           }
+                          if (state === "reference") {
+                            return <Badge variant="outline" className="border-cyan-500/40 bg-cyan-500/10 text-cyan-300 uppercase tracking-wide">{label}</Badge>;
+                          }
                           return <Badge variant={state === "matched" ? "secondary" : "destructive"}>{label}</Badge>;
                         })() : column === "boss_id" ? (
                           <span className="text-muted-foreground">#{row.boss_id}</span>
@@ -495,6 +520,9 @@ export function CutTypologyMatchTable({
                           const label = state.charAt(0).toUpperCase() + state.slice(1);
                           if (state === "partial") {
                             return <Badge variant="outline" className="border-amber-400 bg-amber-500/10 text-amber-300 uppercase tracking-wide">{label}</Badge>;
+                          }
+                          if (state === "reference") {
+                            return <Badge variant="outline" className="border-cyan-500/40 bg-cyan-500/10 text-cyan-300 uppercase tracking-wide">{label}</Badge>;
                           }
                           return <Badge variant={state === "matched" ? "secondary" : "destructive"}>{label}</Badge>;
                         })() : column === "boss_id" ? (
