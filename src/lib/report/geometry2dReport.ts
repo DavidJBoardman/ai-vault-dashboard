@@ -479,8 +479,8 @@ export async function buildBundleZip(inputs: BundleInputs): Promise<Blob> {
       data.bayProportion.candidates.map((c) => ({
         rank: c.rank,
         label: c.label,
-        error: c.err.toFixed(6),
-        deltaFromBest: c.deltaFromBest.toFixed(6),
+        error: c.err.toFixed(4),
+        deltaFromBest: c.deltaFromBest.toFixed(4),
       })),
       ["rank", "label", "error", "deltaFromBest"]
     )
