@@ -139,7 +139,7 @@ interface PersistedRoi {
 
 interface PersistedReconstructNode {
   id?: string | number;
-  bossId?: string | number;
+  bossId?: string | number | null;
   label?: string;
   x?: number;
   y?: number;
