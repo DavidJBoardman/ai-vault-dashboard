@@ -568,6 +568,23 @@ class CutTypologyMatchingService:
             "matched": bool(x_best and y_best),
         }
 
+    @staticmethod
+    def _derive_match_state(point_type: str, axis_match: Optional[Dict[str, Any]]) -> str:
+        # Corners are reference anchors, never matched against a typology
+        # variant — keep them in the "unmatched" bucket so the bossesTotal/
+        # bossesMatched/bossesPartial counters only reflect boss points.
+        if str(point_type).strip().lower() == "corner":
+            return "unmatched"
+        if not isinstance(axis_match, dict):
+            return "unmatched"
+        if bool(axis_match.get("matched")):
+            return "matched"
+        has_x = axis_match.get("xRatio") is not None
+        has_y = axis_match.get("yRatio") is not None
+        if has_x or has_y:
+            return "partial"
+        return "unmatched"
+
     @classmethod
     def _write_match_csv(cls, project_dir: Path, roi: Dict[str, float], per_boss_rows: Sequence[Dict[str, Any]]) -> None:
         csv_path = cls._matching_csv_path(project_dir)
@@ -579,6 +596,8 @@ class CutTypologyMatchingService:
             "template_type",
             "x_cut",
             "y_cut",
+            "x_ratio",
+            "y_ratio",
             "boss_uv",
             "template_uv",
             "boss_xy",
@@ -586,6 +605,7 @@ class CutTypologyMatchingService:
             "x_error",
             "y_error",
             "matched",
+            "match_state",
         ]
 
         rows: List[Dict[str, Any]] = []
@@ -612,6 +632,8 @@ class CutTypologyMatchingService:
                         "template_type": "None",
                         "x_cut": str((axis_match or {}).get("xCut") or "None"),
                         "y_cut": str((axis_match or {}).get("yCut") or "None"),
+                        "x_ratio": "None" if x_ratio is None else str(x_ratio),
+                        "y_ratio": "None" if y_ratio is None else str(y_ratio),
                         "boss_uv": str(boss_uv),
                         "template_uv": str([x_ratio, y_ratio]) if x_ratio is not None and y_ratio is not None else "None",
                         "boss_xy": str(boss_xy),
@@ -619,6 +641,7 @@ class CutTypologyMatchingService:
                         "x_error": (axis_match or {}).get("xError", "None"),
                         "y_error": (axis_match or {}).get("yError", "None"),
                         "matched": bool(axis_match.get("matched") if axis_match else False),
+                        "match_state": cls._derive_match_state(str(point.get("pointType", "boss")), axis_match),
                     }
                 )
                 continue
@@ -649,6 +672,8 @@ class CutTypologyMatchingService:
                     "template_type": str(match.get("templateType") or "None"),
                     "x_cut": x_cut,
                     "y_cut": y_cut,
+                    "x_ratio": "None" if x_ratio is None else str(x_ratio),
+                    "y_ratio": "None" if y_ratio is None else str(y_ratio),
                     "boss_uv": str(boss_uv),
                     "template_uv": str([x_ratio, y_ratio]) if x_ratio is not None and y_ratio is not None else "None",
                     "boss_xy": str(boss_xy),
@@ -656,6 +681,7 @@ class CutTypologyMatchingService:
                     "x_error": x_error,
                     "y_error": y_error,
                     "matched": bool(axis_match.get("matched") if axis_match else False),
+                    "match_state": cls._derive_match_state(str(point.get("pointType", "boss")), axis_match),
                 }
             )
 
