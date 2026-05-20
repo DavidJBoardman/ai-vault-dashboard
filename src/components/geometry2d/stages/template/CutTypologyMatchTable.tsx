@@ -48,17 +48,7 @@ export function rowMatchState(row: Record<string, string>): MatchState {
   return hasX || hasY ? "partial" : "unmatched";
 }
 
-const REPORT_COLUMNS = [
-  "boss_id",
-  "point_label",
-  "point_type",
-  "x_cut",
-  "y_cut",
-  "boss_uv",
-  "template_uv",
-  "uv_error",
-  "matched",
-];
+import { REPORT_COLUMNS, filterReportColumns } from "./reportColumns";
 
 // Diagnostic variant: these columns are part of the dataset but hidden in the
 // default view to reduce visual noise. Users can re-enable them via the
@@ -142,8 +132,7 @@ export function CutTypologyMatchTable({
 
   const displayMatchCsvColumns = useMemo(() => {
     if (variant === "report") {
-      const available = new Set(matchCsvColumns);
-      return REPORT_COLUMNS.filter((column) => column === "uv_error" || available.has(column));
+      return filterReportColumns(matchCsvColumns);
     }
 
     const filtered = matchCsvColumns.filter(

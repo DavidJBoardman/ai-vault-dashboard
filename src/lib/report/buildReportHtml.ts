@@ -1,4 +1,5 @@
 import { formatCutTypologyValue, getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import { filterReportColumns } from "@/components/geometry2d/stages/template/reportColumns";
 import packageJson from "../../../package.json";
 import type { ReportData } from "./geometry2dReport";
 
@@ -118,8 +119,13 @@ function renderCutTypology(data: ReportData): string {
   const unmatchedCount = bossesTotal - bossesMatched - bossesPartial;
   const unmatchedPart = unmatchedCount > 0 ? `, ${unmatchedCount} unmatched` : "";
 
+  // Mirror the on-screen Step 8 view: the 4C match table's "report" variant
+  // shows only the REPORT_COLUMNS subset, so the printable HTML uses the same
+  // filter to stay in sync.
+  const reportColumns = filterReportColumns(columns);
+
   const numericCols = new Set(
-    columns.filter((col) =>
+    reportColumns.filter((col) =>
       rows.some((row) => {
         const raw = row[col];
         if (raw == null || raw === "") return false;
@@ -128,13 +134,13 @@ function renderCutTypology(data: ReportData): string {
     )
   );
 
-  const headerCells = columns
+  const headerCells = reportColumns
     .map((col) => `<th${numericCols.has(col) ? ' class="num"' : ""}>${escape(col)}</th>`)
     .join("");
 
   const bodyRows = rows
     .map((row) => {
-      const cells = columns
+      const cells = reportColumns
         .map((col) => {
           const raw = row[col] ?? "";
           if (col === "matched" || col === "match_state") {
