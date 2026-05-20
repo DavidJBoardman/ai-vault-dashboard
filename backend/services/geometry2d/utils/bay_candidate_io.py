@@ -205,6 +205,29 @@ def load_reference_rows(project_dir: Path) -> List[Dict[str, Any]]:
 
             ideal_passthrough = ideal_uv if matched else None
 
+            def _parse_optional_float(value: Any) -> Optional[float]:
+                text = str(value or "").strip()
+                if not text or text.lower() == "none":
+                    return None
+                try:
+                    return float(text)
+                except (TypeError, ValueError):
+                    return None
+
+            match_state = str(row.get("match_state", "")).strip().lower()
+            x_ratio_val = _parse_optional_float(row.get("x_ratio", ""))
+            y_ratio_val = _parse_optional_float(row.get("y_ratio", ""))
+
+            # For a partial row, synthesise an idealised UV from the axis that
+            # hit and the measured value on the missing axis. raw_uv is the
+            # boss's measured UV.
+            partial_ideal_uv: Optional[Tuple[float, float]] = None
+            if match_state == "partial" and raw_uv is not None:
+                if x_ratio_val is not None and y_ratio_val is None:
+                    partial_ideal_uv = (x_ratio_val, raw_uv[1])
+                elif y_ratio_val is not None and x_ratio_val is None:
+                    partial_ideal_uv = (raw_uv[0], y_ratio_val)
+
             if point_type == "corner":
                 label = str((base_row or {}).get("label", boss_id))
                 # Corners keep the existing precedence (ideal when matched, else raw)
@@ -229,6 +252,19 @@ def load_reference_rows(project_dir: Path) -> List[Dict[str, Any]]:
             # so downstream code can derive the idealised plan without losing scan data.
             label = str((base_row or {}).get("label", boss_id))
             if raw_uv is not None:
+                if match_state == "partial" and partial_ideal_uv is not None:
+                    # Partial match: keep measured uv as primary but synthesise
+                    # an axis-snapped ideal, tagged so renderers can style it.
+                    resolved[boss_id] = {
+                        "id": boss_id,
+                        "label": label,
+                        "uv": raw_uv,
+                        "source": "partial",
+                        "pointType": "boss",
+                        "idealUv": partial_ideal_uv,
+                        "matched": False,
+                    }
+                    continue
                 resolved[boss_id] = {
                     "id": boss_id,
                     "label": label,

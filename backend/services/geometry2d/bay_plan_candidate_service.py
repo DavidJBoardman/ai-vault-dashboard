@@ -186,7 +186,10 @@ class BayPlanCandidateService:
         boss_rows = [row for row in reference_rows if str(row.get("pointType", "boss")) == "boss"]
         corner_rows = [row for row in reference_rows if str(row.get("pointType", "boss")) == "corner"]
         nodes = collect_boss_nodes(roi=roi, boss_rows=reference_rows)
-        with_match = sum(1 for row in boss_rows if str(row.get("source", "raw")) == "ideal")
+        with_match = sum(
+            1 for row in boss_rows
+            if str(row.get("source", "raw")) in ("ideal", "partial")
+        )
         reconstruction_mode = str(params.get("reconstructionMode", "current"))
 
         match_records = load_boss_match_records(project_dir)
