@@ -33,6 +33,21 @@ const FILTER_OPTIONS: Array<{ mode: "all" | "matched" | "unmatched" | "highError
   { mode: "highError", label: "High error", countKey: "highError" },
 ];
 
+export type MatchState = "matched" | "partial" | "unmatched";
+
+export function rowMatchState(row: Record<string, string>): MatchState {
+  const explicit = String(row["match_state"] ?? "").trim().toLowerCase();
+  if (explicit === "matched" || explicit === "partial" || explicit === "unmatched") {
+    return explicit;
+  }
+  // Older CSVs without match_state: derive from x_cut/y_cut/matched.
+  const matched = String(row["matched"] ?? "").trim().toLowerCase() === "true";
+  if (matched) return "matched";
+  const hasX = String(row["x_cut"] ?? "").trim().toLowerCase() !== "none" && row["x_cut"] !== "";
+  const hasY = String(row["y_cut"] ?? "").trim().toLowerCase() !== "none" && row["y_cut"] !== "";
+  return hasX || hasY ? "partial" : "unmatched";
+}
+
 const REPORT_COLUMNS = [
   "boss_id",
   "point_label",
@@ -60,7 +75,10 @@ function getInitialSortDirection(column: string): "asc" | "desc" {
 
 function getSortValue(row: MatchCsvRow, column: string): number | string {
   if (column === "boss_id") return Number(row[column] || 0);
-  if (column === "matched") return String(row[column] || "").toLowerCase() === "true" ? 1 : 0;
+  if (column === "matched") {
+    const state = rowMatchState(row);
+    return state === "matched" ? 2 : state === "partial" ? 1 : 0;
+  }
   if (column === "uv_error") return parseUvErrorScore(row.uv_error);
   if (column === "point_label") return getCompactNodeLabel(row.point_label || row.boss_id).toLowerCase();
   return String(row[column] || "").toLowerCase();
@@ -439,9 +457,14 @@ export function CutTypologyMatchTable({
                   <tr key={`screen-row-${page}-${rowIndex}`} className={`${hasPagination ? "screen-only" : ""} border-b border-border/20 ${rowIndex % 2 === 0 ? "bg-background/5" : "bg-transparent"}`}>
                     {renderedColumns.map((column) => (
                       <td key={`${rowIndex}-${column}`} className={`px-2 py-1.5 text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap ${getColumnClass(column)} ${getStickyColumnClass(column)}`}>
-                        {column === "matched" ? (
-                          <Badge variant={String(row[column] || "").toLowerCase() === "true" ? "secondary" : "destructive"}>{String(row[column] || "")}</Badge>
-                        ) : column === "boss_id" ? (
+                        {column === "matched" ? (() => {
+                          const state = rowMatchState(row);
+                          const label = state.charAt(0).toUpperCase() + state.slice(1);
+                          if (state === "partial") {
+                            return <Badge variant="outline" className="border-amber-400 bg-amber-500/10 text-amber-300 uppercase tracking-wide">{label}</Badge>;
+                          }
+                          return <Badge variant={state === "matched" ? "secondary" : "destructive"}>{label}</Badge>;
+                        })() : column === "boss_id" ? (
                           <span className="text-muted-foreground">#{row.boss_id}</span>
                         ) : column === "point_label" ? (
                           (() => {
@@ -478,9 +501,14 @@ export function CutTypologyMatchTable({
                   <tr key={`print-row-${rowIndex}`} className={`print-only border-b border-border/20 ${rowIndex % 2 === 0 ? "bg-background/5" : "bg-transparent"}`}>
                     {renderedColumns.map((column) => (
                       <td key={`print-${rowIndex}-${column}`} className={`px-2 py-1.5 text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap ${getColumnClass(column)} ${getStickyColumnClass(column)}`}>
-                        {column === "matched" ? (
-                          <Badge variant={String(row[column] || "").toLowerCase() === "true" ? "secondary" : "destructive"}>{String(row[column] || "")}</Badge>
-                        ) : column === "boss_id" ? (
+                        {column === "matched" ? (() => {
+                          const state = rowMatchState(row);
+                          const label = state.charAt(0).toUpperCase() + state.slice(1);
+                          if (state === "partial") {
+                            return <Badge variant="outline" className="border-amber-400 bg-amber-500/10 text-amber-300 uppercase tracking-wide">{label}</Badge>;
+                          }
+                          return <Badge variant={state === "matched" ? "secondary" : "destructive"}>{label}</Badge>;
+                        })() : column === "boss_id" ? (
                           <span className="text-muted-foreground">#{row.boss_id}</span>
                         ) : column === "point_label" ? (
                           getCompactNodeLabel(row.point_label || row.boss_id) || row.point_label || ""
