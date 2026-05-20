@@ -39,8 +39,21 @@ function downloadBlob(blob: Blob, filename: string) {
 export function Geometry2DReport() {
   const project = useProjectStore((s) => s.currentProject);
   const [cutTypology, setCutTypology] = useState<CutTypologyData | null>(null);
+  const [cutTypologyFetchedAt, setCutTypologyFetchedAt] = useState<string | null>(null);
   const [busy, setBusy] = useState<"none" | "bundle">("none");
   const bayPlanSvgRef = useRef<SVGSVGElement>(null);
+
+  const matchingLastRunAt = (project?.steps?.[4]?.data as
+    | { geometry2d?: { matching?: { lastRunAt?: string | null } } }
+    | undefined)?.geometry2d?.matching?.lastRunAt ?? null;
+
+  const cutTypologyStale = (() => {
+    if (!matchingLastRunAt || !cutTypologyFetchedAt) return false;
+    const lastRunMs = Date.parse(matchingLastRunAt);
+    const fetchedMs = Date.parse(cutTypologyFetchedAt);
+    if (!Number.isFinite(lastRunMs) || !Number.isFinite(fetchedMs)) return false;
+    return lastRunMs > fetchedMs;
+  })();
 
   useEffect(() => {
     if (!project?.id) return;
@@ -57,11 +70,16 @@ export function Geometry2DReport() {
             columns: response.data.columns ?? [],
             rows: response.data.rows ?? [],
           });
+          setCutTypologyFetchedAt(new Date().toISOString());
         } else {
           setCutTypology({ columns: [], rows: [] });
+          setCutTypologyFetchedAt(new Date().toISOString());
         }
       } catch {
-        if (!cancelled) setCutTypology({ columns: [], rows: [] });
+        if (!cancelled) {
+          setCutTypology({ columns: [], rows: [] });
+          setCutTypologyFetchedAt(new Date().toISOString());
+        }
       }
     })();
     return () => {
@@ -120,6 +138,12 @@ export function Geometry2DReport() {
           Download Bundle (.zip)
         </Button>
       </div>
+
+      {cutTypologyStale && (
+        <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-800">
+          Step 4C was re-run after this report loaded. Refresh the page to pull the updated cut-typology evidence.
+        </div>
+      )}
 
       <article
         id="geometry2d-report"
