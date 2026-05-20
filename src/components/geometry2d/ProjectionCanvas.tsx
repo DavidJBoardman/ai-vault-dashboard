@@ -161,6 +161,7 @@ export function ProjectionCanvas({
     xError?: number | null;
     yError?: number | null;
     matched: boolean;
+    matchState: "matched" | "partial" | "unmatched";
     outOfBounds: boolean;
   } | null>(null);
   const [hoveredReconstructionEdge, setHoveredReconstructionEdge] = useState<{
@@ -676,6 +677,13 @@ export function ProjectionCanvas({
             xError: point.matchedXError,
             yError: point.matchedYError,
             matched: bossHoverInfoMode === "matching" && hasStableMatchingEvidence ? !isUnmatched : !!(point.matchedXTemplateLabel && point.matchedYTemplateLabel),
+            matchState: (() => {
+              const hasX = !!point.matchedXTemplateLabel;
+              const hasY = !!point.matchedYTemplateLabel;
+              if (hasX && hasY) return "matched";
+              if (hasX || hasY) return "partial";
+              return "unmatched";
+            })(),
             outOfBounds: point.outOfBounds,
           });
         }
@@ -708,6 +716,13 @@ export function ProjectionCanvas({
           xError: boss.matchedXError ?? null,
           yError: boss.matchedYError ?? null,
           matched,
+          matchState: (() => {
+            const hasX = !!boss.matchedXTemplateLabel;
+            const hasY = !!boss.matchedYTemplateLabel;
+            if (hasX && hasY) return "matched";
+            if (hasX || hasY) return "partial";
+            return "unmatched";
+          })(),
           outOfBounds: false,
         });
         setHoveredReconstructionEdge(null);
@@ -968,24 +983,34 @@ export function ProjectionCanvas({
         const isOutside = point.outOfBounds;
         const isSelected = selectedBossPointId === point.id;
         const isUnmatched = isTemplatePointUnmatched(point);
+        // Partial = exactly one of the two axis labels is set. Renders amber
+        // so the user can tell at-a-glance it isn't a full typology match.
+        const hasXMatch = !!point.matchedXTemplateLabel;
+        const hasYMatch = !!point.matchedYTemplateLabel;
+        const isPartial = !isCorner && !isUnmatched && bossHoverInfoMode === "matching"
+          && hasStableMatchingEvidence && (hasXMatch !== hasYMatch);
         const fill = isOutside
           ? "#ef4444"
           : isUnmatched
             ? "#ef4444"
-            : isCorner
-              ? "#67e8f9"
-              : isManual
-                ? "#facc15"
-                : "#ffffff";
+            : isPartial
+              ? "#f59e0b"
+              : isCorner
+                ? "#67e8f9"
+                : isManual
+                  ? "#facc15"
+                  : "#ffffff";
         const stroke = isOutside
           ? "#7f1d1d"
           : isUnmatched
             ? "#ffffff"
-            : isCorner
-              ? "#155e75"
-              : isManual
-                ? "#78350f"
-                : "#0ea5e9";
+            : isPartial
+              ? "#78350f"
+              : isCorner
+                ? "#155e75"
+                : isManual
+                  ? "#78350f"
+                  : "#0ea5e9";
         const radius = isSelected ? 6 : isCorner ? 5.4 : isManual ? 5.2 : 4.4;
         const pointLabel = getNodePointTag(point) || String(point.id);
 
@@ -2315,8 +2340,16 @@ export function ProjectionCanvas({
                             <span className="text-muted-foreground tabular-nums">{formatCutErrorPercent(hoveredBoss.yError)}</span>
                           </p>
                           <p className="text-muted-foreground">status:</p>
-                          <p className={hoveredBoss.matched ? "text-emerald-300" : "text-red-300"}>
-                            {hoveredBoss.matched ? "matched" : "unmatched"}
+                          <p className={
+                            hoveredBoss.matchState === "matched" ? "text-emerald-300"
+                              : hoveredBoss.matchState === "partial" ? "text-amber-300"
+                              : "text-red-300"
+                          }>
+                            {hoveredBoss.matchState === "matched"
+                              ? "matched"
+                              : hoveredBoss.matchState === "partial"
+                                ? `partial (${hoveredBoss.xTemplateLabel ? "x" : ""}${hoveredBoss.xTemplateLabel && hoveredBoss.yTemplateLabel ? "+" : ""}${hoveredBoss.yTemplateLabel ? "y" : ""} only)`
+                                : "unmatched"}
                           </p>
                         </div>
                       )}
