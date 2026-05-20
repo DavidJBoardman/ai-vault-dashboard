@@ -321,6 +321,7 @@ class CutTypologyRunResponse(BaseModel):
 
 class CutTypologyCsvRequest(BaseModel):
     projectId: str
+    projectionId: Optional[str] = None
 
 
 class CutTypologyCsvResult(BaseModel):

@@ -224,11 +224,12 @@ export async function runCutTypologyMatching(params: {
 }
 
 export async function getCutTypologyCsv(
-  projectId: string
+  projectId: string,
+  projectionId?: string,
 ): Promise<ApiResponse<Geometry2DCutTypologyCsvResult>> {
   return apiRequest<Geometry2DCutTypologyCsvResult>("/api/geometry2d/cut-typology/results/csv", {
     method: "POST",
-    body: JSON.stringify({ projectId }),
+    body: JSON.stringify(projectionId ? { projectId, projectionId } : { projectId }),
   });
 }
 

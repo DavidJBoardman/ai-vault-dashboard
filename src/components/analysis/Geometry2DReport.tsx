@@ -44,10 +44,13 @@ export function Geometry2DReport() {
 
   useEffect(() => {
     if (!project?.id) return;
+    const step4ProjectionId = (project.steps?.[4]?.data as
+      | { geometry2d?: { projectionId?: string } }
+      | undefined)?.geometry2d?.projectionId;
     let cancelled = false;
     void (async () => {
       try {
-        const response = await getCutTypologyCsv(project.id);
+        const response = await getCutTypologyCsv(project.id, step4ProjectionId);
         if (cancelled) return;
         if (response.success && response.data) {
           setCutTypology({
@@ -64,7 +67,7 @@ export function Geometry2DReport() {
     return () => {
       cancelled = true;
     };
-  }, [project?.id]);
+  }, [project?.id, project?.steps]);
 
   const data = useMemo<ReportData | null>(
     () => selectReportData(project, cutTypology),
