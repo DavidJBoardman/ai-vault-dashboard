@@ -292,7 +292,7 @@ export interface Geometry2DBayPlanNode {
 export interface Geometry2DBayPlanIdealNode {
   id: string | null;
   bossId?: string | null;
-  source: "ideal";
+  source: "ideal" | "partial";
   u: number | null;
   v: number | null;
   x: number | null;
