@@ -96,6 +96,9 @@ function getReportColumnClass(column: string): string {
     case "x_cut":
     case "y_cut":
       return "w-[110px]";
+    case "x_ratio":
+    case "y_ratio":
+      return "w-[80px]";
     case "boss_uv":
       return "w-[150px]";
     case "template_uv":
