@@ -178,6 +178,7 @@ interface Geometry2DPersisted {
   prep?: PrepData;
   nodes?: NodesData;
   template?: NodesData;
+  matching?: { params?: Record<string, unknown>; lastRunAt?: string | null };
   roi?: PersistedRoi;
   reconstruct?: ReconstructPersisted;
 }
@@ -341,12 +342,17 @@ export function selectReportData(
     source: String(n.source ?? "ideal"),
   }));
 
-  const templateSettings = (geom.template as { settings?: { matchingThreshold?: number | string } })
-    ?.settings;
+  // Step 4C now persists matching parameters under geom.matching.params; older
+  // projects may still have geom.template.settings. Read both so the field
+  // reflects whatever shape is on disk.
+  const matchingParams = geom.matching?.params;
+  const legacyTemplateSettings = (geom.template as { settings?: { matchingThreshold?: number | string } })?.settings;
+  const matchingThresholdRaw =
+    (matchingParams && typeof matchingParams === "object" ? matchingParams["matchingThreshold"] : undefined)
+    ?? legacyTemplateSettings?.matchingThreshold;
   const matchingThreshold =
-    typeof templateSettings?.matchingThreshold === "number" ||
-    typeof templateSettings?.matchingThreshold === "string"
-      ? String(templateSettings.matchingThreshold)
+    typeof matchingThresholdRaw === "number" || typeof matchingThresholdRaw === "string"
+      ? String(matchingThresholdRaw)
       : null;
 
   const inputs = {
