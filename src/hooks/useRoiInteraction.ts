@@ -1,6 +1,6 @@
 "use client";
 
-import { RefObject, useState } from "react";
+import { useState, type RefObject } from "react";
 
 export interface ROIState {
   x: number;

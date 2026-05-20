@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resizeRoiFromHandle, type ROIState } from "./useRoiInteraction";
+import { resizeRoiFromHandle, type ROIState } from "./useRoiInteraction.ts";
 
 const baseRoi: ROIState = {
   x: 0.5,

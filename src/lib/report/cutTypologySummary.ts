@@ -19,12 +19,6 @@ function rowMatchState(row: Record<string, string>): "matched" | "partial" | "un
   if (explicit === "matched" || explicit === "partial" || explicit === "unmatched") {
     return explicit;
   }
-  // Treat the backend's "reference" label (corner rows) as unmatched here —
-  // the caller has already filtered to boss rows, so this branch is purely
-  // defensive against future CSVs that carry the new state into boss rows.
-  if (explicit === "reference") {
-    return "unmatched";
-  }
   if (isTruthyCsvValue(row["matched"])) return "matched";
   const hasX = String(row["x_cut"] ?? "").trim().toLowerCase() !== "none" && row["x_cut"] !== "";
   const hasY = String(row["y_cut"] ?? "").trim().toLowerCase() !== "none" && row["y_cut"] !== "";

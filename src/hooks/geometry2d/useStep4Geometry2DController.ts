@@ -43,6 +43,10 @@ import {
 } from "@/components/geometry2d/types";
 import { toast } from "@/components/ui/use-toast";
 import { buildBayPlanDxf, downloadBayPlanDxf } from "@/lib/geometry2d/bayPlanDxf";
+import {
+  buildGeometry2DProjectionSnapshot,
+  resolveGeometry2DProjection,
+} from "@/lib/geometry2d/projectionSelection";
 import { filterSegmentationsByGroupIds, getSegmentationGroupId } from "@/lib/geometry2d/segmentationGrouping";
 import {
   buildPerBossTypologySummary,
@@ -60,6 +64,10 @@ import {
   pickNextBossLetter,
   pointSignature,
 } from "./step4ReferencePointUtils";
+import {
+  decoratePointsWithMatchCsvRows,
+  formatTemplateLabel,
+} from "./step4MatchDecorations";
 
 
 interface Step4NodesState {
@@ -80,6 +88,9 @@ interface Step4MatchingState {
 }
 
 interface Step4Geometry2DState {
+  projectionId?: string;
+  projectionName?: string;
+  projectionResolution?: number;
   roi?: ROIState;
   ui?: {
     activeSection?: Geometry2DWorkflowSection;
@@ -232,40 +243,6 @@ function roiUvToPixel(u: number, v: number, roi: Geometry2DRoiParams): { x: numb
   return { x, y };
 }
 
-function formatTemplateLabel(raw?: string | null): string | null {
-  if (!raw) return null;
-  if (raw.startsWith("starcut_n=")) {
-    const n = Number(raw.split("=", 2)[1]);
-    return Number.isFinite(n) ? `starcut n=${n}` : "starcut";
-  }
-  if (raw === "circlecut_inner") return "circlecut inner";
-  if (raw === "circlecut_outer") return "circlecut outer";
-  return raw;
-}
-
-function parseOptionalMatchCsvValue(raw?: string | null): string | null {
-  if (!raw) return null;
-  const value = String(raw).trim();
-  if (!value || value.toLowerCase() === "none") return null;
-  return value;
-}
-
-function parseMatchCsvPixelPair(raw?: string | null): [number, number] | null {
-  const value = parseOptionalMatchCsvValue(raw);
-  if (!value) return null;
-
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed) || parsed.length < 2) return null;
-    const x = Number(parsed[0]);
-    const y = Number(parsed[1]);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    return [x, y];
-  } catch {
-    return null;
-  }
-}
-
 function withMatchedTemplateCoordinates(
   points: Geometry2DTemplateBossPoint[],
   perBoss: Geometry2DTemplateBossResult[],
@@ -282,59 +259,21 @@ function withMatchedTemplateCoordinates(
     const axisMatch = row?.axisCutMatch;
     const xRatio = typeof axisMatch?.xRatio === "number" ? axisMatch.xRatio : simplest?.xRatio;
     const yRatio = typeof axisMatch?.yRatio === "number" ? axisMatch.yRatio : simplest?.yRatio;
-    if (typeof xRatio !== "number" || typeof yRatio !== "number") {
-      return {
-        ...point,
-        matchedTemplateX: null,
-        matchedTemplateY: null,
-        matchedVariantLabel: null,
-        matchedXTemplateLabel: null,
-        matchedYTemplateLabel: null,
-        matchedXError: null,
-        matchedYError: null,
-      };
-    }
     const xTemplateLabel = formatTemplateLabel(axisMatch?.xCut || simplest?.xTemplate || simplest?.variantLabel);
     const yTemplateLabel = formatTemplateLabel(axisMatch?.yCut || simplest?.yTemplate || simplest?.variantLabel);
-    const templatePixel = roiUvToPixel(xRatio, yRatio, roi);
+    const templatePixel =
+      typeof xRatio === "number" && typeof yRatio === "number"
+        ? roiUvToPixel(xRatio, yRatio, roi)
+        : null;
     return {
       ...point,
-      matchedTemplateX: Math.round(templatePixel.x),
-      matchedTemplateY: Math.round(templatePixel.y),
+      matchedTemplateX: templatePixel ? Math.round(templatePixel.x) : null,
+      matchedTemplateY: templatePixel ? Math.round(templatePixel.y) : null,
       matchedVariantLabel: simplest?.variantLabel || null,
       matchedXTemplateLabel: xTemplateLabel,
       matchedYTemplateLabel: yTemplateLabel,
       matchedXError: typeof axisMatch?.xError === "number" ? axisMatch.xError : simplest?.xError ?? null,
       matchedYError: typeof axisMatch?.yError === "number" ? axisMatch.yError : simplest?.yError ?? null,
-    };
-  });
-}
-
-function withMatchedTemplateCoordinatesFromCsv(
-  points: Geometry2DTemplateBossPoint[],
-  rows: MatchCsvRow[]
-): Geometry2DTemplateBossPoint[] {
-  const rowsByBossId = new Map<number, MatchCsvRow>();
-  for (const row of rows) {
-    const bossId = Number(row.boss_id);
-    if (Number.isFinite(bossId) && !rowsByBossId.has(bossId)) {
-      rowsByBossId.set(bossId, row);
-    }
-  }
-
-  return points.map((point) => {
-    const row = rowsByBossId.get(point.id);
-    const matched = String(row?.matched || "").toLowerCase() === "true";
-    const templatePixel = matched ? parseMatchCsvPixelPair(row?.template_xy) : null;
-    return {
-      ...point,
-      matchedTemplateX: templatePixel ? Math.round(templatePixel[0]) : null,
-      matchedTemplateY: templatePixel ? Math.round(templatePixel[1]) : null,
-      matchedVariantLabel: matched ? parseOptionalMatchCsvValue(row?.variant_label) : null,
-      matchedXTemplateLabel: matched ? formatTemplateLabel(parseOptionalMatchCsvValue(row?.x_cut)) : null,
-      matchedYTemplateLabel: matched ? formatTemplateLabel(parseOptionalMatchCsvValue(row?.y_cut)) : null,
-      matchedXError: matched && row?.x_error ? Number(row.x_error) : null,
-      matchedYError: matched && row?.y_error ? Number(row.y_error) : null,
     };
   });
 }
@@ -498,9 +437,16 @@ export function useStep4Geometry2DController() {
   }, [getLatestStep4Geometry2D, updateStep4Geometry2D]);
 
   const selectedProjection = useMemo(() => {
-    if (!currentProject?.projections?.length) return null;
-    return currentProject.projections[0];
-  }, [currentProject?.projections]);
+    return resolveGeometry2DProjection({
+      project: currentProject,
+      preferStep4Projection: true,
+    });
+  }, [currentProject]);
+
+  const projectionSnapshot = useMemo(
+    () => buildGeometry2DProjectionSnapshot(selectedProjection),
+    [selectedProjection]
+  );
 
   const currentImage = useMemo(() => {
     if (!selectedProjection?.images) return null;
@@ -612,7 +558,7 @@ export function useStep4Geometry2DController() {
     if (!templateLastRunAt || normalisedTemplateMatchCsvRows.length === 0 || templatePoints.length === 0) return;
 
     const currentSignature = templatePointMatchDecorationSignature(templatePoints);
-    const nextPoints = withMatchedTemplateCoordinatesFromCsv(templatePoints, normalisedTemplateMatchCsvRows);
+    const nextPoints = decoratePointsWithMatchCsvRows(templatePoints, normalisedTemplateMatchCsvRows);
     const nextSignature = templatePointMatchDecorationSignature(nextPoints);
     if (currentSignature !== nextSignature) {
       setTemplatePoints(nextPoints);
@@ -912,6 +858,7 @@ export function useStep4Geometry2DController() {
     setShowUpdatedOverlay(false);
 
     updateStep4Geometry2D({
+      ...projectionSnapshot,
       roi: nextRoi,
       prep: undefined,
       analysis: null,
@@ -924,7 +871,7 @@ export function useStep4Geometry2DController() {
         ? "ROI restored from Step 3 segmentation."
         : "ROI restored to the default bay frame.",
     });
-  }, [currentProject?.steps, setGeometryResult, updateStep4Geometry2D]);
+  }, [currentProject?.steps, projectionSnapshot, setGeometryResult, updateStep4Geometry2D]);
 
   const handleResetStep4 = useCallback(async () => {
     templateStateRequestIdRef.current += 1;
@@ -1030,6 +977,7 @@ export function useStep4Geometry2DController() {
 
     completeStep(4, {
       geometry2d: {
+        ...projectionSnapshot,
         roi: nextRoi,
         nodes: {
           points: resetPoints,
@@ -1060,6 +1008,7 @@ export function useStep4Geometry2DController() {
     completeStep,
     currentProject?.id,
     currentProject?.steps,
+    projectionSnapshot,
     resetTemplatePointHistory,
     selectedProjection?.settings?.resolution,
     setGeometryResult,
@@ -1736,6 +1685,7 @@ export function useStep4Geometry2DController() {
         });
 
         updateStep4Geometry2D({
+          ...projectionSnapshot,
           roi: {
             x: roi.x,
             y: roi.y,
@@ -1992,6 +1942,7 @@ export function useStep4Geometry2DController() {
       setRoi(nextRoi);
 
       updateStep4Geometry2D({
+        ...projectionSnapshot,
         roi: nextRoi,
         prep: {
           bossCount: prepResponse.data.bossCount,
@@ -2084,6 +2035,7 @@ export function useStep4Geometry2DController() {
 
   const persistAnalysisForContinue = () => {
     updateStep4Geometry2D({
+      ...projectionSnapshot,
       analysis: result,
       nodes: {
         points: templatePoints,

@@ -570,14 +570,11 @@ class CutTypologyMatchingService:
 
     @staticmethod
     def _derive_match_state(point_type: str, axis_match: Optional[Dict[str, Any]]) -> str:
-        # Corners are reference anchors used to define the bay frame — they
-        # are not matched against any typology variant, so flag them as
-        # "reference" so the table can render a neutral cyan pill instead
-        # of a red "unmatched" pill. The boss summariser still filters by
-        # point_type before counting matches, so this label only affects
-        # display.
+        # Corners are reference anchors, never matched against a typology
+        # variant — keep them in the "unmatched" bucket so the bossesTotal/
+        # bossesMatched/bossesPartial counters only reflect boss points.
         if str(point_type).strip().lower() == "corner":
-            return "reference"
+            return "unmatched"
         if not isinstance(axis_match, dict):
             return "unmatched"
         if bool(axis_match.get("matched")):
