@@ -54,6 +54,11 @@ import {
   Scissors,
   Eraser,
   Tag,
+  Undo2,
+  Redo2,
+  CheckCircle2,
+  ChevronDown,
+  Info,
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
@@ -163,9 +168,14 @@ export default function Step3SegmentationPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState("");
   
-  // Text prompts for guided segmentation
-  const [textPrompts, setTextPrompts] = useState<string[]>([]);
+  // Text prompts for guided segmentation — rib + boss stone are the defaults
+  const [textPrompts, setTextPrompts] = useState<string[]>(["rib", "boss stone"]);
   const [newPrompt, setNewPrompt] = useState("");
+  const [showAdvancedPrompts, setShowAdvancedPrompts] = useState(false);
+  const [showBoxTip, setShowBoxTip] = useState(false);
+  type SegResult = { type: "success" | "error" | "warning"; message: string } | null;
+  const [boxSegResult, setBoxSegResult] = useState<SegResult>(null);
+  const [polySegResult, setPolySegResult] = useState<SegResult>(null);
   
   // Segmentation state
   const [masks, setMasks] = useState<SegmentationMask[]>([]);
@@ -231,6 +241,22 @@ export default function Step3SegmentationPage() {
 
   // Mask label overlay toggle
   const [showMaskLabels, setShowMaskLabels] = useState(false);
+
+  // Auto-segmentation status feedback
+  type AutoSegStatus = "idle" | "running" | "done" | "error";
+  const [autoSegStatus, setAutoSegStatus] = useState<AutoSegStatus>("idle");
+  const [autoSegSummary, setAutoSegSummary] = useState("");
+  // Deferred trigger: set true after ROI confirmation so the useEffect fires
+  // once React has applied roiConfirmed=true (ensuring filterMasksByROI works)
+  const [pendingAutoSegment, setPendingAutoSegment] = useState(false);
+
+  // Undo/redo history for mask operations
+  const maskHistoryRef = useRef<SegmentationMask[][]>([]);
+  const maskFutureRef = useRef<SegmentationMask[][]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  // Stable ref so undo/redo callbacks always see the latest masks without stale closure
+  const masksRef = useRef<SegmentationMask[]>([]);
   
   // Get selected projection
   const selectedProjection = useMemo(() => {
@@ -263,7 +289,45 @@ export default function Step3SegmentationPage() {
       setMasks(loadedMasks);
     }
   }, [currentProject?.segmentations, masks.length]);
-  
+
+  useEffect(() => { masksRef.current = masks; }, [masks]);
+
+  // Fire auto-segmentation once React has committed roiConfirmed=true
+  useEffect(() => {
+    if (!pendingAutoSegment || !roiConfirmed || isProcessing) return;
+    setPendingAutoSegment(false);
+    setAutoSegStatus("running");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void handleAutoSegment();
+  // handleAutoSegment is intentionally omitted — it is a plain function that
+  // is recreated each render and always captures fresh state values.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAutoSegment, roiConfirmed, isProcessing]);
+
+  // Derive auto-seg summary once processing finishes
+  useEffect(() => {
+    if (autoSegStatus !== "running" || isProcessing) return;
+    const ribCount = masks.filter(m => getBaseLabel(m.label).toLowerCase() === "rib").length;
+    const bossCount = masks.filter(m => getBaseLabel(m.label).toLowerCase() === "boss stone").length;
+    if (ribCount > 0 || bossCount > 0) {
+      const parts: string[] = [];
+      if (ribCount > 0) parts.push(`${ribCount} rib${ribCount !== 1 ? "s" : ""}`);
+      if (bossCount > 0) parts.push(`${bossCount} boss stone${bossCount !== 1 ? "s" : ""}`);
+      setAutoSegSummary(`Found ${parts.join(" and ")}`);
+      setAutoSegStatus("done");
+    } else {
+      setAutoSegSummary("No ribs or boss stones detected — try adjusting the ROI or add custom prompts.");
+      setAutoSegStatus("error");
+    }
+  }, [isProcessing, autoSegStatus, masks]);
+
+  const pushToHistory = useCallback((snapshot: SegmentationMask[]) => {
+    maskHistoryRef.current = [snapshot, ...maskHistoryRef.current].slice(0, 10);
+    maskFutureRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }, []);
+
   const handleAddPrompt = () => {
     const trimmed = newPrompt.trim();
     if (trimmed && !textPrompts.includes(trimmed)) {
@@ -365,6 +429,7 @@ export default function Step3SegmentationPage() {
     if (activeTool === "eraser") {
       if (!activeMaskId) return;
       e.preventDefault();
+      pushToHistory(masks);
       setIsEraserDown(true);
       eraserStrokesRef.current = [];
       const coords = getImageCoordinates(e);
@@ -679,8 +744,12 @@ export default function Step3SegmentationPage() {
       const replacedExistingIds = new Set<string>();
       for (const nm of newMasks) {
         if (!nm.bbox) continue;
+        const nmBase = getBaseLabel(nm.label).toLowerCase();
         for (const em of existingMasks) {
           if (!em.bbox) continue;
+          // Only allow same-label replacement: a boss stone must never evict a rib,
+          // and vice versa, even when they overlap at a rib junction.
+          if (getBaseLabel(em.label).toLowerCase() !== nmBase) continue;
           if (calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD &&
               (nm.predictedIou ?? 0) > (em.predictedIou ?? 0)) {
             replacedExistingIds.add(em.id);
@@ -715,12 +784,18 @@ export default function Step3SegmentationPage() {
       let newCornersSoFar = 0;
       let newBossStonesSoFar = 0;
 
-      // A new mask is a plain duplicate only when it overlaps a surviving existing mask
-      // (and the existing mask was at least as good, so it wasn't replaced above).
-      const isDuplicate = (nm: SegmentationMask) =>
-        survivingExisting.some(
-          (em) => em.bbox && nm.bbox && calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD
+      // A new mask is a duplicate only when it overlaps a surviving mask OF THE SAME LABEL TYPE.
+      // Cross-label overlap is intentional (boss stones sit at rib junctions) and must be kept.
+      const isDuplicate = (nm: SegmentationMask) => {
+        const nmBase = getBaseLabel(nm.label).toLowerCase();
+        return survivingExisting.some(
+          (em) =>
+            em.bbox &&
+            nm.bbox &&
+            getBaseLabel(em.label).toLowerCase() === nmBase &&
+            calculateBboxIoU(em.bbox, nm.bbox) > IOU_THRESHOLD
         );
+      };
 
       const colorPalette = [
         "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF",
@@ -799,30 +874,23 @@ export default function Step3SegmentationPage() {
             ctx.fill();
           }
           const newBase64 = canvas.toDataURL("image/png").split(",")[1];
+          // Capture the updated list synchronously from the updater so we can
+          // persist it immediately without a deferred setTimeout.
+          let updatedForSave: SegmentationMask[] = [];
           setMasks((current) => {
             const updated = current.map((m) =>
               m.id === maskId ? { ...m, maskBase64: newBase64 } : m
             );
-            setTimeout(() => {
-              setSegmentations(
-                updated.map((m) => ({
-                  id: m.id,
-                  label: m.label,
-                  color: m.color,
-                  mask: m.maskBase64,
-                  visible: m.visible,
-                  source: m.source as "auto" | "manual",
-                }))
-              );
-            }, 0);
+            updatedForSave = updated;
             return updated;
           });
+          void syncAndSave(updatedForSave);
         };
         img.src = toImageSrc(mask.maskBase64);
         return prev; // actual update happens inside img.onload
       });
     },
-    [imageSize, selectedProjection, setSegmentations]
+    [imageSize, selectedProjection, syncAndSave]
   );
 
   // Clear eraser state when switching away from eraser tool
@@ -1034,26 +1102,15 @@ export default function Step3SegmentationPage() {
       };
     });
 
-    // Replace any existing corner-A/B/C/D masks and add the new ones
-    setMasks((prev) => {
-      const withoutOldCorners = prev.filter(
-        (m) => getBaseLabel(m.label).toLowerCase() !== "corner"
-      );
-      const updated = [...withoutOldCorners, ...cornerMasks];
-      setTimeout(() => {
-        setSegmentations(
-          updated.map((m) => ({
-            id: m.id,
-            label: m.label,
-            color: m.color,
-            mask: m.maskBase64,
-            visible: m.visible,
-            source: m.source as "auto" | "manual",
-          }))
-        );
-      }, 0);
-      return updated;
-    });
+    // Replace any existing corner-A/B/C/D masks and add the new ones.
+    // Use masksRef for the latest state after the preceding await.
+    pushToHistory(masksRef.current);
+    const withoutOldCorners = masksRef.current.filter(
+      (m) => getBaseLabel(m.label).toLowerCase() !== "corner"
+    );
+    const updatedWithCorners = [...withoutOldCorners, ...cornerMasks];
+    setMasks(updatedWithCorners);
+    void syncAndSave(updatedWithCorners);
 
     // Save ROI with corner labels to backend
     if (currentProject?.id) {
@@ -1070,8 +1127,18 @@ export default function Step3SegmentationPage() {
     }
 
     setRoiConfirmed(true);
-    setShowMaskLabels(true); // make the A-D labels immediately visible
-    setActiveTool("box");    // nudge user toward segmentation
+    setShowMaskLabels(true);
+    setActiveTool("box");
+
+    // Auto-run rib + boss stone segmentation if no non-corner masks exist yet
+    const nonCornerCount = masks.filter(
+      m => getBaseLabel(m.label).toLowerCase() !== "corner"
+    ).length;
+    if (nonCornerCount === 0) {
+      setAutoSegStatus("idle");
+      setAutoSegSummary("");
+      setPendingAutoSegment(true);
+    }
   };
 
   // Apply ROI - delete rib masks outside ROI using backend pixel-overlap classification
@@ -1231,6 +1298,7 @@ export default function Step3SegmentationPage() {
   
   const saveEditingMask = () => {
     if (editingMaskId && editingMaskName.trim()) {
+      pushToHistory(masks);
       setMasks(prev => {
         const updated = prev.map(mask =>
           mask.id === editingMaskId
@@ -1292,25 +1360,65 @@ export default function Step3SegmentationPage() {
     }
   }, [currentProject, selectedProjectionId, setSegmentations]);
 
+  const handleUndo = useCallback(() => {
+    if (maskHistoryRef.current.length === 0) return;
+    const previous = maskHistoryRef.current[0];
+    maskFutureRef.current = [masksRef.current, ...maskFutureRef.current].slice(0, 10);
+    maskHistoryRef.current = maskHistoryRef.current.slice(1);
+    setCanUndo(maskHistoryRef.current.length > 0);
+    setCanRedo(true);
+    setMasks(previous);
+    void syncAndSave(previous);
+  }, [syncAndSave]);
+
+  const handleRedo = useCallback(() => {
+    if (maskFutureRef.current.length === 0) return;
+    const next = maskFutureRef.current[0];
+    maskHistoryRef.current = [masksRef.current, ...maskHistoryRef.current].slice(0, 10);
+    maskFutureRef.current = maskFutureRef.current.slice(1);
+    setCanUndo(true);
+    setCanRedo(maskFutureRef.current.length > 0);
+    setMasks(next);
+    void syncAndSave(next);
+  }, [syncAndSave]);
+
   // Remove a single mask and persist
   const removeMask = useCallback((maskId: string) => {
+    pushToHistory(masks);
     const updated = masks.filter(mask => mask.id !== maskId);
     setMasks(updated);
     void syncAndSave(updated);
-  }, [masks, syncAndSave]);
+  }, [masks, syncAndSave, pushToHistory]);
 
   // Remove all masks in a group and persist
   const removeGroup = useCallback((groupLabel: string) => {
+    pushToHistory(masks);
     const updated = masks.filter(
       (mask) => getBaseLabel(mask.label).toLowerCase() !== groupLabel.toLowerCase()
     );
     setMasks(updated);
     void syncAndSave(updated);
-  }, [masks, syncAndSave]);
+  }, [masks, syncAndSave, pushToHistory]);
   
-  // Keyboard handler for box/polygon interactions
+  // Keyboard handler for box/polygon interactions + undo/redo
   useEffect(() => {
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      // Undo / Redo — skip when focus is inside a text input
+      const activeTag = (document.activeElement as HTMLElement)?.tagName;
+      if (activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") {
+          e.preventDefault();
+          handleUndo();
+          return;
+        }
+        if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z") ||
+            ((e.ctrlKey || e.metaKey) && e.key === "y")) {
+          e.preventDefault();
+          handleRedo();
+          return;
+        }
+      }
+
       // Handle polygon tool
       if (activeTool === "polygon") {
         // Escape to clear current polygon
@@ -1351,7 +1459,7 @@ export default function Step3SegmentationPage() {
     
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTool, selectedBoxId, boxNamingDialog.open, currentPolygon.length, saveCurrentPolygon]);
+  }, [activeTool, selectedBoxId, boxNamingDialog.open, currentPolygon.length, saveCurrentPolygon, handleUndo, handleRedo]);
   
   // Drag and drop handlers
   const handleDragStart = (e: DragEvent<HTMLDivElement>, maskId: string) => {
@@ -1375,6 +1483,7 @@ export default function Step3SegmentationPage() {
     setDropTargetGroup(null);
 
     if (draggingMaskId) {
+      pushToHistory(masks);
       setMasks(prev => {
         const targetLower = targetGroupLabel.toLowerCase();
         const existingInGroup = prev.filter(m => {
@@ -1434,54 +1543,50 @@ export default function Step3SegmentationPage() {
     if (!selectedProjection || drawnBoxes.length === 0) return;
     
     setIsProcessing(true);
-    setProcessingMessage(`Segmenting with ${drawnBoxes.length} box${drawnBoxes.length > 1 ? "es" : ""}...`);
-    
+    setBoxSegResult(null);
+
+    const firstBoxName = drawnBoxes.find(box => box.name?.trim())?.name?.trim();
+    setProcessingMessage(
+      firstBoxName
+        ? `Searching for "${firstBoxName}" across the full image…`
+        : "Searching for matching features across the full image…"
+    );
+    pushToHistory(masks);
+
     try {
       const boxPrompts: BoxPrompt[] = drawnBoxes.map(box => ({
         coords: box.coords,
         label: box.label,
       }));
-      
-      // Get the FIRST box name only - this is what will label the detected objects
-      // Don't mix with existing text prompts, as that causes labeling confusion
-      const firstBoxName = drawnBoxes.find(box => box.name?.trim())?.name?.trim();
-      
+
       const response = await runSegmentation({
         projectionId: selectedProjection.id,
         mode: firstBoxName ? "combined" : "box",
         boxes: boxPrompts,
-        // Only pass the box name, not existing text prompts
         textPrompts: firstBoxName ? [firstBoxName] : undefined,
       });
-      
-      console.log("Box segmentation response:", response);
-      
+
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
       const newMasks = data?.masks || [];
-      
+
       if (isSuccess) {
         if (newMasks.length > 0) {
-          setMasks(prev => {
-            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
-            setTimeout(() => {
-              setSegmentations(allMasks.map((m: SegmentationMask) => ({
-                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
-                visible: m.visible, source: m.source as "auto" | "manual",
-              })));
-            }, 0);
-            return allMasks;
-          });
+          const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, newMasks));
+          setMasks(updatedMasks);
           setDrawnBoxes([]);
+          void syncAndSave(updatedMasks);
+          setBoxSegResult({ type: "success", message: `Found ${newMasks.length} feature${newMasks.length !== 1 ? "s" : ""}. Boxes cleared — draw new ones to search again.` });
         } else {
-          alert("No similar objects found for the selected region(s). Try drawing a box around a more distinct feature.");
+          setBoxSegResult({ type: "warning", message: "Nothing matched. Try a box around a clearer example, or add a negative box (−) over shadows or adjacent masonry to guide the search." });
         }
       } else {
         const errorMsg = response.error || data?.error;
-        alert(`Segmentation failed: ${errorMsg || "Unknown error"}`);
+        setBoxSegResult({ type: "error", message: `Segmentation failed: ${errorMsg || "Unknown error"}` });
       }
     } catch (error) {
       console.error("Box segmentation error:", error);
+      setBoxSegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -1493,7 +1598,15 @@ export default function Step3SegmentationPage() {
     if (!selectedProjection || drawnPolygons.length === 0) return;
     
     setIsProcessing(true);
-    setProcessingMessage(`Segmenting with ${drawnPolygons.length} polygon${drawnPolygons.length > 1 ? "s" : ""}...`);
+    setPolySegResult(null);
+
+    const firstName = drawnPolygons.find(p => p.name?.trim())?.name?.trim();
+    setProcessingMessage(
+      firstName
+        ? `Searching for "${firstName}" within the drawn region…`
+        : "Searching for features within the drawn region…"
+    );
+    pushToHistory(masks);
     
     try {
       // Convert polygons to bounding boxes for SAM
@@ -1511,44 +1624,34 @@ export default function Step3SegmentationPage() {
         };
       });
       
-      // Get the first polygon name
-      const firstName = drawnPolygons.find(p => p.name?.trim())?.name?.trim();
-      
       const response = await runSegmentation({
         projectionId: selectedProjection.id,
         mode: firstName ? "combined" : "box",
         boxes: boxPrompts,
         textPrompts: firstName ? [firstName] : undefined,
       });
-      
-      console.log("Polygon segmentation response:", response);
-      
+
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
       const newMasks = data?.masks || [];
-      
+
       if (isSuccess) {
         if (newMasks.length > 0) {
-          setMasks(prev => {
-            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, newMasks));
-            setTimeout(() => {
-              setSegmentations(allMasks.map((m: SegmentationMask) => ({
-                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
-                visible: m.visible, source: m.source as "auto" | "manual",
-              })));
-            }, 0);
-            return allMasks;
-          });
+          const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, newMasks));
+          setMasks(updatedMasks);
           setDrawnPolygons([]);
+          void syncAndSave(updatedMasks);
+          setPolySegResult({ type: "success", message: `Found ${newMasks.length} feature${newMasks.length !== 1 ? "s" : ""}. Polygons cleared — draw new ones to search again.` });
         } else {
-          alert("No objects found in the selected polygon region(s).");
+          setPolySegResult({ type: "warning", message: "Nothing found in the selected region. Try a larger polygon or use a different label." });
         }
       } else {
         const errorMsg = response.error || data?.error;
-        alert(`Segmentation failed: ${errorMsg || "Unknown error"}`);
+        setPolySegResult({ type: "error", message: `Segmentation failed: ${errorMsg || "Unknown error"}` });
       }
     } catch (error) {
       console.error("Polygon segmentation error:", error);
+      setPolySegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -1559,14 +1662,22 @@ export default function Step3SegmentationPage() {
     if (!selectedProjection) return;
     
     setIsProcessing(true);
-    setProcessingMessage("Loading SAM model...");
-    
+    setAutoSegStatus("running");
+    setProcessingMessage("Loading SAM model…");
+    pushToHistory(masks);
+
     try {
       const hasPrompts = textPrompts.length > 0;
+      const isDefaultTargets =
+        textPrompts.length === 2 &&
+        textPrompts.includes("rib") &&
+        textPrompts.includes("boss stone");
       setProcessingMessage(
-        hasPrompts 
-          ? `Segmenting with prompts: ${textPrompts.join(", ")}...`
-          : "Running automatic segmentation..."
+        isDefaultTargets
+          ? "Searching for ribs and boss stones…"
+          : hasPrompts
+          ? `Searching for ${textPrompts.join(", ")}…`
+          : "Running automatic segmentation…"
       );
       
       const response = await runSegmentation({
@@ -1585,22 +1696,20 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (autoMasks.length > 0) {
-          setMasks(prev => {
-            const allMasks = filterMasksByROI(computeUpdatedMasks(prev, autoMasks));
-            setTimeout(() => {
-              setSegmentations(allMasks.map((m: SegmentationMask) => ({
-                id: m.id, label: m.label, color: m.color, mask: m.maskBase64,
-                visible: m.visible, source: m.source as "auto" | "manual",
-              })));
-            }, 0);
-            return allMasks;
-          });
+          const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, autoMasks));
+          setMasks(updatedMasks);
+          // Fire-and-forget backend save; autoSegStatus summary computed by the
+          // useEffect that watches [isProcessing, autoSegStatus, masks].
+          void syncAndSave(updatedMasks);
         } else {
-          alert(`No objects found matching your prompts. Try different terms like:\n• "rib" - vault ribs\n• "arch" - arched sections\n• "stone" - stone surfaces\n• "boss" - decorative bosses`);
+          // No masks returned — set status directly rather than waiting for the useEffect
+          setAutoSegSummary("Nothing detected. Try adjusting the ROI, or use the Box tool to show the model a clear example.");
+          setAutoSegStatus("error");
         }
       } else {
         console.error("Segmentation failed:", errorMsg);
-        alert(`Segmentation failed: ${errorMsg || "Unknown error"}`);
+        setAutoSegSummary(`Segmentation failed: ${errorMsg || "Unknown error"}`);
+        setAutoSegStatus("error");
       }
     } catch (error) {
       console.error("Segmentation error:", error);
@@ -1841,79 +1950,39 @@ export default function Step3SegmentationPage() {
                     </p>
                   </div>
                 )}
-                {/* Text Prompts Input */}
-                <div className={cn("space-y-1.5", !roiConfirmed && "opacity-40 pointer-events-none")}>
-                  <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Type className="w-3 h-3" />
-                    Text Prompts
-                  </Label>
-                  
-                  {/* Quick Presets */}
-                  <div className="flex flex-wrap gap-1">
-                    {["rib", "boss stone"].map((preset) => (
-                      <button
-                        key={preset}
-                        onClick={() => {
-                          if (!textPrompts.includes(preset)) {
-                            setTextPrompts(prev => [...prev, preset]);
-                          }
-                        }}
-                        disabled={textPrompts.includes(preset)}
-                        className={cn(
-                          "px-2 py-0.5 text-xs rounded border transition-colors",
-                          textPrompts.includes(preset)
-                            ? "bg-primary/20 border-primary/50 text-primary cursor-default"
-                            : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"
-                        )}
-                      >
-                        {preset}
-                      </button>
-                    ))}
-                  </div>
-                  
-                  {/* Custom Input */}
-                  <div className="flex gap-1.5">
-                    <Input
-                      placeholder="Or type custom..."
-                      value={newPrompt}
-                      onChange={(e) => setNewPrompt(e.target.value)}
-                      onKeyDown={handlePromptKeyDown}
-                      className="flex-1 h-7 text-xs"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={handleAddPrompt}
-                      disabled={!newPrompt.trim()}
-                    >
-                      <Plus className="w-3 h-3" />
-                    </Button>
-                  </div>
-                  
-                  {/* Selected Prompt Tags */}
-                  {textPrompts.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-1 border-t border-dashed">
-                      <span className="text-xs text-muted-foreground/50 mr-1">Selected:</span>
-                      {textPrompts.map((prompt) => (
-                        <Badge
-                          key={prompt}
-                          variant="secondary"
-                          className="gap-0.5 pr-0.5 text-xs py-0"
-                        >
-                          {prompt}
-                          <button
-                            onClick={() => handleRemovePrompt(prompt)}
-                            className="ml-0.5 hover:bg-destructive/20 hover:text-destructive rounded-full p-0.5"
-                          >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
-                        </Badge>
-                      ))}
+
+                {/* Auto-segmentation status feedback */}
+                {roiConfirmed && (autoSegStatus === "running" || autoSegStatus === "done" || autoSegStatus === "error") && (
+                  <div className={cn(
+                    "flex items-start gap-2 p-2 rounded-lg border text-xs",
+                    autoSegStatus === "running" && "bg-primary/10 border-primary/20",
+                    autoSegStatus === "done"    && "bg-green-500/10 border-green-500/20",
+                    autoSegStatus === "error"   && "bg-amber-500/10 border-amber-500/20",
+                  )}>
+                    {autoSegStatus === "running" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary mt-0.5 shrink-0" />
+                    ) : autoSegStatus === "done" ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-400 mt-0.5 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+                    )}
+                    <div>
+                      <p className="font-medium">
+                        {autoSegStatus === "running"
+                          ? processingMessage || "Searching…"
+                          : autoSegSummary}
+                      </p>
+                      {autoSegStatus === "running" && (
+                        <p className="text-muted-foreground mt-0.5">Masks outside the ROI will be removed automatically.</p>
+                      )}
+                      {autoSegStatus === "done" && (
+                        <p className="text-muted-foreground mt-0.5">Check the image — boss stones are sometimes missed. Use Box select to add any that are missing.</p>
+                      )}
                     </div>
-                  )}
-                </div>
-                
+                  </div>
+                )}
+
+                {/* SAM run button */}
                 <Button
                   size="sm"
                   className="w-full gap-1.5"
@@ -1925,8 +1994,131 @@ export default function Step3SegmentationPage() {
                   ) : (
                     <Wand2 className="w-3 h-3" />
                   )}
-                  {textPrompts.length > 0 ? "Run SAM Segmentation" : "Run SAM Segmentation"}
+                  {autoSegStatus === "done" ? "Re-run Segmentation" : "Run SAM Segmentation"}
                 </Button>
+
+                {/* Box-select tip — shown after segmentation completes */}
+                {roiConfirmed && (autoSegStatus === "done" || autoSegStatus === "error") && (
+                  <div className="rounded-lg border border-border/50 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowBoxTip(v => !v)}
+                      className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
+                    >
+                      <Info className="w-3 h-3 shrink-0 text-primary/70" />
+                      <span className="flex-1">Missing boss stones or ribs?</span>
+                      <ChevronDown className={cn("w-3 h-3 transition-transform", showBoxTip && "rotate-180")} />
+                    </button>
+                    {showBoxTip && (
+                      <div className="px-2.5 pb-2.5 pt-1 space-y-2 border-t border-border/40 bg-muted/20">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          Use the <strong className="text-foreground">Box</strong> tool to show the model an example of a missed feature — it will then search the whole image for similar ones.
+                        </p>
+                        <ol className="space-y-1.5 text-xs text-muted-foreground list-none">
+                          <li className="flex gap-2">
+                            <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] font-semibold flex items-center justify-center">1</span>
+                            <span>Select the <strong className="text-foreground">Box</strong> tool in the grid below.</span>
+                          </li>
+                          <li className="flex gap-2">
+                            <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] font-semibold flex items-center justify-center">2</span>
+                            <span>Drag a box around a clear, well-lit example on the image. Name it <code className="bg-muted px-1 rounded text-[10px]">boss stone</code> or <code className="bg-muted px-1 rounded text-[10px]">rib</code>.</span>
+                          </li>
+                          <li className="flex gap-2">
+                            <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] font-semibold flex items-center justify-center">3</span>
+                            <span>Click <strong className="text-foreground">Find Similar</strong> — the model searches the full image for matching features.</span>
+                          </li>
+                        </ol>
+                        <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+                          Add a <strong>negative box</strong> (toggle the +/− button) over shadows or adjacent masonry to help the model avoid false matches.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Custom prompts — collapsed by default */}
+                <div className={cn("space-y-1.5", !roiConfirmed && "opacity-40 pointer-events-none")}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedPrompts(v => !v)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <ChevronDown className={cn("w-3 h-3 transition-transform", showAdvancedPrompts && "rotate-180")} />
+                    <Type className="w-3 h-3" />
+                    Custom prompts
+                    {textPrompts.length > 0 && (
+                      <span className="ml-1 px-1 rounded bg-primary/20 text-primary text-[10px]">{textPrompts.length}</span>
+                    )}
+                  </button>
+
+                  {showAdvancedPrompts && (
+                    <div className="space-y-1.5 pl-1 border-l border-border/40">
+                      {/* Quick Presets */}
+                      <div className="flex flex-wrap gap-1">
+                        {["rib", "boss stone"].map((preset) => (
+                          <button
+                            key={preset}
+                            onClick={() => {
+                              if (!textPrompts.includes(preset)) {
+                                setTextPrompts(prev => [...prev, preset]);
+                              }
+                            }}
+                            disabled={textPrompts.includes(preset)}
+                            className={cn(
+                              "px-2 py-0.5 text-xs rounded border transition-colors",
+                              textPrompts.includes(preset)
+                                ? "bg-primary/20 border-primary/50 text-primary cursor-default"
+                                : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"
+                            )}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Custom Input */}
+                      <div className="flex gap-1.5">
+                        <Input
+                          placeholder="Add custom prompt…"
+                          value={newPrompt}
+                          onChange={(e) => setNewPrompt(e.target.value)}
+                          onKeyDown={handlePromptKeyDown}
+                          className="flex-1 h-7 text-xs"
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={handleAddPrompt}
+                          disabled={!newPrompt.trim()}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      </div>
+
+                      {/* Active prompt tags */}
+                      {textPrompts.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-1 border-t border-dashed">
+                          {textPrompts.map((prompt) => (
+                            <Badge
+                              key={prompt}
+                              variant="secondary"
+                              className="gap-0.5 pr-0.5 text-xs py-0"
+                            >
+                              {prompt}
+                              <button
+                                onClick={() => handleRemovePrompt(prompt)}
+                                className="ml-0.5 hover:bg-destructive/20 hover:text-destructive rounded-full p-0.5"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 
                 <div className="grid grid-cols-2 gap-1.5">
                   {[
@@ -2047,6 +2239,19 @@ export default function Step3SegmentationPage() {
                       )}
                       Find Similar
                     </Button>
+                    {boxSegResult && (
+                      <div className={cn(
+                        "flex items-start gap-1.5 p-2 rounded text-xs",
+                        boxSegResult.type === "success" && "bg-green-500/10 text-green-400",
+                        boxSegResult.type === "warning" && "bg-amber-500/10 text-amber-400",
+                        boxSegResult.type === "error"   && "bg-destructive/10 text-destructive",
+                      )}>
+                        {boxSegResult.type === "success"
+                          ? <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" />
+                          : <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />}
+                        <span className="leading-relaxed">{boxSegResult.message}</span>
+                      </div>
+                    )}
                   </div>
                 )}
                 
@@ -2155,6 +2360,19 @@ export default function Step3SegmentationPage() {
                         )}
                         Find in Polygons
                       </Button>
+                    )}
+                    {polySegResult && (
+                      <div className={cn(
+                        "flex items-start gap-1.5 p-2 rounded text-xs",
+                        polySegResult.type === "success" && "bg-green-500/10 text-green-400",
+                        polySegResult.type === "warning" && "bg-amber-500/10 text-amber-400",
+                        polySegResult.type === "error"   && "bg-destructive/10 text-destructive",
+                      )}>
+                        {polySegResult.type === "success"
+                          ? <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" />
+                          : <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />}
+                        <span className="leading-relaxed">{polySegResult.message}</span>
+                      </div>
                     )}
                   </div>
                 )}
@@ -2327,6 +2545,23 @@ export default function Step3SegmentationPage() {
                   <div className="flex items-center justify-between gap-2">
                     <CardTitle className="text-sm font-medium">Segments</CardTitle>
                     <div className="flex items-center gap-1">
+                      <button
+                        className="text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-muted disabled:opacity-30"
+                        onClick={handleUndo}
+                        disabled={!canUndo}
+                        title="Undo (Ctrl+Z)"
+                      >
+                        <Undo2 className="w-3 h-3" />
+                      </button>
+                      <button
+                        className="text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-muted disabled:opacity-30"
+                        onClick={handleRedo}
+                        disabled={!canRedo}
+                        title="Redo (Ctrl+Y)"
+                      >
+                        <Redo2 className="w-3 h-3" />
+                      </button>
+                      <span className="text-muted-foreground/50">|</span>
                       <button
                         className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted"
                         onClick={selectAllMasks}
@@ -3056,11 +3291,13 @@ export default function Step3SegmentationPage() {
                     {/* Processing overlay */}
                     {isProcessing && (
                       <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center">
-                        <div className="text-center space-y-3">
+                        <div className="text-center space-y-3 max-w-xs px-4">
                           <Loader2 className="w-10 h-10 animate-spin mx-auto text-primary" />
-                          <p className="text-sm font-medium">{processingMessage || "Processing..."}</p>
+                          <p className="text-sm font-medium">{processingMessage || "Processing…"}</p>
                           <p className="text-xs text-muted-foreground">
-                            This may take a minute for large images
+                            {processingMessage?.startsWith("Loading SAM")
+                              ? "The model loads once per session — subsequent runs are faster."
+                              : "This may take a moment for large images. Masks outside the ROI will be removed automatically."}
                           </p>
                         </div>
                       </div>

@@ -200,6 +200,29 @@ All current masks are listed below the tool card, grouped by feature type. Withi
 
 Changes to the mask list are saved to the project file immediately.
 
+### Undo and Redo
+
+The **↩ Undo** and **↪ Redo** buttons in the Segments panel header step back and forward through your mask editing history (up to 10 steps). The keyboard shortcuts also work anywhere on the page:
+
+| Action | Windows / Linux | Mac |
+|--------|----------------|-----|
+| Undo | `Ctrl+Z` | `Cmd+Z` |
+| Redo | `Ctrl+Y` or `Ctrl+Shift+Z` | `Cmd+Shift+Z` |
+
+Every undo and redo saves the restored state to disk immediately, so the project file always reflects what you see on screen.
+
+The following operations are tracked in history:
+
+- Adding masks from any segmentation run (box, polygon, or auto)
+- Deleting a single mask or an entire group
+- Renaming a mask label
+- Eraser strokes (captured at the start of each stroke)
+- ROI corner-stone placement
+- Drag-and-drop group reclassification
+
+!!! note
+    Keyboard shortcuts are suppressed while a text field is focused, so typing in the prompt input or rename field will not accidentally trigger an undo.
+
 ### Mask labelling
 
 Masks are automatically labelled when created:
