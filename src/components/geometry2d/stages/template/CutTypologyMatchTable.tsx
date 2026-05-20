@@ -43,7 +43,7 @@ export function rowMatchState(row: Record<string, string>): MatchState {
   if (pointType === "corner") return "reference";
 
   const explicit = String(row["match_state"] ?? "").trim().toLowerCase();
-  if (explicit === "matched" || explicit === "partial" || explicit === "unmatched") {
+  if (explicit === "matched" || explicit === "partial" || explicit === "unmatched" || explicit === "reference") {
     return explicit;
   }
   // Older CSVs without match_state: derive from x_cut/y_cut/matched.

@@ -111,7 +111,7 @@ class WriteMatchCsvAxisColumnsTests(TestCase):
         ])
         self.assertEqual(rows[0]["match_state"], "unmatched")
 
-    def test_corner_rows_stay_unmatched(self):
+    def test_corner_rows_emit_reference_state(self):
         rows = self._write([
             {
                 "id": "c1",
@@ -125,6 +125,6 @@ class WriteMatchCsvAxisColumnsTests(TestCase):
                 "axisCutMatch": None,
             }
         ])
-        self.assertEqual(rows[0]["match_state"], "unmatched")
+        self.assertEqual(rows[0]["match_state"], "reference")
         self.assertEqual(rows[0]["x_ratio"], "None")
         self.assertEqual(rows[0]["y_ratio"], "None")
