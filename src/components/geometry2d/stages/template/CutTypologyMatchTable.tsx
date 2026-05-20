@@ -54,6 +54,28 @@ export function rowMatchState(row: Record<string, string>): MatchState {
   return hasX || hasY ? "partial" : "unmatched";
 }
 
+function formatTemplateUv(row: Record<string, string>): string {
+  // Honest rendering of the matched target ratio. For full matches the
+  // backend already emits "[0.5, 0.5]"; for partial rows it emits "None" and
+  // hides the axis that did hit. Reconstruct the partial form here so the
+  // single column carries the full truth (no need to also show x_ratio /
+  // y_ratio).
+  const state = rowMatchState(row);
+  const raw = String(row["template_uv"] ?? "");
+  if (state !== "partial") {
+    return formatCutTypologyValue(raw);
+  }
+  const xRatio = String(row["x_ratio"] ?? "").trim();
+  const yRatio = String(row["y_ratio"] ?? "").trim();
+  const xToken = xRatio && xRatio.toLowerCase() !== "none"
+    ? formatCutTypologyValue(xRatio)
+    : "-";
+  const yToken = yRatio && yRatio.toLowerCase() !== "none"
+    ? formatCutTypologyValue(yRatio)
+    : "-";
+  return `[${xToken}, ${yToken}]`;
+}
+
 import { REPORT_COLUMNS, filterReportColumns } from "./reportColumns";
 
 // Diagnostic variant: these columns are part of the dataset but hidden in the
@@ -321,6 +343,9 @@ export function CutTypologyMatchTable({
             if (column === "point_label") {
               return escapeValue(getCompactNodeLabel(row.point_label || row.boss_id) || row.point_label || "");
             }
+            if (column === "template_uv") {
+              return escapeValue(formatTemplateUv(row));
+            }
             return escapeValue(formatCutTypologyValue(row[column]));
           })
           .join(",")
@@ -509,7 +534,9 @@ export function CutTypologyMatchTable({
                             })()}
                           </div>
                         ) : (
-                          formatCutTypologyValue(row[column])
+                          column === "template_uv"
+                            ? formatTemplateUv(row)
+                            : formatCutTypologyValue(row[column])
                         )}
                       </td>
                     ))}
@@ -534,7 +561,9 @@ export function CutTypologyMatchTable({
                         ) : column === "point_label" ? (
                           getCompactNodeLabel(row.point_label || row.boss_id) || row.point_label || ""
                         ) : (
-                          formatCutTypologyValue(row[column])
+                          column === "template_uv"
+                            ? formatTemplateUv(row)
+                            : formatCutTypologyValue(row[column])
                         )}
                       </td>
                     ))}
