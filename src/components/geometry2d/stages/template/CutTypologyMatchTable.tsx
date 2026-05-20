@@ -43,7 +43,7 @@ export function rowMatchState(row: Record<string, string>): MatchState {
   if (pointType === "corner") return "reference";
 
   const explicit = String(row["match_state"] ?? "").trim().toLowerCase();
-  if (explicit === "matched" || explicit === "partial" || explicit === "unmatched" || explicit === "reference") {
+  if (explicit === "matched" || explicit === "partial" || explicit === "unmatched") {
     return explicit;
   }
   // Older CSVs without match_state: derive from x_cut/y_cut/matched.
@@ -63,6 +63,9 @@ const DEFAULT_HIDDEN_DIAGNOSTIC_COLUMNS: ReadonlySet<string> = new Set([
   "boss_id",
   "boss_xy",
   "template_xy",
+  "matched",
+  "x_ratio",
+  "y_ratio",
 ]);
 
 function getInitialSortDirection(column: string): "asc" | "desc" {
@@ -71,7 +74,7 @@ function getInitialSortDirection(column: string): "asc" | "desc" {
 
 function getSortValue(row: MatchCsvRow, column: string): number | string {
   if (column === "boss_id") return Number(row[column] || 0);
-  if (column === "matched") {
+  if (column === "matched" || column === "match_state") {
     // Sort order: matched > partial > reference (corners) > unmatched.
     // Corners aren't failures, so they group above true unmatched rows.
     const state = rowMatchState(row);
@@ -96,9 +99,6 @@ function getReportColumnClass(column: string): string {
     case "x_cut":
     case "y_cut":
       return "w-[110px]";
-    case "x_ratio":
-    case "y_ratio":
-      return "w-[80px]";
     case "boss_uv":
       return "w-[150px]";
     case "template_uv":
@@ -106,7 +106,8 @@ function getReportColumnClass(column: string): string {
     case "uv_error":
       return "w-[145px]";
     case "matched":
-      return "w-[76px]";
+    case "match_state":
+      return "w-[96px]";
     default:
       return "w-[100px]";
   }
@@ -471,7 +472,7 @@ export function CutTypologyMatchTable({
                   <tr key={`screen-row-${page}-${rowIndex}`} className={`${hasPagination ? "screen-only" : ""} border-b border-border/20 ${rowIndex % 2 === 0 ? "bg-background/5" : "bg-transparent"}`}>
                     {renderedColumns.map((column) => (
                       <td key={`${rowIndex}-${column}`} className={`px-2 py-1.5 text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap ${getColumnClass(column)} ${getStickyColumnClass(column)}`}>
-                        {column === "matched" ? (() => {
+                        {(column === "matched" || column === "match_state") ? (() => {
                           const state = rowMatchState(row);
                           const label = state.charAt(0).toUpperCase() + state.slice(1);
                           if (state === "partial") {
@@ -518,7 +519,7 @@ export function CutTypologyMatchTable({
                   <tr key={`print-row-${rowIndex}`} className={`print-only border-b border-border/20 ${rowIndex % 2 === 0 ? "bg-background/5" : "bg-transparent"}`}>
                     {renderedColumns.map((column) => (
                       <td key={`print-${rowIndex}-${column}`} className={`px-2 py-1.5 text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap ${getColumnClass(column)} ${getStickyColumnClass(column)}`}>
-                        {column === "matched" ? (() => {
+                        {(column === "matched" || column === "match_state") ? (() => {
                           const state = rowMatchState(row);
                           const label = state.charAt(0).toUpperCase() + state.slice(1);
                           if (state === "partial") {
