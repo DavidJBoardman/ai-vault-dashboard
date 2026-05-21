@@ -148,12 +148,12 @@ const DEFAULT_ROI: ROIState = {
 
 const DEFAULT_TEMPLATE_PARAMS: Geometry2DTemplateStateParams = {
   starcutMin: 2,
-  starcutMax: 7,
+  starcutMax: 6,
   includeStarcut: true,
   includeInner: true,
   includeOuter: true,
   allowCrossTemplate: false,
-  tolerance: 0.05,
+  tolerance: 0.03,
 };
 
 const ROI_INSIDE_MARGIN_UV = 0.02;

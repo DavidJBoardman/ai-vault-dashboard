@@ -28,12 +28,12 @@ import { CutTypologyMatchTable } from "./CutTypologyMatchTable";
 
 const RESET_TEMPLATE_PARAMS: Geometry2DCutTypologyParams = {
   starcutMin: 2,
-  starcutMax: 7,
+  starcutMax: 6,
   includeStarcut: true,
   includeInner: true,
   includeOuter: true,
   allowCrossTemplate: false,
-  tolerance: 0.05,
+  tolerance: 0.03,
 };
 
 interface CutTypologyMatchingPanelProps {
