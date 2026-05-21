@@ -1895,6 +1895,12 @@ export function useStep4Geometry2DController() {
   }, [activeSection, currentProject?.id, loadReconstructionState]);
 
   useEffect(() => {
+    if (!currentProject?.id) return;
+    if (activeSection !== "matching" && activeSection !== "nodes") return;
+    loadTemplateState();
+  }, [activeSection, currentProject?.id, loadTemplateState]);
+
+  useEffect(() => {
     const prev = prevActiveSectionRef.current;
     prevActiveSectionRef.current = activeSection;
 
