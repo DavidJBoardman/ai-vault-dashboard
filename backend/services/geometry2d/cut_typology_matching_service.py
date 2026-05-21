@@ -14,30 +14,24 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 from services.geometry2d.roi_adapter import get_project_dir
+from services.geometry2d.utils.corner_anchors import (
+    CORNER_REFERENCE_SPECS,
+    refresh_corner_points,
+)
 from services.geometry2d.utils.roi_math import image_to_unit, unit_to_image
 from services.geometry2d.utils.template_keypoints import generate_keypoints
 from services.geometry2d.utils.template_scoring import extract_template_ratios, match_boss_to_ratios
 
 DEFAULT_TEMPLATE_PARAMS: Dict[str, Any] = {
     "starcutMin": 2,
-    "starcutMax": 7,
+    "starcutMax": 6,
     "includeStarcut": True,
     "includeInner": True,
     "includeOuter": True,
     "allowCrossTemplate": False,
-    "tolerance": 0.05,
+    "tolerance": 0.03,
 }
 ROI_INSIDE_MARGIN_UV = 0.02
-CORNER_REFERENCE_SPECS: List[Tuple[str, Tuple[float, float]]] = [
-    # Labels mirror the step-3 corner segmentation tags so the reference
-    # points carry the same letter as the step-3 masks. The mapping follows
-    # the convention used in step-3 (getROICorners returns [TL, TR, BR, BL]
-    # which are mapped to [C, A, B, D]).
-    ("Corner C", (0.0, 0.0)),  # TL / NW
-    ("Corner A", (1.0, 0.0)),  # TR / NE
-    ("Corner B", (1.0, 1.0)),  # BR / SE
-    ("Corner D", (0.0, 1.0)),  # BL / SW
-]
 
 PARAMETER_SCHEMA: List[Dict[str, Any]] = [
     {
@@ -56,7 +50,7 @@ PARAMETER_SCHEMA: List[Dict[str, Any]] = [
         "type": "integer",
         "min": 2,
         "step": 1,
-        "default": 7,
+        "default": 6,
         "description": "Upper bound for standardcut grid divisors.",
     },
     {
@@ -87,7 +81,7 @@ PARAMETER_SCHEMA: List[Dict[str, Any]] = [
         "min": 0.001,
         "max": 0.1,
         "step": 0.001,
-        "default": 0.05,
+        "default": 0.03,
         "description": "Maximum normalised bay distance from a reference point to a cut line.",
     },
 ]
@@ -184,6 +178,7 @@ class CutTypologyMatchingService:
         project_dir = get_project_dir(project_id)
         roi = self._load_roi_params(project_dir)
         normalised = self._normalise_points(points)
+        normalised = refresh_corner_points(normalised, roi)
         self._persist_points(project_dir, normalised)
 
         return {
@@ -228,7 +223,7 @@ class CutTypologyMatchingService:
         resolved_params = self._resolve_params(params)
 
         if points is not None:
-            point_rows = self._normalise_points(points)
+            point_rows = refresh_corner_points(self._normalise_points(points), roi)
             self._persist_points(project_dir, point_rows)
         else:
             point_rows = self._read_or_build_points(project_dir)
@@ -720,7 +715,6 @@ class CutTypologyMatchingService:
             raise FileNotFoundError(f"Boss report not found: {boss_path}. Run ROI analysis first.")
 
         payload = self._load_json_object(boss_path)
-        roi = self._load_roi_params(project_dir)
         bosses = payload.get("bosses")
         if not isinstance(bosses, list):
             raise ValueError("boss_report.json missing bosses")
@@ -750,32 +744,23 @@ class CutTypologyMatchingService:
                 }
             )
 
-        next_corner_id = (max((int(point["id"]) for point in points), default=0)) + 1
-        for offset, (label, uv) in enumerate(CORNER_REFERENCE_SPECS):
-            x, y = unit_to_image(uv, roi)
-            points.append(
-                {
-                    "id": next_corner_id + offset,
-                    "label": label,
-                    "x": float(x),
-                    "y": float(y),
-                    "source": "auto",
-                    "pointType": "corner",
-                }
-            )
-
+        # Corners are derived on read by `refresh_corner_points`. Return
+        # boss rows only here.
         points.sort(key=lambda p: int(p["id"]))
         return points
 
     def _read_or_build_points(self, project_dir: Path) -> List[Dict[str, Any]]:
+        roi = self._load_roi_params(project_dir)
         state_path = self._node_points_path(project_dir)
         if state_path.exists():
             payload = self._load_json_object(state_path)
             raw_points = payload.get("points")
             if isinstance(raw_points, list):
-                return self._normalise_points(raw_points)
+                normalised = self._normalise_points(raw_points)
+                return refresh_corner_points(normalised, roi)
 
         points = self._load_base_points(project_dir)
+        points = refresh_corner_points(points, roi)
         self._persist_points(project_dir, points)
         return points
 

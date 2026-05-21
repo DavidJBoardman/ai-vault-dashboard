@@ -115,5 +115,63 @@ class RefreshCornerPointsTests(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
 
 
+import json
+import tempfile
+
+from services.geometry2d.cut_typology_matching_service import CutTypologyMatchingService
+
+
+class CutTypologyServiceCornerRefreshTests(unittest.TestCase):
+    def _write_project(
+        self,
+        project_dir: Path,
+        roi_params: Dict[str, float],
+        saved_points: list,
+    ) -> None:
+        geom_dir = project_dir / "2d_geometry"
+        geom_dir.mkdir(parents=True, exist_ok=True)
+        (geom_dir / "roi.json").write_text(json.dumps({"params": roi_params}))
+        boss_report = {
+            "bosses": [
+                {"id": 1, "label": "boss stone A",
+                 "centroid_xy": {"x": 110.0, "y": 110.0}},
+            ]
+        }
+        (geom_dir / "boss_report.json").write_text(json.dumps(boss_report))
+
+        cut_dir = geom_dir / "cut_typology_matching"
+        cut_dir.mkdir(parents=True, exist_ok=True)
+        (cut_dir / "node_points.json").write_text(
+            json.dumps({"points": saved_points})
+        )
+
+    def test_read_or_build_refreshes_corners_against_current_roi(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            # Persisted file contains a stale corner that does not match the
+            # current ROI; the read path should overwrite it.
+            stale_points = [
+                {"id": 1, "label": "boss stone A", "x": 110.0, "y": 110.0,
+                 "source": "manual", "pointType": "boss"},
+                {"id": 2, "label": "Corner C", "x": -999.0, "y": -999.0,
+                 "source": "auto", "pointType": "corner"},
+            ]
+            self._write_project(project_dir, dict(ROI_A), stale_points)
+
+            service = CutTypologyMatchingService()
+            points = service._read_or_build_points(project_dir)
+
+            corners = [p for p in points if p["pointType"] == "corner"]
+            self.assertEqual(len(corners), 4)
+            corner_c = next(c for c in corners if c["label"] == "Corner C")
+            self.assertAlmostEqual(corner_c["x"], 0.0, places=3)
+            self.assertAlmostEqual(corner_c["y"], 0.0, places=3)
+
+            # Manual boss edit must survive.
+            boss = next(p for p in points if p["pointType"] == "boss")
+            self.assertEqual(boss["x"], 110.0)
+            self.assertEqual(boss["source"], "manual")
+
+
 if __name__ == "__main__":
     unittest.main()
