@@ -32,11 +32,11 @@ Start with the default settings. Tune the advanced parameters below only if the 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | Starcut Min *n* | 2 | Lower bound for standard-grid divisors |
-| Starcut Max *n* | 7 | Upper bound for standard-grid divisors |
+| Starcut Max *n* | 6 | Upper bound for standard-grid divisors. Historically grounded — most documented medieval vault patterns use *n* ≤ 6; increase to 7–8 only if a specific pattern requires it (and tighten the tolerance accordingly) |
 | Include starcut | On | Enable standard *n*-by-*n* grid variants |
 | Include circlecut inner | On | Enable the inner circle variant |
 | Include circlecut outer | On | Enable the outer circle variant |
-| Ratio tolerance | 0.05 | Maximum absolute ratio distance for a coordinate to count as matched |
+| Ratio tolerance | 0.03 | Maximum absolute ratio distance (in normalised bay units) for a coordinate to count as matched. Sits below the minimum gap between adjacent cut-line ratios at the default Starcut Max = 6 (gap = 1/(6·5) ≈ 0.033), so each accepted point identifies a unique cut line |
 
 ### 2. Run matching
 
