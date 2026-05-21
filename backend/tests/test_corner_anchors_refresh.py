@@ -103,6 +103,18 @@ class RefreshCornerPointsTests(unittest.TestCase):
             sorted(p["label"] for p in once),
         )
 
+    def test_tolerates_string_boss_ids(self):
+        # bay_candidate_io's reference rows tag bosses with strings like "B1".
+        # Helper must not crash on non-int ids; it just picks integer corner
+        # ids starting from 1 since no int boss id participates.
+        points = [
+            {"id": "B1", "label": "boss A", "x": 1.0, "y": 1.0,
+             "source": "auto", "pointType": "boss"},
+        ]
+        result = refresh_corner_points(points, ROI_A)
+        corners = [p for p in result if p["pointType"] == "corner"]
+        self.assertEqual(len(corners), 4)
+
     def test_corner_ids_do_not_collide_with_bosses(self):
         points = [
             {"id": 1, "label": "boss A", "x": 1.0, "y": 1.0,
@@ -171,6 +183,35 @@ class CutTypologyServiceCornerRefreshTests(unittest.TestCase):
             boss = next(p for p in points if p["pointType"] == "boss")
             self.assertEqual(boss["x"], 110.0)
             self.assertEqual(boss["source"], "manual")
+
+
+from services.geometry2d.utils.bay_candidate_io import load_reference_rows
+
+
+class BayCandidateIoCornerRefreshTests(unittest.TestCase):
+    def test_load_reference_rows_returns_current_roi_corners(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            geom_dir = project_dir / "2d_geometry"
+            geom_dir.mkdir(parents=True)
+            (geom_dir / "roi.json").write_text(json.dumps({"params": dict(ROI_A)}))
+            cut_dir = geom_dir / "cut_typology_matching"
+            cut_dir.mkdir()
+            # Stale corner persisted from a previous ROI.
+            (cut_dir / "node_points.json").write_text(json.dumps({"points": [
+                {"id": 1, "label": "boss A", "x": 110.0, "y": 110.0,
+                 "source": "manual", "pointType": "boss"},
+                {"id": 2, "label": "Corner C", "x": -999.0, "y": -999.0,
+                 "source": "auto", "pointType": "corner"},
+            ]}))
+
+            rows = load_reference_rows(project_dir)
+            corners = [r for r in rows if r["pointType"] == "corner"]
+            self.assertEqual(len(corners), 4)
+            corner_c = next(r for r in corners if r["label"] == "Corner C")
+            # ROI_A top-left should land at unit-uv (0, 0).
+            self.assertAlmostEqual(corner_c["uv"][0], 0.0, places=3)
+            self.assertAlmostEqual(corner_c["uv"][1], 0.0, places=3)
 
 
 if __name__ == "__main__":

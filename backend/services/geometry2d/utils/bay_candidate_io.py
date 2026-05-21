@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from services.geometry2d.utils.corner_anchors import refresh_corner_points
 from services.geometry2d.utils.roi_math import RoiParams, image_to_unit
 
 
@@ -149,8 +150,13 @@ def _load_prepared_reference_rows(project_dir: Path) -> Optional[List[Dict[str, 
         return None
 
     roi = load_roi_params(project_dir)
+    # Refresh corners against current ROI so Bay Plan always sees corners
+    # that match the saved ROI rectangle, not a stale snapshot from an
+    # earlier cut-typology run.
+    refreshed_points = refresh_corner_points(raw_points, roi)
+
     rows: List[Dict[str, Any]] = []
-    for row in raw_points:
+    for row in refreshed_points:
         if not isinstance(row, dict):
             continue
         if "id" not in row or "x" not in row or "y" not in row:

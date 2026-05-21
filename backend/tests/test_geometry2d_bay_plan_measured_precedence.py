@@ -90,12 +90,13 @@ class BayPlanMeasuredPrecedenceTests(unittest.TestCase):
         }])
 
         rows = load_reference_rows(project_dir)
+        bosses = [r for r in rows if r["pointType"] == "boss"]
 
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["id"], "B1")
-        self.assertAlmostEqual(rows[0]["uv"][0], 0.23)
-        self.assertAlmostEqual(rows[0]["uv"][1], 0.34)
-        self.assertIn(rows[0]["source"], ("manual", "raw"))
+        self.assertEqual(len(bosses), 1)
+        self.assertEqual(bosses[0]["id"], "B1")
+        self.assertAlmostEqual(bosses[0]["uv"][0], 0.23)
+        self.assertAlmostEqual(bosses[0]["uv"][1], 0.34)
+        self.assertIn(bosses[0]["source"], ("manual", "raw"))
 
     def test_matched_boss_carries_ideal_uv_alongside_measured(self) -> None:
         project_dir = self.make_project(csv_rows=[{
@@ -107,11 +108,12 @@ class BayPlanMeasuredPrecedenceTests(unittest.TestCase):
         }])
 
         rows = load_reference_rows(project_dir)
+        bosses = [r for r in rows if r["pointType"] == "boss"]
 
-        self.assertIn("idealUv", rows[0])
-        self.assertIsNotNone(rows[0]["idealUv"])
-        self.assertAlmostEqual(rows[0]["idealUv"][0], 0.5)
-        self.assertAlmostEqual(rows[0]["idealUv"][1], 0.5)
+        self.assertIn("idealUv", bosses[0])
+        self.assertIsNotNone(bosses[0]["idealUv"])
+        self.assertAlmostEqual(bosses[0]["idealUv"][0], 0.5)
+        self.assertAlmostEqual(bosses[0]["idealUv"][1], 0.5)
 
     def test_unmatched_boss_has_null_ideal_uv(self) -> None:
         project_dir = self.make_project(csv_rows=[{
@@ -123,12 +125,13 @@ class BayPlanMeasuredPrecedenceTests(unittest.TestCase):
         }])
 
         rows = load_reference_rows(project_dir)
+        bosses = [r for r in rows if r["pointType"] == "boss"]
 
-        self.assertEqual(len(rows), 1)
-        self.assertAlmostEqual(rows[0]["uv"][0], 0.41)
-        self.assertAlmostEqual(rows[0]["uv"][1], 0.62)
-        self.assertIn("idealUv", rows[0])
-        self.assertIsNone(rows[0]["idealUv"])
+        self.assertEqual(len(bosses), 1)
+        self.assertAlmostEqual(bosses[0]["uv"][0], 0.41)
+        self.assertAlmostEqual(bosses[0]["uv"][1], 0.62)
+        self.assertIn("idealUv", bosses[0])
+        self.assertIsNone(bosses[0]["idealUv"])
 
     def test_collect_boss_nodes_populates_ideal_xy_from_row(self) -> None:
         roi = {

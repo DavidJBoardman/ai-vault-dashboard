@@ -42,7 +42,17 @@ def refresh_corner_points(
         for point in points
         if str(point.get("pointType", "boss")) != "corner"
     ]
-    next_id = max((int(p["id"]) for p in bosses), default=0) + 1
+    # Boss ids may be ints (cut-typology service path) or arbitrary strings
+    # (bay-plan path uses tags like "B1"). Only int-coercible ids participate
+    # in the max calculation; string-tagged bosses live in a separate
+    # namespace and cannot collide with the integer corner ids we mint here.
+    int_ids: List[int] = []
+    for p in bosses:
+        try:
+            int_ids.append(int(p["id"]))
+        except (TypeError, ValueError):
+            continue
+    next_id = (max(int_ids) if int_ids else 0) + 1
 
     refreshed = list(bosses)
     for offset, (label, uv) in enumerate(CORNER_REFERENCE_SPECS):
@@ -58,5 +68,13 @@ def refresh_corner_points(
             }
         )
 
-    refreshed.sort(key=lambda p: int(p["id"]))
+    def _sort_key(point: Dict[str, Any]) -> Tuple[int, int, str]:
+        # Int-coercible ids sort first by numeric value; non-int ids
+        # (e.g. "B2") sort after, by their string form.
+        try:
+            return (0, int(point["id"]), "")
+        except (TypeError, ValueError):
+            return (1, 0, str(point["id"]))
+
+    refreshed.sort(key=_sort_key)
     return refreshed
