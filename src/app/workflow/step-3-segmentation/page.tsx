@@ -803,8 +803,24 @@ export default function Step3SegmentationPage() {
       ];
       let colorIndex = Object.keys(groupColors).length;
 
-      const renumbered = newMasks
-        .filter((m) => !isDuplicate(m))
+      // Accept new masks greedily: check each candidate against both surviving
+      // existing masks (isDuplicate) AND already-accepted new masks so that
+      // two overlapping masks returned in the same SAM batch don't both survive.
+      const acceptedNew: SegmentationMask[] = [];
+      for (const nm of newMasks) {
+        if (isDuplicate(nm)) continue;
+        const nmBase = getBaseLabel(nm.label).toLowerCase();
+        const overlapsAccepted = acceptedNew.some(
+          (am) =>
+            am.bbox &&
+            nm.bbox &&
+            getBaseLabel(am.label).toLowerCase() === nmBase &&
+            calculateBboxIoU(am.bbox, nm.bbox) > IOU_THRESHOLD
+        );
+        if (!overlapsAccepted) acceptedNew.push(nm);
+      }
+
+      const renumbered = acceptedNew
         .map((m) => {
           const baseLabel = m.label.replace(/\s*#?\d+$/, "").trim();
           const baseLabelLower = baseLabel.toLowerCase();

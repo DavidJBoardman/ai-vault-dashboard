@@ -294,45 +294,59 @@ class SAM3Service:
                 scores = results.get("scores", [])
                 
                 print(f"  Found {len(masks)} masks for '{prompt}'")
-                
-                # Process each mask for this prompt
+
+                # Collect raw mask arrays for this prompt so we can run
+                # pixel-level NMS before converting to base64.
+                raw_for_prompt = []
                 for mask_idx, mask in enumerate(masks):
-                    # Get score
                     score = float(scores[mask_idx]) if mask_idx < len(scores) else 0.9
-                    
-                    # Get bounding box (xyxy format from HuggingFace)
+
                     bbox = None
                     if mask_idx < len(boxes):
                         box = boxes[mask_idx]
                         if hasattr(box, 'tolist'):
                             box = box.tolist()
-                        # Convert xyxy to xywh
-                        bbox = [int(box[0]), int(box[1]), int(box[2] - box[0]), int(box[3] - box[1])]
-                    
-                    # Convert mask to numpy
+                        bbox = [int(box[0]), int(box[1]),
+                                int(box[2] - box[0]), int(box[3] - box[1])]
+
                     if hasattr(mask, 'cpu'):
                         mask_np = mask.cpu().numpy()
                     else:
                         mask_np = np.array(mask)
-                    
-                    # Ensure 2D
                     while mask_np.ndim > 2:
                         mask_np = mask_np[0]
-                    
+                    if mask_np.dtype != bool:
+                        mask_np = mask_np > 0.5
+
+                    if not mask_np.any() or int(mask_np.sum()) < 100:
+                        continue
+
+                    raw_for_prompt.append({
+                        "mask_np": mask_np,
+                        "score": score,
+                        "bbox": bbox,
+                        "prompt": prompt,
+                        "prompt_idx": prompt_idx,
+                        "color": prompt_color_map[prompt],
+                    })
+
+                # Remove overlapping masks within this prompt's results
+                raw_for_prompt = self._apply_pixel_nms(raw_for_prompt)
+
+                for nms_idx, raw in enumerate(raw_for_prompt):
                     mask_info = self._process_mask(
-                        mask=mask_np,
-                        score=score,
-                        prompt=prompt,
-                        prompt_idx=prompt_idx,
-                        mask_idx=mask_idx,
-                        color=prompt_color_map[prompt],
-                        bbox=bbox
+                        mask=raw["mask_np"],
+                        score=raw["score"],
+                        prompt=raw["prompt"],
+                        prompt_idx=raw["prompt_idx"],
+                        mask_idx=nms_idx,
+                        color=raw["color"],
+                        bbox=raw["bbox"],
                     )
-                    
                     if mask_info:
                         all_masks.append(mask_info)
-                        print(f"    Mask {mask_idx + 1}: label='{mask_info['label']}', "
-                              f"color={mask_info['color']}, area={mask_info['area']}")
+                        print(f"    Mask {nms_idx + 1}: label='{mask_info['label']}', "
+                              f"area={mask_info['area']}, score={raw['score']:.2f}")
             
             print(f"[OK] SAM 3 segmentation complete: {len(all_masks)} total masks")
             return all_masks
@@ -438,43 +452,55 @@ class SAM3Service:
             # Create label from prompt
             label_base = text_prompt if text_prompt else "box selection"
             
-            all_masks = []
+            # Collect raw masks for pixel-level NMS
+            raw_masks = []
             for mask_idx, mask in enumerate(masks):
                 score = float(scores[mask_idx]) if mask_idx < len(scores) else 0.9
-                
-                # Get bounding box
+
                 bbox = None
                 if mask_idx < len(result_boxes):
                     box = result_boxes[mask_idx]
                     if hasattr(box, 'tolist'):
                         box = box.tolist()
-                    bbox = [int(box[0]), int(box[1]), int(box[2] - box[0]), int(box[3] - box[1])]
-                
-                # Convert mask to numpy
+                    bbox = [int(box[0]), int(box[1]),
+                            int(box[2] - box[0]), int(box[3] - box[1])]
+
                 if hasattr(mask, 'cpu'):
                     mask_np = mask.cpu().numpy()
                 else:
                     mask_np = np.array(mask)
-                
                 while mask_np.ndim > 2:
                     mask_np = mask_np[0]
-                
-                color = color_palette[mask_idx % len(color_palette)]
-                
+                if mask_np.dtype != bool:
+                    mask_np = mask_np > 0.5
+
+                if not mask_np.any() or int(mask_np.sum()) < 100:
+                    continue
+
+                raw_masks.append({
+                    "mask_np": mask_np,
+                    "score": score,
+                    "bbox": bbox,
+                    "color": color_palette[mask_idx % len(color_palette)],
+                })
+
+            raw_masks = self._apply_pixel_nms(raw_masks)
+
+            all_masks = []
+            for nms_idx, raw in enumerate(raw_masks):
                 mask_info = self._process_mask(
-                    mask=mask_np,
-                    score=score,
+                    mask=raw["mask_np"],
+                    score=raw["score"],
                     prompt=label_base,
                     prompt_idx=0,
-                    mask_idx=mask_idx,
-                    color=color,
-                    bbox=bbox
+                    mask_idx=nms_idx,
+                    color=raw["color"],
+                    bbox=raw["bbox"],
                 )
-                
                 if mask_info:
                     all_masks.append(mask_info)
-                    print(f"    Mask {mask_idx + 1}: area={mask_info['area']}, score={score:.2f}")
-            
+                    print(f"    Mask {nms_idx + 1}: area={mask_info['area']}, score={raw['score']:.2f}")
+
             print(f"[OK] Box segmentation complete: {len(all_masks)} masks")
             return all_masks
             
@@ -505,6 +531,46 @@ class SAM3Service:
             self.last_error = f"SAM 3 automatic segmentation failed: {type(e).__name__}: {e}"
             return []
     
+    def _apply_pixel_nms(
+        self,
+        raw_masks: List[Dict],
+        iou_threshold: float = 0.3,
+    ) -> List[Dict]:
+        """
+        Greedy pixel-level NMS within a set of same-label masks.
+
+        Masks are sorted by score descending. Each candidate is kept only if
+        its pixel-IoU with every already-kept mask is below iou_threshold.
+        Bounding-box IoU is deliberately avoided here because ribs are long
+        thin shapes whose bboxes heavily overlap even when the rib pixels
+        are entirely separate.
+        """
+        if len(raw_masks) <= 1:
+            return raw_masks
+
+        sorted_masks = sorted(raw_masks, key=lambda m: m["score"], reverse=True)
+        kept: List[Dict] = []
+
+        for candidate in sorted_masks:
+            a = candidate["mask_np"].astype(bool)
+            overlap = False
+            for k in kept:
+                b = k["mask_np"].astype(bool)
+                intersection = int(np.logical_and(a, b).sum())
+                if intersection == 0:
+                    continue
+                union = int(np.logical_or(a, b).sum())
+                if union > 0 and (intersection / union) > iou_threshold:
+                    overlap = True
+                    break
+            if not overlap:
+                kept.append(candidate)
+
+        removed = len(raw_masks) - len(kept)
+        if removed:
+            print(f"    Pixel NMS removed {removed} overlapping mask(s)")
+        return kept
+
     def _process_mask(
         self,
         mask: np.ndarray,
