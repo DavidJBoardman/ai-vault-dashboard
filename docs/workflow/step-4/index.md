@@ -19,7 +19,7 @@ Medieval vault plans were conceived as intersecting patterns of ribs, laid out t
 | **4C** | [Cut-Typology Matching](cut-typology-matching.md) | Score each boss against starcut and circlecut templates to identify the best-fit design typology |
 | **4D** | [Bay-Plan Reconstruction](bay-plan-reconstruction.md) | Infer the rib network as a graph of nodes and edges |
 
-Each sub-stage saves results before the next can run, so the data flow is strictly sequential: **ROI → nodes → matching → reconstruction**.
+
 
 ## Interface layout
 

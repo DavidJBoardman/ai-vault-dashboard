@@ -1,3 +1,7 @@
+exclude_docs: |
+  superpowers/
+  plans/
+
 site_name: Vault Analyser Documentation
 site_description: User documentation for the Vault Analyser desktop application
 site_url: https://davidjboardman.github.io/ai-vault-dashboard/
