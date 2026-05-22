@@ -134,6 +134,135 @@ class CutTypologyMatchingService:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_match_csv_sync, project_id)
 
+    async def set_reading(self, project_id: str, reading: str) -> Dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._set_reading_sync, project_id, reading)
+
+    READING_STARCUT = "standardcut"
+    READING_INNER = "circlecut_inner"
+    READING_OUTER = "circlecut_outer"
+    READING_MIXED = "mixed"
+
+    @classmethod
+    def _matches_reading(cls, cut: str, reading: str) -> bool:
+        if reading == cls.READING_STARCUT:
+            return cut.startswith("starcut_n=")
+        if reading == cls.READING_INNER:
+            return cut == "circlecut_inner"
+        if reading == cls.READING_OUTER:
+            return cut == "circlecut_outer"
+        return True  # mixed
+
+    @classmethod
+    def _pick_for_reading(
+        cls,
+        candidates: List[Dict[str, Any]],
+        reading: str,
+    ) -> Optional[Dict[str, Any]]:
+        if not candidates:
+            return None
+        if reading == cls.READING_MIXED:
+            return candidates[0]
+        for c in candidates:
+            if cls._matches_reading(str(c.get("cut", "")), reading):
+                return c
+        return None
+
+    def _set_reading_sync(self, project_id: str, reading: str) -> Dict[str, Any]:
+        project_dir = get_project_dir(project_id)
+        return self._set_reading_sync_with_dir(project_dir, reading)
+
+    def _set_reading_sync_with_dir(self, project_dir: Path, reading: str) -> Dict[str, Any]:
+        evidence_path = self._axis_evidence_path(project_dir)
+        if not evidence_path.exists():
+            raise FileNotFoundError(f"Axis evidence not found at {evidence_path}. Run matching first.")
+        with evidence_path.open("r", encoding="utf-8") as f:
+            evidence = json.load(f)
+
+        roi = evidence.get("roi") or {}
+        bosses = evidence.get("bosses") or []
+
+        rows: List[Dict[str, Any]] = []
+        matched_count = 0
+        for boss in bosses:
+            boss_id = int(boss.get("id"))
+            x_pick = self._pick_for_reading(boss.get("xCandidates") or [], reading)
+            y_pick = self._pick_for_reading(boss.get("yCandidates") or [], reading)
+            matched = bool(x_pick and y_pick)
+            if matched:
+                matched_count += 1
+            x_cut = str(x_pick.get("cut") if x_pick else "None")
+            y_cut = str(y_pick.get("cut") if y_pick else "None")
+            x_ratio = x_pick.get("ratio") if x_pick else None
+            y_ratio = y_pick.get("ratio") if y_pick else None
+            x_error = x_pick.get("error") if x_pick else None
+            y_error = y_pick.get("error") if y_pick else None
+
+            template_xy: Optional[List[int]] = None
+            if isinstance(x_ratio, (int, float)) and isinstance(y_ratio, (int, float)):
+                tx, ty = unit_to_image((float(x_ratio), float(y_ratio)), roi)
+                template_xy = [int(round(float(tx))), int(round(float(ty)))]
+
+            rows.append(
+                {
+                    "boss_id": boss_id,
+                    "point_label": str(boss.get("label") or boss_id),
+                    "point_type": str(boss.get("pointType", "boss")),
+                    "variant_label": reading,
+                    "template_type": "reading",
+                    "x_cut": x_cut,
+                    "y_cut": y_cut,
+                    "x_ratio": "None" if x_ratio is None else str(x_ratio),
+                    "y_ratio": "None" if y_ratio is None else str(y_ratio),
+                    "boss_uv": str([boss.get("u"), boss.get("v")]),
+                    "template_uv": (
+                        str([x_ratio, y_ratio]) if x_ratio is not None and y_ratio is not None else "None"
+                    ),
+                    "boss_xy": str([int(round(float(boss.get("x", 0.0)))), int(round(float(boss.get("y", 0.0))))]),
+                    "template_xy": str(template_xy) if template_xy is not None else "None",
+                    "x_error": "None" if x_error is None else str(x_error),
+                    "y_error": "None" if y_error is None else str(y_error),
+                    "matched": matched,
+                    "match_state": "matched" if matched else "unmatched",
+                }
+            )
+
+        csv_path = self._matching_csv_path(project_dir)
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        fieldnames = [
+            "boss_id",
+            "point_label",
+            "point_type",
+            "variant_label",
+            "template_type",
+            "x_cut",
+            "y_cut",
+            "x_ratio",
+            "y_ratio",
+            "boss_uv",
+            "template_uv",
+            "boss_xy",
+            "template_xy",
+            "x_error",
+            "y_error",
+            "matched",
+            "match_state",
+        ]
+        with csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        total = len(bosses) or 1
+        return {
+            "projectDir": str(project_dir),
+            "reading": reading,
+            "matched": matched_count,
+            "total": len(bosses),
+            "coverage": float(matched_count) / float(total),
+            "csvPath": str(csv_path),
+        }
+
     def _get_state_sync(self, project_id: str) -> Dict[str, Any]:
         project_dir = get_project_dir(project_id)
         roi = self._load_roi_params(project_dir)

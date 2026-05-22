@@ -123,6 +123,43 @@ class CutTypologyEvidencePersistenceTests(unittest.TestCase):
             self.assertEqual(len(evidence["bosses"]), 1)
             self.assertEqual(evidence["bosses"][0]["xCandidates"][0]["cut"], "starcut_n=2")
 
+    def test_set_reading_rewrites_csv_picking_starcut(self):
+        service = CutTypologyMatchingService()
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "proj"
+            (project_dir / "2d_geometry" / "cut_typology_matching").mkdir(parents=True)
+            # One boss with both starcut and circlecut candidates on each axis.
+            service._write_axis_evidence(
+                project_dir=project_dir,
+                roi={"cx": 50.0, "cy": 50.0, "w": 100.0, "h": 100.0, "rotation_deg": 0.0, "scale": 1.0},
+                params={"tolerance": 0.02},
+                ran_at="2026-05-22T11:00:00",
+                boss_points_with_uv=[
+                    {"id": 1, "label": "boss A", "pointType": "boss", "u": 0.5, "v": 0.5, "x": 100.0, "y": 100.0},
+                ],
+                axis_cut_matches_by_id={
+                    1: {
+                        "xCandidates": [
+                            {"cut": "circlecut_inner", "ratio": 0.5, "error": 0.001},
+                            {"cut": "starcut_n=2", "ratio": 0.5, "error": 0.0},
+                        ],
+                        "yCandidates": [
+                            {"cut": "circlecut_inner", "ratio": 0.5, "error": 0.002},
+                            {"cut": "starcut_n=2", "ratio": 0.5, "error": 0.0},
+                        ],
+                    }
+                },
+            )
+            result = service._set_reading_sync_with_dir(project_dir, "standardcut")
+            self.assertEqual(result["coverage"], 1.0)
+
+            csv_path = service._matching_csv_path(project_dir)
+            self.assertTrue(csv_path.exists())
+            content = csv_path.read_text()
+            self.assertIn("starcut_n=2", content)
+            # circlecut_inner should NOT appear in this CSV because reading=standardcut.
+            self.assertNotIn("circlecut_inner", content)
+
 
 if __name__ == "__main__":
     unittest.main()
