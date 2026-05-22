@@ -435,3 +435,22 @@ export async function saveBayPlanManualEdges(
     body: JSON.stringify({ projectId, edges }),
   });
 }
+
+export interface Geometry2DSetReadingResult {
+  projectDir: string;
+  reading: Geometry2DCutTypologyReading;
+  matched: number;
+  total: number;
+  coverage: number;
+  csvPath: string;
+}
+
+export async function setCutTypologyReading(
+  projectId: string,
+  reading: Geometry2DCutTypologyReading,
+): Promise<ApiResponse<Geometry2DSetReadingResult>> {
+  return apiRequest<Geometry2DSetReadingResult>("/api/geometry2d/cut-typology/set-reading", {
+    method: "POST",
+    body: JSON.stringify({ projectId, reading }),
+  });
+}
