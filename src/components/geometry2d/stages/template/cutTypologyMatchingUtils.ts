@@ -497,3 +497,83 @@ export function recommendCutTypologyReading(
 
   return { recommended, options };
 }
+
+export interface CutTypologyReadingSummary {
+  reading: Geometry2DCutTypologyReading;
+  recommended: Geometry2DCutTypologyReading;
+  options: CutTypologyReadingOption[];
+  matchedRows: number;
+  totalRows: number;
+  /** Per-axis-pair detail counts within the selected reading. */
+  details: Array<[string, number]>;
+  /** Variant labels to draw on the overlay for this reading. */
+  overlayLabels: string[];
+}
+
+function readingPredicate(reading: Geometry2DCutTypologyReading): (cut: string) => boolean {
+  if (reading === "standardcut") return isStarcutCut;
+  if (reading === "circlecut_inner") return isInnerCut;
+  if (reading === "circlecut_outer") return isOuterCut;
+  return () => true; // mixed
+}
+
+/**
+ * Pick the per-axis cut for a boss under a given reading. Returns the
+ * lowest-error candidate whose family matches the reading, or null when no
+ * candidate satisfies the reading on that axis.
+ */
+function pickAxisCutForReading(
+  candidates: Geometry2DCutTypologyAxisCandidate[] | undefined,
+  reading: Geometry2DCutTypologyReading,
+): Geometry2DCutTypologyAxisCandidate | null {
+  if (!candidates || candidates.length === 0) return null;
+  if (reading === "mixed") return candidates[0] || null;
+  const pred = readingPredicate(reading);
+  const match = candidates.find((c) => pred(c.cut));
+  return match || null;
+}
+
+export function buildReadingSummary(
+  rows: Geometry2DCutTypologyBossResult[],
+  selectedReading: Geometry2DCutTypologyReading | undefined,
+): CutTypologyReadingSummary {
+  const bossRows = rows.filter((r) => r.pointType !== "corner");
+  const { recommended, options } = recommendCutTypologyReading(rows);
+  const reading = selectedReading || recommended;
+
+  const detailCounts = new Map<string, number>();
+  const overlaySet = new Set<string>();
+  let matched = 0;
+
+  for (const row of bossRows) {
+    const axis = row.axisCutMatch;
+    if (!axis) continue;
+    const xPick = pickAxisCutForReading(axis.xCandidates, reading);
+    const yPick = pickAxisCutForReading(axis.yCandidates, reading);
+    if (!xPick || !yPick) continue;
+    matched += 1;
+
+    const detail =
+      xPick.cut === yPick.cut
+        ? rawVariantLabelToTitle(xPick.cut)
+        : `${rawVariantLabelToTitle(xPick.cut)} x ${rawVariantLabelToTitle(yPick.cut)}`;
+    detailCounts.set(detail, (detailCounts.get(detail) || 0) + 1);
+    overlaySet.add(xPick.cut);
+    overlaySet.add(yPick.cut);
+  }
+
+  const details = Array.from(detailCounts.entries()).sort((a, b) => {
+    if (a[1] !== b[1]) return b[1] - a[1];
+    return a[0].localeCompare(b[0]);
+  });
+
+  return {
+    reading,
+    recommended,
+    options,
+    matchedRows: matched,
+    totalRows: bossRows.length,
+    details,
+    overlayLabels: Array.from(overlaySet).sort((a, b) => a.localeCompare(b)),
+  };
+}
