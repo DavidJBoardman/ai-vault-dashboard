@@ -345,6 +345,26 @@ class CutTypologyCsvResponse(BaseModel):
     error: Optional[str] = None
 
 
+class CutTypologySetReadingRequest(BaseModel):
+    projectId: str
+    reading: str
+
+
+class CutTypologySetReadingResult(BaseModel):
+    projectDir: str
+    reading: str
+    matched: int
+    total: int
+    coverage: float
+    csvPath: str
+
+
+class CutTypologySetReadingResponse(BaseModel):
+    success: bool
+    data: Optional[CutTypologySetReadingResult] = None
+    error: Optional[str] = None
+
+
 @router.post("/cut-typology/state", response_model=CutTypologyStateResponse)
 async def load_cut_typology_state(request: CutTypologyStateRequest):
     """Load matching state for Step 4.3."""
@@ -380,6 +400,20 @@ async def load_cut_typology_csv(request: CutTypologyCsvRequest):
         return CutTypologyCsvResponse(success=True, data=CutTypologyCsvResult(**payload))
     except Exception as e:
         return CutTypologyCsvResponse(success=False, error=str(e))
+
+
+@router.post("/cut-typology/set-reading", response_model=CutTypologySetReadingResponse)
+async def set_cut_typology_reading(request: CutTypologySetReadingRequest):
+    """Update the active cut-typology reading and rewrite the match CSV."""
+    try:
+        service = CutTypologyMatchingService()
+        payload = await service.set_reading(request.projectId, request.reading)
+        return CutTypologySetReadingResponse(
+            success=True,
+            data=CutTypologySetReadingResult(**payload),
+        )
+    except Exception as e:
+        return CutTypologySetReadingResponse(success=False, error=str(e))
 
 
 class BayPlanStateRequest(BaseModel):
