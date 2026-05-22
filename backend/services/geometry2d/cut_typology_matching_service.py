@@ -352,6 +352,7 @@ class CutTypologyMatchingService:
             variant_summaries.sort(key=self._variant_summary_rank_key)
             best_variant_label = str(variant_summaries[0]["variantLabel"])
 
+        ran_at = datetime.now().isoformat()
         payload = {
             "projectDir": str(project_dir),
             "outputDir": str(self._cut_typology_dir(project_dir)),
@@ -361,10 +362,18 @@ class CutTypologyMatchingService:
             "variants": variant_summaries,
             "perBoss": per_boss_rows,
             "bestVariantLabel": best_variant_label,
-            "ranAt": datetime.now().isoformat(),
+            "ranAt": ran_at,
         }
 
         self._write_match_csv(project_dir, roi, per_boss_rows)
+        self._write_axis_evidence(
+            project_dir=project_dir,
+            roi=roi,
+            params=resolved_params,
+            ran_at=ran_at,
+            boss_points_with_uv=boss_points_with_uv,
+            axis_cut_matches_by_id=axis_cut_matches_by_id,
+        )
         self._persist_matching_result(project_dir, payload)
         payload["matchCsvPath"] = str(self._matching_csv_path(project_dir))
         return payload
@@ -432,6 +441,10 @@ class CutTypologyMatchingService:
         if old_path.exists() and not new_path.exists():
             old_path.rename(new_path)
         return new_path
+
+    @classmethod
+    def _axis_evidence_path(cls, project_dir: Path) -> Path:
+        return cls._cut_typology_dir(project_dir) / "boss_axis_candidates.json"
 
     @classmethod
     def _persist_matching_result(cls, project_dir: Path, payload: Dict[str, Any]) -> None:
@@ -587,6 +600,46 @@ class CutTypologyMatchingService:
         if has_x or has_y:
             return "partial"
         return "unmatched"
+
+    @classmethod
+    def _write_axis_evidence(
+        cls,
+        project_dir: Path,
+        roi: Dict[str, float],
+        params: Dict[str, Any],
+        ran_at: str,
+        boss_points_with_uv: Sequence[Dict[str, Any]],
+        axis_cut_matches_by_id: Dict[int, Dict[str, Any]],
+    ) -> None:
+        evidence_path = cls._axis_evidence_path(project_dir)
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+
+        bosses: List[Dict[str, Any]] = []
+        for point in boss_points_with_uv:
+            boss_id = int(point["id"])
+            axis = axis_cut_matches_by_id.get(boss_id) or {}
+            bosses.append(
+                {
+                    "id": boss_id,
+                    "label": str(point.get("label") or ""),
+                    "pointType": str(point.get("pointType", "boss")),
+                    "u": float(point.get("u", 0.0)),
+                    "v": float(point.get("v", 0.0)),
+                    "x": float(point.get("x", 0.0)),
+                    "y": float(point.get("y", 0.0)),
+                    "xCandidates": list(axis.get("xCandidates", []) or []),
+                    "yCandidates": list(axis.get("yCandidates", []) or []),
+                }
+            )
+
+        payload = {
+            "ranAt": ran_at,
+            "roi": roi,
+            "params": params,
+            "bosses": bosses,
+        }
+        with evidence_path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
 
     @classmethod
     def _write_match_csv(cls, project_dir: Path, roi: Dict[str, float], per_boss_rows: Sequence[Dict[str, Any]]) -> None:

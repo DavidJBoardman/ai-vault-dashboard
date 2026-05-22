@@ -1,3 +1,5 @@
+import json
+import tempfile
 import unittest
 from pathlib import Path
 import sys
@@ -93,6 +95,33 @@ class CutTypologyAxisMatchingTests(unittest.TestCase):
         self.assertIn("starcut_n=4", x_cuts)
         # First candidate is the priority winner (smallest n).
         self.assertEqual(match["xCandidates"][0]["cut"], "starcut_n=2")
+
+
+class CutTypologyEvidencePersistenceTests(unittest.TestCase):
+    def test_axis_evidence_written_with_candidates(self):
+        service = CutTypologyMatchingService()
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "proj"
+            (project_dir / "2d_geometry" / "cut_typology_matching").mkdir(parents=True)
+            service._write_axis_evidence(
+                project_dir=project_dir,
+                roi={"cx": 0.0, "cy": 0.0, "w": 100.0, "h": 100.0, "rotation_deg": 0.0, "scale": 1.0},
+                params={"tolerance": 0.02},
+                ran_at="2026-05-22T11:00:00",
+                boss_points_with_uv=[
+                    {"id": 1, "label": "boss A", "pointType": "boss", "u": 0.5, "v": 0.5, "x": 100.0, "y": 100.0},
+                ],
+                axis_cut_matches_by_id={
+                    1: {
+                        "xCandidates": [{"cut": "starcut_n=2", "ratio": 0.5, "error": 0.0}],
+                        "yCandidates": [{"cut": "starcut_n=2", "ratio": 0.5, "error": 0.0}],
+                    }
+                },
+            )
+
+            evidence = json.loads(service._axis_evidence_path(project_dir).read_text())
+            self.assertEqual(len(evidence["bosses"]), 1)
+            self.assertEqual(evidence["bosses"][0]["xCandidates"][0]["cut"], "starcut_n=2")
 
 
 if __name__ == "__main__":
