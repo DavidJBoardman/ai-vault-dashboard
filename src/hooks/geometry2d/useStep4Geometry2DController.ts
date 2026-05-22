@@ -28,6 +28,7 @@ import {
   type Geometry2DBayPlanBossPoint as Geometry2DReconstructBossPoint,
   type Geometry2DBayPlanRunResult as Geometry2DReconstructRunResult,
   type Geometry2DCutTypologyParams as Geometry2DTemplateStateParams,
+  type Geometry2DCutTypologyReading,
   type Geometry2DCutTypologyVariantResult as Geometry2DTemplateVariantResult,
 } from "@/lib/api";
 import { useProjectStore, Segmentation } from "@/lib/store";
@@ -50,8 +51,10 @@ import {
 import { filterSegmentationsByGroupIds, getSegmentationGroupId } from "@/lib/geometry2d/segmentationGrouping";
 import {
   buildPerBossTypologySummary,
+  buildReadingSummary,
   collectPrimaryReadingOverlayLabelsFromPerBoss,
   normaliseMatchCsvRows,
+  recommendCutTypologyReading,
   type MatchCsvRow,
 } from "@/components/geometry2d/stages/template/cutTypologyMatchingUtils";
 import {
@@ -85,6 +88,8 @@ interface Step4MatchingState {
   outputDir?: string;
   matchCsvPath?: string;
   lastRunAt?: string;
+  selectedReading?: Geometry2DCutTypologyReading;
+  perBoss?: Geometry2DTemplateBossResult[];
 }
 
 interface Step4Geometry2DState {
@@ -317,6 +322,8 @@ export function useStep4Geometry2DController() {
   const [templateParams, setTemplateParams] = useState<Geometry2DTemplateStateParams>(DEFAULT_TEMPLATE_PARAMS);
   const [templateOverlayVariants, setTemplateOverlayVariants] = useState<Geometry2DTemplateOverlayVariant[]>([]);
   const [selectedTemplateOverlayLabels, setSelectedTemplateOverlayLabels] = useState<string[]>([]);
+  const [selectedReading, setSelectedReading] = useState<Geometry2DCutTypologyReading | undefined>(undefined);
+  const [templatePerBoss, setTemplatePerBoss] = useState<Geometry2DTemplateBossResult[]>([]);
   const [templateVariantResults, setTemplateVariantResults] = useState<Geometry2DTemplateVariantResult[]>([]);
   const [templateBestVariantLabel, setTemplateBestVariantLabel] = useState<string | undefined>(undefined);
   const [templateOutputDir, setTemplateOutputDir] = useState<string | undefined>(undefined);
@@ -1123,6 +1130,17 @@ export function useStep4Geometry2DController() {
     persistMatchingPatch({ selectedOverlayLabels: next });
   };
 
+  const handleSelectReading = useCallback(
+    (reading: Geometry2DCutTypologyReading) => {
+      setSelectedReading(reading);
+      persistMatchingPatch({ selectedReading: reading });
+      const summary = buildReadingSummary(templatePerBoss, reading);
+      setSelectedTemplateOverlayLabels(summary.overlayLabels);
+      persistMatchingPatch({ selectedOverlayLabels: summary.overlayLabels });
+    },
+    [templatePerBoss, persistMatchingPatch],
+  );
+
   const handleTemplateHideAllOverlays = () => {
     setSelectedTemplateOverlayLabels([]);
     persistMatchingPatch({ selectedOverlayLabels: [] });
@@ -1597,8 +1615,17 @@ export function useStep4Geometry2DController() {
       setTemplateMatchCsvPath(payload.matchCsvPath);
       setTemplateLastRunAt(payload.ranAt);
 
+      const nextPerBoss = payload.perBoss || [];
+      setTemplatePerBoss(nextPerBoss);
+      // Reading: keep user's override if it still covers; otherwise reset to recommendation.
+      const { recommended, options } = recommendCutTypologyReading(nextPerBoss);
+      const stillValid = options.find((o) => o.reading === selectedReading)?.covers;
+      const nextReading: Geometry2DCutTypologyReading = stillValid ? (selectedReading as Geometry2DCutTypologyReading) : recommended;
+      setSelectedReading(nextReading);
+
       const allowed = new Set(variantsForOverlay.map((variant) => variant.variantLabel));
-      const nextLabels = collectPrimaryReadingOverlayLabelsFromPerBoss(payload.perBoss || []).filter((label) => allowed.has(label));
+      const readingSummaryAfterRun = buildReadingSummary(nextPerBoss, nextReading);
+      const nextLabels = readingSummaryAfterRun.overlayLabels.filter((label) => allowed.has(label));
       setSelectedTemplateOverlayLabels(nextLabels);
       persistNodesPatch({
         points: nextPointsWithMatches,
@@ -1612,6 +1639,8 @@ export function useStep4Geometry2DController() {
         outputDir: payload.outputDir,
         matchCsvPath: payload.matchCsvPath,
         lastRunAt: payload.ranAt,
+        perBoss: nextPerBoss,
+        selectedReading: nextReading,
       });
 
       const csvResponse = await getCutTypologyCsv(currentProject.id);
@@ -1818,6 +1847,12 @@ export function useStep4Geometry2DController() {
       }
       if (matchingData?.variantResults) {
         setTemplateVariantResults(matchingData.variantResults);
+      }
+      if (matchingData?.perBoss) {
+        setTemplatePerBoss(matchingData.perBoss);
+      }
+      if (matchingData?.selectedReading) {
+        setSelectedReading(matchingData.selectedReading);
       }
       setTemplateBestVariantLabel(matchingData?.bestVariantLabel);
       setTemplateOutputDir(matchingData?.outputDir);
@@ -2198,6 +2233,9 @@ export function useStep4Geometry2DController() {
     handleTemplateOverlayToggle,
     handleTemplateHideAllOverlays,
     handleTemplateShowPrimaryOverlays,
+    selectedReading,
+    handleSelectReading,
+    templatePerBoss,
     handleSaveTemplatePoints,
     handleResetTemplatePoints,
     handleRunTemplateMatching,
