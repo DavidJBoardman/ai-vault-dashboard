@@ -561,6 +561,14 @@ class CutTypologyMatchingService:
             "xError": x_best.get("error") if x_best else None,
             "yError": y_best.get("error") if y_best else None,
             "matched": bool(x_best and y_best),
+            "xCandidates": [
+                {"cut": str(c["cut"]), "ratio": float(c["ratio"]), "error": float(c["error"])}
+                for c in x_candidates
+            ],
+            "yCandidates": [
+                {"cut": str(c["cut"]), "ratio": float(c["ratio"]), "error": float(c["error"])}
+                for c in y_candidates
+            ],
         }
 
     @staticmethod

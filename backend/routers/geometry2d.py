@@ -277,6 +277,12 @@ class CutTypologyBossMatch(BaseModel):
     yRatioIndex: Optional[int] = None
 
 
+class CutTypologyAxisCandidate(BaseModel):
+    cut: str
+    ratio: float
+    error: float
+
+
 class CutTypologyAxisCutMatch(BaseModel):
     xCut: Optional[str] = None
     yCut: Optional[str] = None
@@ -285,6 +291,8 @@ class CutTypologyAxisCutMatch(BaseModel):
     xError: Optional[float] = None
     yError: Optional[float] = None
     matched: bool = False
+    xCandidates: List[CutTypologyAxisCandidate] = Field(default_factory=list)
+    yCandidates: List[CutTypologyAxisCandidate] = Field(default_factory=list)
 
 
 class CutTypologyBossResult(NodePoint):
