@@ -1667,6 +1667,15 @@ export function useStep4Geometry2DController() {
         selectedReading: nextReading,
       });
 
+      // Align the on-disk CSV with the recommended reading before reloading,
+      // otherwise the hover tooltip (driven by CSV rows) shows the auto picks
+      // while the chooser displays the recommendation.
+      try {
+        await setCutTypologyReading(currentProject.id, nextReading);
+      } catch (error) {
+        console.error("set reading after run failed:", error);
+      }
+
       const csvResponse = await getCutTypologyCsv(currentProject.id);
       if (csvResponse.success && csvResponse.data) {
         setTemplateMatchCsvColumns(csvResponse.data.columns || []);
