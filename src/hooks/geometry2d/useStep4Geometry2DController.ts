@@ -1641,10 +1641,10 @@ export function useStep4Geometry2DController() {
 
       const nextPerBoss = payload.perBoss || [];
       setTemplatePerBoss(nextPerBoss);
-      // Reading: keep user's override if it still covers; otherwise reset to recommendation.
-      const { recommended, options } = recommendCutTypologyReading(nextPerBoss);
-      const stillValid = options.find((o) => o.reading === selectedReading)?.covers;
-      const nextReading: Geometry2DCutTypologyReading = stillValid ? (selectedReading as Geometry2DCutTypologyReading) : recommended;
+      // Re-running matching always snaps the reading back to the fresh
+      // recommendation — the user can override again afterwards.
+      const { recommended } = recommendCutTypologyReading(nextPerBoss);
+      const nextReading: Geometry2DCutTypologyReading = recommended;
       setSelectedReading(nextReading);
 
       const allowed = new Set(variantsForOverlay.map((variant) => variant.variantLabel));
