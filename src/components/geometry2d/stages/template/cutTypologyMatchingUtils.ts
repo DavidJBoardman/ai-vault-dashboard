@@ -468,9 +468,21 @@ export function recommendCutTypologyReading(
   const innerMatched = countMatched(isInnerCut);
   const outerMatched = countMatched(isOuterCut);
 
+  // "mixed" can match a boss when SOME candidate exists on both axes, regardless
+  // of family. If a boss has zero candidates on either axis (point outside every
+  // family's tolerance), even mixed cannot cover it.
+  const mixedMatched = bossRows.reduce((count, row) => {
+    const axis = row.axisCutMatch;
+    if (!axis) return count;
+    const hasX = (axis.xCandidates || []).length > 0;
+    const hasY = (axis.yCandidates || []).length > 0;
+    return count + (hasX && hasY ? 1 : 0);
+  }, 0);
+
   const starcutCovers = starcutMatched === total && total > 0;
   const innerCovers = innerMatched === total && total > 0;
   const outerCovers = outerMatched === total && total > 0;
+  const mixedCovers = mixedMatched === total && total > 0;
 
   let recommended: Geometry2DCutTypologyReading;
   if (starcutCovers) {
@@ -498,7 +510,7 @@ export function recommendCutTypologyReading(
   // every boss — otherwise its per-axis picks coincide with whichever single
   // family already covers, and it becomes a duplicate of that reading.
   if (!anySingleFamilyCovers) {
-    options.push({ reading: "mixed", matched: total, total, covers: true });
+    options.push({ reading: "mixed", matched: mixedMatched, total, covers: mixedCovers });
   }
 
   return { recommended, options };
