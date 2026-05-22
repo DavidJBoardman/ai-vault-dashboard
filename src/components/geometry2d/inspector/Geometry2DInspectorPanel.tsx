@@ -5,8 +5,10 @@ import {
   Geometry2DBayPlanEdge,
   Geometry2DBayPlanRunParams,
   Geometry2DBayPlanRunResult,
+  Geometry2DCutTypologyBossResult,
   Geometry2DCutTypologyOverlayVariant,
   Geometry2DCutTypologyParams,
+  Geometry2DCutTypologyReading,
   Geometry2DCutTypologyVariantResult,
 } from "@/lib/api";
 
@@ -49,6 +51,9 @@ interface Geometry2DInspectorPanelProps {
   onRunMatching: () => void;
   onLoadMatchingCsv: () => void;
   matchingAdvancedParamsFocusSignal?: number;
+  matchingSelectedReading?: Geometry2DCutTypologyReading;
+  matchingPerBoss?: Geometry2DCutTypologyBossResult[];
+  onMatchingSelectReading: (reading: Geometry2DCutTypologyReading) => void;
   bayPlanResult: Geometry2DBayPlanRunResult | null;
   bayPlanLastRunAt?: string;
   bayPlanParams?: Geometry2DBayPlanRunParams;
@@ -101,6 +106,9 @@ export function Geometry2DInspectorPanel({
   onRunMatching,
   onLoadMatchingCsv,
   matchingAdvancedParamsFocusSignal,
+  matchingSelectedReading,
+  matchingPerBoss,
+  onMatchingSelectReading,
   bayPlanResult,
   bayPlanLastRunAt,
   bayPlanParams,
@@ -158,6 +166,9 @@ export function Geometry2DInspectorPanel({
           onRunMatching={onRunMatching}
           onLoadMatchCsv={onLoadMatchingCsv}
           advancedParamsFocusSignal={matchingAdvancedParamsFocusSignal}
+          selectedReading={matchingSelectedReading}
+          perBoss={matchingPerBoss}
+          onSelectReading={onMatchingSelectReading}
         />
       )}
 

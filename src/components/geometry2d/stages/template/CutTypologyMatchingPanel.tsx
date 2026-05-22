@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  Geometry2DCutTypologyBossResult,
   Geometry2DCutTypologyOverlayVariant,
   Geometry2DCutTypologyParams,
+  Geometry2DCutTypologyReading,
   Geometry2DCutTypologyVariantResult,
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +20,7 @@ import { Slider } from "@/components/ui/slider";
 import { ChevronDown, ChevronUp, EyeOff, FileText, Play, RefreshCw, Sparkles } from "lucide-react";
 import {
   buildPerBossTypologySummary,
+  buildReadingSummary,
   normaliseMatchCsvRows,
   parseUvErrorScore,
   rankOverlayVariants,
@@ -55,6 +58,9 @@ interface CutTypologyMatchingPanelProps {
   onShowPrimaryOverlays: () => void;
   onLoadMatchCsv: () => void;
   advancedParamsFocusSignal?: number;
+  selectedReading?: Geometry2DCutTypologyReading;
+  perBoss?: Geometry2DCutTypologyBossResult[];
+  onSelectReading: (reading: Geometry2DCutTypologyReading) => void;
 }
 
 export function CutTypologyMatchingPanel({
@@ -76,6 +82,9 @@ export function CutTypologyMatchingPanel({
   onShowPrimaryOverlays,
   onLoadMatchCsv,
   advancedParamsFocusSignal = 0,
+  selectedReading,
+  perBoss,
+  onSelectReading,
 }: CutTypologyMatchingPanelProps) {
   const [isMatchCsvOpen, setIsMatchCsvOpen] = useState(false);
   const [isTemplateOverlayOpen, setIsTemplateOverlayOpen] = useState(false);
@@ -130,10 +139,24 @@ export function CutTypologyMatchingPanel({
     };
   }, [displayMatchCsvRows]);
   const perBossSummary = useMemo(() => buildPerBossTypologySummary(displayMatchCsvRows), [displayMatchCsvRows]);
+  const readingSummary = useMemo(
+    () => (perBoss && perBoss.length > 0 ? buildReadingSummary(perBoss, selectedReading) : null),
+    [perBoss, selectedReading],
+  );
+  const maxReadingDetailCount = useMemo(
+    () => Math.max(...((readingSummary?.details.map(([, count]) => count)) || [1])),
+    [readingSummary],
+  );
   const maxSummaryDetailCount = useMemo(
     () => Math.max(...(perBossSummary?.details.map(([, count]) => count) || [1])),
     [perBossSummary]
   );
+  const readingLabel = (reading: Geometry2DCutTypologyReading): string => {
+    if (reading === "standardcut") return "standardcut";
+    if (reading === "circlecut_inner") return "circlecut inner";
+    if (reading === "circlecut_outer") return "circlecut outer";
+    return "mixed (per-boss)";
+  };
   const tolerancePercent = (params.tolerance * 100).toFixed(1);
 
   return (
@@ -157,26 +180,85 @@ export function CutTypologyMatchingPanel({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Node typology summary</p>
-                    <p className="text-2xl font-semibold leading-none truncate">{perBossSummary.dominantFamily}</p>
+                    <p className="text-2xl font-semibold leading-none truncate">
+                      {readingSummary ? readingLabel(readingSummary.reading) : perBossSummary.dominantFamily}
+                    </p>
                     <p className="text-sm text-muted-foreground">Largest matching group among the saved nodes</p>
                   </div>
                   <div className="shrink-0 rounded-md border border-border/80 bg-background/40 px-2.5 py-1.5 text-right">
                     <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Coverage</p>
                     <p className="text-sm font-semibold tabular-nums">
-                      {perBossSummary.matchedRows}/{perBossSummary.totalRows}
+                      {readingSummary?.matchedRows ?? perBossSummary.matchedRows}/{readingSummary?.totalRows ?? perBossSummary.totalRows}
                     </p>
                   </div>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline">
-                  {perBossSummary.matchedRows}/{perBossSummary.totalRows} nodes matched
+                  {readingSummary?.matchedRows ?? perBossSummary.matchedRows}/{readingSummary?.totalRows ?? perBossSummary.totalRows} nodes matched
                 </Badge>
                 {perBossSummary.unmatchedRows > 0 ? (
                   <Badge variant="outline">{perBossSummary.unmatchedRows} unmatched</Badge>
                 ) : null}
               </div>
-              {perBossSummary.details.length > 0 ? (
+              {readingSummary ? (
+                <div className="space-y-2 border-t border-border/70 pt-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Reading</p>
+                  <div className="space-y-1">
+                    {readingSummary.options.map((opt) => {
+                      const checked = opt.reading === readingSummary.reading;
+                      return (
+                        <label
+                          key={opt.reading}
+                          className="flex items-center justify-between gap-3 cursor-pointer rounded-md px-2 py-1.5 hover:bg-background/40"
+                        >
+                          <span className="flex items-center gap-2 text-xs">
+                            <input
+                              type="radio"
+                              name="cut-typology-reading"
+                              checked={checked}
+                              onChange={() => onSelectReading(opt.reading)}
+                              className="accent-amber-400"
+                            />
+                            <span className={checked ? "font-medium text-foreground" : "text-foreground/80"}>
+                              {readingLabel(opt.reading)}
+                            </span>
+                            {opt.reading === readingSummary.recommended ? (
+                              <Badge variant="outline" className="text-[10px] uppercase tracking-wide">recommended</Badge>
+                            ) : null}
+                          </span>
+                          <span className="text-xs tabular-nums text-muted-foreground">
+                            {opt.matched}/{opt.total}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {readingSummary && readingSummary.details.length > 0 ? (
+                <div className="space-y-2 border-t border-border/70 pt-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Matched Node Cuts</p>
+                  <div className="space-y-2">
+                    {readingSummary.details.map(([detail, count]) => (
+                      <div key={`${detail}-${count}`} className="grid grid-cols-[minmax(0,1fr)_44px] items-center gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-3 text-xs">
+                            <span className="truncate font-medium text-foreground">{detail}</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-background/70 ring-1 ring-border/60">
+                            <div
+                              className="h-full rounded-full bg-[linear-gradient(90deg,#f7a600_0%,#ffd166_100%)]"
+                              style={{ width: `${Math.max((count / maxReadingDetailCount) * 100, 10)}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div className="text-right text-sm font-semibold tabular-nums text-foreground">{count}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : perBossSummary.details.length > 0 ? (
                 <div className="space-y-2 border-t border-border/70 pt-3">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Matched Node Cuts</p>
                   <div className="space-y-2">

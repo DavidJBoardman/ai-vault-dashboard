@@ -329,6 +329,9 @@ export default function Step4Geometry2DPage() {
                   onRunMatching={controller.handleRunTemplateMatching}
                   onLoadMatchingCsv={controller.handleLoadTemplateMatchCsv}
                   matchingAdvancedParamsFocusSignal={matchingAdvancedParamsFocusSignal}
+                  matchingSelectedReading={controller.selectedReading}
+                  matchingPerBoss={controller.templatePerBoss}
+                  onMatchingSelectReading={controller.handleSelectReading}
                   bayPlanResult={controller.reconstructResult}
                   bayPlanLastRunAt={controller.reconstructLastRunAt}
                   bayPlanParams={controller.reconstructParams}
