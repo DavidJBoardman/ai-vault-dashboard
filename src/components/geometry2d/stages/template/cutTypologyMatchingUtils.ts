@@ -499,10 +499,8 @@ export function recommendCutTypologyReading(
   } else {
     // No family covers all. Prefer the highest-matching single family
     // (parsimony: starcut > inner > outer) unless mixed strictly beats every
-    // single family. This avoids recommending "mixed" when its per-axis picks
-    // would coincide with one of the single families at the same matched count.
-    const bestSingleFamilyMatched = Math.max(starcutMatched, innerMatched, outerMatched);
-    if (mixedMatched > bestSingleFamilyMatched) {
+    // single family.
+    if (mixedMatched > Math.max(starcutMatched, innerMatched, outerMatched)) {
       recommended = "mixed";
     } else if (starcutMatched >= innerMatched && starcutMatched >= outerMatched) {
       recommended = "starcut";
@@ -513,16 +511,17 @@ export function recommendCutTypologyReading(
     }
   }
 
-  const anySingleFamilyCovers = starcutCovers || innerCovers || outerCovers;
   const options: CutTypologyReadingOption[] = [
     { reading: "starcut", matched: starcutMatched, total, covers: starcutCovers },
     { reading: "circlecut_inner", matched: innerMatched, total, covers: innerCovers },
     { reading: "circlecut_outer", matched: outerMatched, total, covers: outerCovers },
   ];
-  // "mixed" is only meaningful as a fallback when no single family covers
-  // every boss — otherwise its per-axis picks coincide with whichever single
-  // family already covers, and it becomes a duplicate of that reading.
-  if (!anySingleFamilyCovers) {
+  // Show "mixed" only when it strictly outperforms every single family. Mixed's
+  // per-axis picks follow the family priority order (starcut → inner → outer),
+  // so whenever its matched count equals the best single family's, the picks
+  // coincide and listing it is pure duplication.
+  const bestSingleFamilyMatched = Math.max(starcutMatched, innerMatched, outerMatched);
+  if (mixedMatched > bestSingleFamilyMatched) {
     options.push({ reading: "mixed", matched: mixedMatched, total, covers: mixedCovers });
   }
 
