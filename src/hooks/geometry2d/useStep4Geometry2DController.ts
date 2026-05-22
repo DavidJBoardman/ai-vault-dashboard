@@ -17,6 +17,7 @@ import {
   saveNodes,
   runBayPlanReconstruction,
   runCutTypologyMatching,
+  setCutTypologyReading,
   type Geometry2DAutoCorrectConfig,
   type Geometry2DBayPlanRunParams,
   type Geometry2DBayPlanEdge as Geometry2DReconstructEdge,
@@ -1131,14 +1132,37 @@ export function useStep4Geometry2DController() {
   };
 
   const handleSelectReading = useCallback(
-    (reading: Geometry2DCutTypologyReading) => {
+    async (reading: Geometry2DCutTypologyReading) => {
       setSelectedReading(reading);
       persistMatchingPatch({ selectedReading: reading });
       const summary = buildReadingSummary(templatePerBoss, reading);
       setSelectedTemplateOverlayLabels(summary.overlayLabels);
       persistMatchingPatch({ selectedOverlayLabels: summary.overlayLabels });
+
+      if (!currentProject?.id) return;
+      try {
+        const result = await setCutTypologyReading(currentProject.id, reading);
+        if (!result.success) {
+          throw new Error(result.error || "Could not update reading.");
+        }
+        // Reload the CSV so the match table reflects the new reading.
+        const csvResponse = await getCutTypologyCsv(currentProject.id);
+        if (csvResponse.success && csvResponse.data) {
+          setTemplateMatchCsvColumns(csvResponse.data.columns || []);
+          setTemplateMatchCsvRows(csvResponse.data.rows || []);
+          setTemplateMatchCsvPath(csvResponse.data.csvPath);
+          persistMatchingPatch({ matchCsvPath: csvResponse.data.csvPath });
+        }
+      } catch (error) {
+        console.error("set reading failed:", error);
+        toast({
+          title: "Reading update failed",
+          description: error instanceof Error ? error.message : "Could not update reading.",
+          variant: "destructive",
+        });
+      }
     },
-    [templatePerBoss, persistMatchingPatch],
+    [templatePerBoss, persistMatchingPatch, currentProject?.id],
   );
 
   const handleTemplateHideAllOverlays = () => {
