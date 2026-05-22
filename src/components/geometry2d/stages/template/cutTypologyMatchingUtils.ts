@@ -1,7 +1,9 @@
 import {
+  Geometry2DCutTypologyAxisCandidate,
   Geometry2DCutTypologyBossMatch,
   Geometry2DCutTypologyBossResult,
   Geometry2DCutTypologyOverlayVariant,
+  Geometry2DCutTypologyReading,
   Geometry2DCutTypologyVariantResult,
 } from "@/lib/api";
 
@@ -304,7 +306,18 @@ export function buildPerBossTypologySummary(rows: MatchCsvRow[]): PerBossTypolog
     new Set(
       rows.flatMap((row) => {
         const matched = String(row.matched || "").toLowerCase() === "true";
-        if (!matched || familyFromRow(row) !== dominantFamily) return [];
+        if (!matched) return [];
+        // A row contributes overlay labels for the dominant family when any of
+        // its fields (overall family, axis-by-axis cuts, simplest variant)
+        // belongs to that family. Hybrid rows whose axis cuts are starcut still
+        // carry meaningful starcut grids to draw, even when the simplest
+        // whole-template match is a circlecut.
+        const rowContributes =
+          familyFromRow(row) === dominantFamily ||
+          variantLabelToFamily(row.x_cut) === dominantFamily ||
+          variantLabelToFamily(row.y_cut) === dominantFamily ||
+          variantLabelToFamily(row.variant_label) === dominantFamily;
+        if (!rowContributes) return [];
         const labels: string[] = [];
         if (row.x_cut) labels.push(row.x_cut);
         if (row.y_cut) labels.push(row.y_cut);
@@ -380,4 +393,107 @@ export function collectPrimaryReadingOverlayLabelsFromPerBoss(rows: Geometry2DCu
   });
 
   return buildPerBossTypologySummary(simplifiedRows)?.overlayLabels || [];
+}
+
+// ─── Cover-all reading classifier ────────────────────────────────────────────
+
+function isStarcutCut(cut: string): boolean {
+  return cut.startsWith("starcut_n=");
+}
+
+function isInnerCut(cut: string): boolean {
+  return cut === "circlecut_inner";
+}
+
+function isOuterCut(cut: string): boolean {
+  return cut === "circlecut_outer";
+}
+
+/**
+ * Total |x_error| + |y_error| across all bosses, restricted to the
+ * smallest-error candidate matching `predicate` on each axis. Used as the
+ * tiebreak when both inner and outer cover all bosses.
+ */
+function totalAxisError(
+  rows: Geometry2DCutTypologyBossResult[],
+  predicate: (cut: string) => boolean,
+): number {
+  let total = 0;
+  for (const row of rows.filter((r) => r.pointType !== "corner")) {
+    const axis = row.axisCutMatch;
+    if (!axis) continue;
+    const x = (axis.xCandidates || []).find((c) => predicate(c.cut));
+    const y = (axis.yCandidates || []).find((c) => predicate(c.cut));
+    total += Math.abs(x?.error ?? Infinity) + Math.abs(y?.error ?? Infinity);
+  }
+  return total;
+}
+
+export interface CutTypologyReadingOption {
+  reading: Geometry2DCutTypologyReading;
+  matched: number;
+  total: number;
+  covers: boolean;
+}
+
+/**
+ * Cover-all family decision: the first family whose axis candidates cover
+ * every boss on both axes wins, in fixed order: standardcut, then
+ * circlecut_inner, then circlecut_outer (tiebroken by total axis error if
+ * both inner and outer cover). Falls back to `mixed` when no single family
+ * covers everything.
+ */
+export function recommendCutTypologyReading(
+  rows: Geometry2DCutTypologyBossResult[],
+): {
+  recommended: Geometry2DCutTypologyReading;
+  options: CutTypologyReadingOption[];
+} {
+  const bossRows = rows.filter((r) => r.pointType !== "corner");
+  const total = bossRows.length;
+
+  const countMatched = (predicate: (cut: string) => boolean): number => {
+    let n = 0;
+    for (const row of bossRows) {
+      const axis = row.axisCutMatch;
+      if (!axis) continue;
+      const xHas = (axis.xCandidates || []).some((c) => predicate(c.cut));
+      const yHas = (axis.yCandidates || []).some((c) => predicate(c.cut));
+      if (xHas && yHas) n += 1;
+    }
+    return n;
+  };
+
+  const starcutMatched = countMatched(isStarcutCut);
+  const innerMatched = countMatched(isInnerCut);
+  const outerMatched = countMatched(isOuterCut);
+
+  const starcutCovers = starcutMatched === total && total > 0;
+  const innerCovers = innerMatched === total && total > 0;
+  const outerCovers = outerMatched === total && total > 0;
+
+  let recommended: Geometry2DCutTypologyReading;
+  if (starcutCovers) {
+    recommended = "standardcut";
+  } else if (innerCovers && outerCovers) {
+    recommended =
+      totalAxisError(bossRows, isInnerCut) <= totalAxisError(bossRows, isOuterCut)
+        ? "circlecut_inner"
+        : "circlecut_outer";
+  } else if (innerCovers) {
+    recommended = "circlecut_inner";
+  } else if (outerCovers) {
+    recommended = "circlecut_outer";
+  } else {
+    recommended = "mixed";
+  }
+
+  const options: CutTypologyReadingOption[] = [
+    { reading: "standardcut", matched: starcutMatched, total, covers: starcutCovers },
+    { reading: "circlecut_inner", matched: innerMatched, total, covers: innerCovers },
+    { reading: "circlecut_outer", matched: outerMatched, total, covers: outerCovers },
+    { reading: "mixed", matched: total, total, covers: true },
+  ];
+
+  return { recommended, options };
 }
