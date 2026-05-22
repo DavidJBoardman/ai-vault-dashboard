@@ -488,12 +488,18 @@ export function recommendCutTypologyReading(
     recommended = "mixed";
   }
 
+  const anySingleFamilyCovers = starcutCovers || innerCovers || outerCovers;
   const options: CutTypologyReadingOption[] = [
     { reading: "standardcut", matched: starcutMatched, total, covers: starcutCovers },
     { reading: "circlecut_inner", matched: innerMatched, total, covers: innerCovers },
     { reading: "circlecut_outer", matched: outerMatched, total, covers: outerCovers },
-    { reading: "mixed", matched: total, total, covers: true },
   ];
+  // "mixed" is only meaningful as a fallback when no single family covers
+  // every boss — otherwise its per-axis picks coincide with whichever single
+  // family already covers, and it becomes a duplicate of that reading.
+  if (!anySingleFamilyCovers) {
+    options.push({ reading: "mixed", matched: total, total, covers: true });
+  }
 
   return { recommended, options };
 }
