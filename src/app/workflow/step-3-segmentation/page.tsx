@@ -260,6 +260,8 @@ export default function Step3SegmentationPage() {
   const [canRedo, setCanRedo] = useState(false);
   // Stable ref so undo/redo callbacks always see the latest masks without stale closure
   const masksRef = useRef<SegmentationMask[]>([]);
+  // AbortController for cancelling an in-flight segmentation run
+  const abortControllerRef = useRef<AbortController | null>(null);
   
   // Get selected projection
   const selectedProjection = useMemo(() => {
@@ -329,6 +331,10 @@ export default function Step3SegmentationPage() {
     maskFutureRef.current = [];
     setCanUndo(true);
     setCanRedo(false);
+  }, []);
+
+  const handleCancelSegmentation = useCallback(() => {
+    abortControllerRef.current?.abort();
   }, []);
 
   const handleAddPrompt = () => {
@@ -1580,7 +1586,11 @@ export default function Step3SegmentationPage() {
   // Run segmentation with drawn boxes
   const handleBoxSegment = async () => {
     if (!selectedProjection || drawnBoxes.length === 0) return;
-    
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsProcessing(true);
     setBoxSegResult(null);
 
@@ -1590,7 +1600,6 @@ export default function Step3SegmentationPage() {
         ? `Searching for "${firstBoxName}" across the full image…`
         : "Searching for matching features across the full image…"
     );
-    pushToHistory(masks);
 
     try {
       const boxPrompts: BoxPrompt[] = drawnBoxes.map(box => ({
@@ -1603,7 +1612,7 @@ export default function Step3SegmentationPage() {
         mode: firstBoxName ? "combined" : "box",
         boxes: boxPrompts,
         textPrompts: firstBoxName ? [firstBoxName] : undefined,
-      });
+      }, controller.signal);
 
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
@@ -1611,6 +1620,7 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (newMasks.length > 0) {
+          pushToHistory(masksRef.current);
           const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, newMasks));
           setMasks(updatedMasks);
           setDrawnBoxes([]);
@@ -1624,8 +1634,12 @@ export default function Step3SegmentationPage() {
         setBoxSegResult({ type: "error", message: `Segmentation failed: ${errorMsg || "Unknown error"}` });
       }
     } catch (error) {
-      console.error("Box segmentation error:", error);
-      setBoxSegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
+      if (error instanceof Error && error.name === "AbortError") {
+        // User cancelled — discard silently
+      } else {
+        console.error("Box segmentation error:", error);
+        setBoxSegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
+      }
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -1635,7 +1649,11 @@ export default function Step3SegmentationPage() {
   // Run segmentation with polygons (converts to bounding boxes for SAM)
   const handlePolygonSegment = async () => {
     if (!selectedProjection || drawnPolygons.length === 0) return;
-    
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsProcessing(true);
     setPolySegResult(null);
 
@@ -1645,8 +1663,7 @@ export default function Step3SegmentationPage() {
         ? `Searching for "${firstName}" within the drawn region…`
         : "Searching for features within the drawn region…"
     );
-    pushToHistory(masks);
-    
+
     try {
       // Convert polygons to bounding boxes for SAM
       const boxPrompts: BoxPrompt[] = drawnPolygons.map(polygon => {
@@ -1656,19 +1673,19 @@ export default function Step3SegmentationPage() {
         const maxX = Math.max(...xs);
         const minY = Math.min(...ys);
         const maxY = Math.max(...ys);
-        
+
         return {
           coords: [minX, minY, maxX, maxY] as [number, number, number, number],
           label: polygon.label,
         };
       });
-      
+
       const response = await runSegmentation({
         projectionId: selectedProjection.id,
         mode: firstName ? "combined" : "box",
         boxes: boxPrompts,
         textPrompts: firstName ? [firstName] : undefined,
-      });
+      }, controller.signal);
 
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
@@ -1676,6 +1693,7 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (newMasks.length > 0) {
+          pushToHistory(masksRef.current);
           const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, newMasks));
           setMasks(updatedMasks);
           setDrawnPolygons([]);
@@ -1689,8 +1707,12 @@ export default function Step3SegmentationPage() {
         setPolySegResult({ type: "error", message: `Segmentation failed: ${errorMsg || "Unknown error"}` });
       }
     } catch (error) {
-      console.error("Polygon segmentation error:", error);
-      setPolySegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
+      if (error instanceof Error && error.name === "AbortError") {
+        // User cancelled — discard silently
+      } else {
+        console.error("Polygon segmentation error:", error);
+        setPolySegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
+      }
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -1699,11 +1721,14 @@ export default function Step3SegmentationPage() {
   
   const handleAutoSegment = async () => {
     if (!selectedProjection) return;
-    
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsProcessing(true);
     setAutoSegStatus("running");
     setProcessingMessage("Loading SAM model…");
-    pushToHistory(masks);
 
     try {
       const hasPrompts = textPrompts.length > 0;
@@ -1718,15 +1743,15 @@ export default function Step3SegmentationPage() {
           ? `Searching for ${textPrompts.join(", ")}…`
           : "Running automatic segmentation…"
       );
-      
+
       const response = await runSegmentation({
         projectionId: selectedProjection.id,
         mode: hasPrompts ? "text" : "auto",
         textPrompts: hasPrompts ? textPrompts : undefined,
-      });
-      
+      }, controller.signal);
+
       console.log("Segmentation response:", response);
-      
+
       // Handle the response - check both wrapper success and inner success
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
@@ -1735,6 +1760,7 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (autoMasks.length > 0) {
+          pushToHistory(masksRef.current);
           const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, autoMasks));
           setMasks(updatedMasks);
           // Fire-and-forget backend save; autoSegStatus summary computed by the
@@ -1751,7 +1777,15 @@ export default function Step3SegmentationPage() {
         setAutoSegStatus("error");
       }
     } catch (error) {
-      console.error("Segmentation error:", error);
+      if (error instanceof Error && error.name === "AbortError") {
+        // User cancelled — reset status back to idle so they can re-run
+        setAutoSegStatus("idle");
+        setAutoSegSummary("");
+      } else {
+        console.error("Segmentation error:", error);
+        setAutoSegSummary("An unexpected error occurred. Check the backend is running and try again.");
+        setAutoSegStatus("error");
+      }
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -2005,7 +2039,7 @@ export default function Step3SegmentationPage() {
                     ) : (
                       <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
                     )}
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <p className="font-medium">
                         {autoSegStatus === "running"
                           ? processingMessage || "Searching…"
@@ -2018,6 +2052,16 @@ export default function Step3SegmentationPage() {
                         <p className="text-muted-foreground mt-0.5">Check the image — boss stones are sometimes missed. Use Box select to add any that are missing.</p>
                       )}
                     </div>
+                    {autoSegStatus === "running" && (
+                      <button
+                        type="button"
+                        onClick={handleCancelSegmentation}
+                        className="shrink-0 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
+                        title="Cancel segmentation"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -3357,6 +3401,15 @@ export default function Step3SegmentationPage() {
                               ? "The model loads once per session — subsequent runs are faster."
                               : "This may take a moment for large images. Masks outside the ROI will be removed automatically."}
                           </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 mt-1"
+                            onClick={handleCancelSegmentation}
+                          >
+                            <X className="w-3 h-3" />
+                            Cancel
+                          </Button>
                         </div>
                       </div>
                     )}
