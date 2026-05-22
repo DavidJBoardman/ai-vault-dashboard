@@ -127,6 +127,12 @@ export interface Geometry2DCutTypologyBossMatch {
   yRatioIndex?: number;
 }
 
+export interface Geometry2DCutTypologyAxisCandidate {
+  cut: string;
+  ratio: number;
+  error: number;
+}
+
 export interface Geometry2DCutTypologyAxisCutMatch {
   xCut?: string | null;
   yCut?: string | null;
@@ -135,7 +141,15 @@ export interface Geometry2DCutTypologyAxisCutMatch {
   xError?: number | null;
   yError?: number | null;
   matched: boolean;
+  xCandidates?: Geometry2DCutTypologyAxisCandidate[];
+  yCandidates?: Geometry2DCutTypologyAxisCandidate[];
 }
+
+export type Geometry2DCutTypologyReading =
+  | "standardcut"
+  | "circlecut_inner"
+  | "circlecut_outer"
+  | "mixed";
 
 export interface Geometry2DCutTypologyBossResult extends Geometry2DNodePoint {
   matchedAny: boolean;
