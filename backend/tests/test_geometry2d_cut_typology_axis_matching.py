@@ -150,14 +150,14 @@ class CutTypologyEvidencePersistenceTests(unittest.TestCase):
                     }
                 },
             )
-            result = service._set_reading_sync_with_dir(project_dir, "standardcut")
+            result = service._set_reading_sync_with_dir(project_dir, "starcut")
             self.assertEqual(result["coverage"], 1.0)
 
             csv_path = service._matching_csv_path(project_dir)
             self.assertTrue(csv_path.exists())
             content = csv_path.read_text()
             self.assertIn("starcut_n=2", content)
-            # circlecut_inner should NOT appear in this CSV because reading=standardcut.
+            # circlecut_inner should NOT appear in this CSV because reading=starcut.
             self.assertNotIn("circlecut_inner", content)
 
 

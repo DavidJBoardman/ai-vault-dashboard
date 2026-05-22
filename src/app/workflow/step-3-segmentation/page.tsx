@@ -841,6 +841,49 @@ export default function Step3SegmentationPage() {
     []
   );
 
+  // Sync updated masks to the store and persist to the backend save file
+  const syncAndSave = useCallback(async (updatedMasks: SegmentationMask[]) => {
+    setSegmentations(updatedMasks.map(m => ({
+      id: m.id,
+      label: m.label,
+      color: m.color,
+      mask: m.maskBase64,
+      visible: m.visible,
+      source: m.source as "auto" | "manual",
+    })));
+
+    if (!currentProject) return;
+    try {
+      await saveProject({
+        projectId: currentProject.id,
+        projectName: currentProject.name,
+        e57Path: currentProject.e57Path,
+        projections: currentProject.projections.map(p => ({
+          id: p.id,
+          perspective: p.settings.perspective,
+          resolution: p.settings.resolution,
+          sigma: p.settings.sigma,
+          kernelSize: p.settings.kernelSize,
+          bottomUp: p.settings.bottomUp,
+          scale: p.settings.scale,
+        })),
+        segmentations: updatedMasks.map(m => ({
+          id: m.id,
+          label: m.label,
+          color: m.color,
+          maskBase64: m.maskBase64,
+          bbox: m.bbox,
+          area: m.area,
+          visible: m.visible,
+          source: m.source,
+        })),
+        selectedProjectionId: selectedProjectionId || undefined,
+      });
+    } catch (error) {
+      console.error("Error saving after delete:", error);
+    }
+  }, [currentProject, selectedProjectionId, setSegmentations]);
+
   // ── Eraser: apply accumulated strokes to a mask's base64 PNG ─────────────
   const applyEraserStrokes = useCallback(
     async (
@@ -1317,49 +1360,6 @@ export default function Step3SegmentationPage() {
     setEditingMaskName("");
   };
   
-  // Sync updated masks to the store and persist to the backend save file
-  const syncAndSave = useCallback(async (updatedMasks: SegmentationMask[]) => {
-    setSegmentations(updatedMasks.map(m => ({
-      id: m.id,
-      label: m.label,
-      color: m.color,
-      mask: m.maskBase64,
-      visible: m.visible,
-      source: m.source as "auto" | "manual",
-    })));
-
-    if (!currentProject) return;
-    try {
-      await saveProject({
-        projectId: currentProject.id,
-        projectName: currentProject.name,
-        e57Path: currentProject.e57Path,
-        projections: currentProject.projections.map(p => ({
-          id: p.id,
-          perspective: p.settings.perspective,
-          resolution: p.settings.resolution,
-          sigma: p.settings.sigma,
-          kernelSize: p.settings.kernelSize,
-          bottomUp: p.settings.bottomUp,
-          scale: p.settings.scale,
-        })),
-        segmentations: updatedMasks.map(m => ({
-          id: m.id,
-          label: m.label,
-          color: m.color,
-          maskBase64: m.maskBase64,
-          bbox: m.bbox,
-          area: m.area,
-          visible: m.visible,
-          source: m.source,
-        })),
-        selectedProjectionId: selectedProjectionId || undefined,
-      });
-    } catch (error) {
-      console.error("Error saving after delete:", error);
-    }
-  }, [currentProject, selectedProjectionId, setSegmentations]);
-
   const handleUndo = useCallback(() => {
     if (maskHistoryRef.current.length === 0) return;
     const previous = maskHistoryRef.current[0];

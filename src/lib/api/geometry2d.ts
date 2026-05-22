@@ -146,7 +146,7 @@ export interface Geometry2DCutTypologyAxisCutMatch {
 }
 
 export type Geometry2DCutTypologyReading =
-  | "standardcut"
+  | "starcut"
   | "circlecut_inner"
   | "circlecut_outer"
   | "mixed";

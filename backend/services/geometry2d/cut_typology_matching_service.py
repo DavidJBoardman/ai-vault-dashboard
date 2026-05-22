@@ -42,7 +42,7 @@ PARAMETER_SCHEMA: List[Dict[str, Any]] = [
         "max": 12,
         "step": 1,
         "default": 2,
-        "description": "Lower bound for standardcut grid divisors.",
+        "description": "Lower bound for starcut grid divisors.",
     },
     {
         "key": "starcutMax",
@@ -51,11 +51,11 @@ PARAMETER_SCHEMA: List[Dict[str, Any]] = [
         "min": 2,
         "step": 1,
         "default": 6,
-        "description": "Upper bound for standardcut grid divisors.",
+        "description": "Upper bound for starcut grid divisors.",
     },
     {
         "key": "includeStarcut",
-        "label": "Include standardcut grids",
+        "label": "Include starcut grids",
         "type": "boolean",
         "default": True,
         "description": "Enable standard n-by-n grid variants.",
@@ -138,7 +138,7 @@ class CutTypologyMatchingService:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._set_reading_sync, project_id, reading)
 
-    READING_STARCUT = "standardcut"
+    READING_STARCUT = "starcut"
     READING_INNER = "circlecut_inner"
     READING_OUTER = "circlecut_outer"
     READING_MIXED = "mixed"

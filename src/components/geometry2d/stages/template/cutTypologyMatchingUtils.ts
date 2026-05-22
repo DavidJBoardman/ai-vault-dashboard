@@ -29,7 +29,7 @@ export function rawVariantLabelToTitle(label?: string): string {
   if (!label) return "unknown";
   if (label.startsWith("starcut_n=")) {
     const n = Number(label.split("=", 2)[1]);
-    return Number.isFinite(n) ? `standardcut n=${n}` : "standardcut";
+    return Number.isFinite(n) ? `starcut n=${n}` : "starcut";
   }
   if (label === "circlecut_inner") return "circlecut inner";
   if (label === "circlecut_outer") return "circlecut outer";
@@ -38,7 +38,7 @@ export function rawVariantLabelToTitle(label?: string): string {
 
 export function variantLabelToFamily(label?: string): string | null {
   if (!label) return null;
-  if (label.startsWith("starcut_n=")) return "standard starcut";
+  if (label.startsWith("starcut_n=")) return "starcut";
   if (label === "circlecut_inner") return "circlecut inner";
   if (label === "circlecut_outer") return "circlecut outer";
   if (label.includes("_x+") || label.includes("+")) return "cross-family";
@@ -51,7 +51,7 @@ export function variantLabelToTitle(variant: Geometry2DCutTypologyOverlayVariant
   }
 
   if (variant.templateType === "starcut" && typeof variant.n === "number") {
-    return `standardcut n=${variant.n}`;
+    return `starcut n=${variant.n}`;
   }
   return rawVariantLabelToTitle(variant.variantLabel);
 }
@@ -290,7 +290,7 @@ export function buildPerBossTypologySummary(rows: MatchCsvRow[]): PerBossTypolog
   const dominantCount = dominantFamilyEntry[1];
   const dominantDetails = Array.from(detailCounts.entries())
     .filter(([detail]) => {
-      if (dominantFamily === "standard starcut") return detail.startsWith("standardcut");
+      if (dominantFamily === "starcut") return detail.startsWith("starcut");
       if (dominantFamily === "circlecut inner") return detail === "circlecut inner";
       if (dominantFamily === "circlecut outer") return detail === "circlecut outer";
       if (dominantFamily === "cross-family") return detail.startsWith("cross");
@@ -324,7 +324,7 @@ export function buildPerBossTypologySummary(rows: MatchCsvRow[]): PerBossTypolog
         if (labels.length === 0 && row.variant_label && row.variant_label !== "None") labels.push(row.variant_label);
         return labels.filter((label) => {
           if (!label || label === "None") return false;
-          if (dominantFamily === "standard starcut") return label.startsWith("starcut_n=");
+          if (dominantFamily === "starcut") return label.startsWith("starcut_n=");
           if (dominantFamily === "circlecut inner") return label === "circlecut_inner";
           if (dominantFamily === "circlecut outer") return label === "circlecut_outer";
           if (dominantFamily === "cross-family") return label.includes("_x+") || label.includes("+");
@@ -438,7 +438,7 @@ export interface CutTypologyReadingOption {
 
 /**
  * Cover-all family decision: the first family whose axis candidates cover
- * every boss on both axes wins, in fixed order: standardcut, then
+ * every boss on both axes wins, in fixed order: starcut, then
  * circlecut_inner, then circlecut_outer (tiebroken by total axis error if
  * both inner and outer cover). Falls back to `mixed` when no single family
  * covers everything.
@@ -486,7 +486,7 @@ export function recommendCutTypologyReading(
 
   let recommended: Geometry2DCutTypologyReading;
   if (starcutCovers) {
-    recommended = "standardcut";
+    recommended = "starcut";
   } else if (innerCovers && outerCovers) {
     recommended =
       totalAxisError(bossRows, isInnerCut) <= totalAxisError(bossRows, isOuterCut)
@@ -497,12 +497,25 @@ export function recommendCutTypologyReading(
   } else if (outerCovers) {
     recommended = "circlecut_outer";
   } else {
-    recommended = "mixed";
+    // No family covers all. Prefer the highest-matching single family
+    // (parsimony: starcut > inner > outer) unless mixed strictly beats every
+    // single family. This avoids recommending "mixed" when its per-axis picks
+    // would coincide with one of the single families at the same matched count.
+    const bestSingleFamilyMatched = Math.max(starcutMatched, innerMatched, outerMatched);
+    if (mixedMatched > bestSingleFamilyMatched) {
+      recommended = "mixed";
+    } else if (starcutMatched >= innerMatched && starcutMatched >= outerMatched) {
+      recommended = "starcut";
+    } else if (innerMatched >= outerMatched) {
+      recommended = "circlecut_inner";
+    } else {
+      recommended = "circlecut_outer";
+    }
   }
 
   const anySingleFamilyCovers = starcutCovers || innerCovers || outerCovers;
   const options: CutTypologyReadingOption[] = [
-    { reading: "standardcut", matched: starcutMatched, total, covers: starcutCovers },
+    { reading: "starcut", matched: starcutMatched, total, covers: starcutCovers },
     { reading: "circlecut_inner", matched: innerMatched, total, covers: innerCovers },
     { reading: "circlecut_outer", matched: outerMatched, total, covers: outerCovers },
   ];
@@ -529,7 +542,7 @@ export interface CutTypologyReadingSummary {
 }
 
 function readingPredicate(reading: Geometry2DCutTypologyReading): (cut: string) => boolean {
-  if (reading === "standardcut") return isStarcutCut;
+  if (reading === "starcut") return isStarcutCut;
   if (reading === "circlecut_inner") return isInnerCut;
   if (reading === "circlecut_outer") return isOuterCut;
   return () => true; // mixed

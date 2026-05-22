@@ -152,7 +152,7 @@ export function CutTypologyMatchingPanel({
     [perBossSummary]
   );
   const readingLabel = (reading: Geometry2DCutTypologyReading): string => {
-    if (reading === "standardcut") return "standardcut";
+    if (reading === "starcut") return "starcut";
     if (reading === "circlecut_inner") return "circlecut inner";
     if (reading === "circlecut_outer") return "circlecut outer";
     return "mixed (per-boss)";
@@ -448,7 +448,7 @@ export function CutTypologyMatchingPanel({
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between rounded-md border border-border px-2.5 py-2">
-                  <p className="text-xs font-medium">Include standardcut grids</p>
+                  <p className="text-xs font-medium">Include starcut grids</p>
                   <Checkbox
                     checked={params.includeStarcut}
                     onCheckedChange={(checked) => onParamChange({ includeStarcut: checked === true })}
