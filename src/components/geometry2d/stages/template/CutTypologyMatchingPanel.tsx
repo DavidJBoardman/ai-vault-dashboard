@@ -174,30 +174,30 @@ export function CutTypologyMatchingPanel({
             {formattedLastRunAt ? <span>Last run: {formattedLastRunAt}</span> : <span>Run matching to produce a recommendation.</span>}
           </div>
 
-          {perBossSummary ? (
+          {(perBossSummary || readingSummary) ? (
             <div className="rounded-md border border-border bg-card/40 p-4 space-y-3">
               <div className="space-y-1.5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Node typology summary</p>
                     <p className="text-2xl font-semibold leading-none truncate">
-                      {readingSummary ? readingLabel(readingSummary.reading) : perBossSummary.dominantFamily}
+                      {readingSummary ? readingLabel(readingSummary.reading) : perBossSummary?.dominantFamily}
                     </p>
                     <p className="text-sm text-muted-foreground">Largest matching group among the saved nodes</p>
                   </div>
                   <div className="shrink-0 rounded-md border border-border/80 bg-background/40 px-2.5 py-1.5 text-right">
                     <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Coverage</p>
                     <p className="text-sm font-semibold tabular-nums">
-                      {readingSummary?.matchedRows ?? perBossSummary.matchedRows}/{readingSummary?.totalRows ?? perBossSummary.totalRows}
+                      {readingSummary?.matchedRows ?? perBossSummary?.matchedRows ?? 0}/{readingSummary?.totalRows ?? perBossSummary?.totalRows ?? 0}
                     </p>
                   </div>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline">
-                  {readingSummary?.matchedRows ?? perBossSummary.matchedRows}/{readingSummary?.totalRows ?? perBossSummary.totalRows} nodes matched
+                  {readingSummary?.matchedRows ?? perBossSummary?.matchedRows ?? 0}/{readingSummary?.totalRows ?? perBossSummary?.totalRows ?? 0} nodes matched
                 </Badge>
-                {perBossSummary.unmatchedRows > 0 ? (
+                {perBossSummary && perBossSummary.unmatchedRows > 0 ? (
                   <Badge variant="outline">{perBossSummary.unmatchedRows} unmatched</Badge>
                 ) : null}
               </div>
@@ -258,7 +258,7 @@ export function CutTypologyMatchingPanel({
                     ))}
                   </div>
                 </div>
-              ) : perBossSummary.details.length > 0 ? (
+              ) : perBossSummary && perBossSummary.details.length > 0 ? (
                 <div className="space-y-2 border-t border-border/70 pt-3">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Matched Node Cuts</p>
                   <div className="space-y-2">
