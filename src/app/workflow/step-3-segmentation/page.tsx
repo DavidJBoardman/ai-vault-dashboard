@@ -59,6 +59,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Info,
+  Focus,
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
@@ -180,6 +181,8 @@ export default function Step3SegmentationPage() {
   // Segmentation state
   const [masks, setMasks] = useState<SegmentationMask[]>([]);
   const [overlayOpacity, setOverlayOpacity] = useState(0.8);
+  const [highlightMode, setHighlightMode] = useState(false);
+  const [hoveredMaskId, setHoveredMaskId] = useState<string | null>(null);
   
   // Box drawing state
   const [drawnBoxes, setDrawnBoxes] = useState<DrawnBox[]>([]);
@@ -714,6 +717,26 @@ export default function Step3SegmentationPage() {
       });
     },
     [isROISet, roi, selectedProjection]
+  );
+
+  // Compute the effective canvas opacity for a given mask.
+  // Eraser mode dims everything else so you can see through the active mask.
+  // Highlight mode (and hover) spotlights the focused mask.
+  const getCanvasMaskOpacity = useCallback(
+    (maskId: string): number => {
+      if (activeTool === "eraser") {
+        if (!activeMaskId) return overlayOpacity * 0.5;
+        return maskId === activeMaskId
+          ? Math.min(overlayOpacity, 0.45)
+          : overlayOpacity * 0.12;
+      }
+      const focusId = hoveredMaskId ?? (highlightMode ? activeMaskId : null);
+      if (focusId) {
+        return maskId === focusId ? overlayOpacity : overlayOpacity * 0.2;
+      }
+      return overlayOpacity;
+    },
+    [activeTool, activeMaskId, overlayOpacity, hoveredMaskId, highlightMode]
   );
 
   // ── Shared mask-update helper ────────────────────────────────────────────
@@ -2658,6 +2681,8 @@ export default function Step3SegmentationPage() {
                               draggable
                               onDragStart={(e) => handleDragStart(e, mask.id)}
                               onDragEnd={handleDragEnd}
+                              onMouseEnter={() => setHoveredMaskId(mask.id)}
+                              onMouseLeave={() => setHoveredMaskId(null)}
                               className={cn(
                                 "group flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-grab active:cursor-grabbing hover:bg-muted/50",
                                 mask.visible ? "opacity-100" : "opacity-40",
@@ -2756,16 +2781,28 @@ export default function Step3SegmentationPage() {
                         {Math.round(overlayOpacity * 100)}%
                       </span>
                       {/* Label toggle */}
-                      <Button
-                        variant={showMaskLabels ? "default" : "outline"}
-                        size="sm"
-                        className="gap-1.5 h-8 ml-auto"
-                        onClick={() => setShowMaskLabels(v => !v)}
-                        title="Toggle mask labels"
-                      >
-                        <Tag className="w-3 h-3" />
-                        Labels
-                      </Button>
+                      <div className="ml-auto flex items-center gap-1.5">
+                        <Button
+                          variant={highlightMode ? "default" : "outline"}
+                          size="sm"
+                          className="gap-1.5 h-8"
+                          onClick={() => setHighlightMode(v => !v)}
+                          title="Focus mode — dims all masks except the selected or hovered one"
+                        >
+                          <Focus className="w-3 h-3" />
+                          Focus
+                        </Button>
+                        <Button
+                          variant={showMaskLabels ? "default" : "outline"}
+                          size="sm"
+                          className="gap-1.5 h-8"
+                          onClick={() => setShowMaskLabels(v => !v)}
+                          title="Toggle mask labels"
+                        >
+                          <Tag className="w-3 h-3" />
+                          Labels
+                        </Button>
+                      </div>
                     </div>
                   )}
                   
@@ -2817,8 +2854,8 @@ export default function Step3SegmentationPage() {
                         {visibleMasks.map((mask) => (
                           <div
                             key={mask.id}
-                            className="absolute inset-0 pointer-events-none"
-                            style={{ opacity: overlayOpacity }}
+                            className="absolute inset-0 pointer-events-none transition-opacity duration-150"
+                            style={{ opacity: getCanvasMaskOpacity(mask.id) }}
                           >
                             {/* Strong colored mask overlay */}
                             <div
@@ -2894,8 +2931,13 @@ export default function Step3SegmentationPage() {
                               top: eraserPos.y - eraserSize,
                               width: eraserSize * 2,
                               height: eraserSize * 2,
-                              borderColor: activeMaskId ? "rgba(248,113,113,0.9)" : "rgba(156,163,175,0.7)",
-                              boxShadow: activeMaskId ? "0 0 6px rgba(248,113,113,0.5)" : undefined,
+                              borderColor: activeMaskId ? "rgba(248,113,113,1)" : "rgba(156,163,175,0.8)",
+                              backgroundColor: activeMaskId
+                                ? "rgba(248,113,113,0.18)"
+                                : "rgba(255,255,255,0.08)",
+                              boxShadow: activeMaskId
+                                ? "0 0 0 1px rgba(0,0,0,0.4), inset 0 0 6px rgba(248,113,113,0.3)"
+                                : "0 0 0 1px rgba(0,0,0,0.3)",
                             }}
                           />
                         )}
