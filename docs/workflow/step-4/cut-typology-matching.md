@@ -23,7 +23,7 @@ Vault Analyser tests several template families derived from this tradition:
 
 ## Workflow
 
-![Cut-Typology Matching: workflow stepper (Cut-Typology active); left panel with match status, distribution, overlay toggles, advanced parameters, and Run matching / Open match table; bay preview with RGB/Depth/Plasma and rib overlay; bottom match table with filters and CSV download.](../../images/step-4/step4c-cut-typology.png){ width="800" .center }
+![Cut-Typology Matching: workflow stepper (Cut-Typology active); left panel with match status, distribution, overlay toggles, advanced parameters, and Run matching / Open match table; bay preview with RGB and reference points overlay; bottom match table with filters and CSV download.](../../images/step-4/step4c-cut-typology.png){ width="800" .center }
 
 ### 1. Review the matching settings
 
@@ -44,15 +44,20 @@ When you run matching, the backend:
 
 1. **Builds template variants** — generates keypoints in (u, v) unit space for each enabled family.
 2. **Extracts ratio sets** — collects the unique *x*-ratios and *y*-ratios from each variant's keypoints.
-3. **Matches bosses to ratios** — for every boss, finds the nearest *x*- and *y*-ratio. If both distances fall within the configured tolerance, the boss counts as matched.
+3. **Matches bosses to ratios** — for every boss, finds the nearest *x*- and *y*-ratio. A boss is classified into one of three states:
+      - **Matched** — both axes fall within tolerance.
+      - **Partial** — only one axis hits (e.g., *x* matches but *y* misses). The hit axis still snaps to its cut-line; the other keeps the measured coordinate.
+      - **Unmatched** — neither axis hits.
 4. **Ranks variants** — sorts by the number of matched bosses; ties are broken in favour of the lowest divisor *n*.
-5. **Persists results** — saves the matching payload to `cut_typology_result.json` and a per-boss CSV to `boss_cut_typology_match.csv`.
+5. **Persists results** — saves the matching payload to `cut_typology_result.json` and a per-boss CSV to `boss_cut_typology_match.csv`. The CSV includes `match_state`, `x_ratio`, `y_ratio`, the chosen cuts, and a compact `template_uv` cell (4 dp; partial rows show only the hit axis).
 
 Each matched boss receives an idealised template position that can be preferred over the raw centroid during reconstruction.
 
 ### 3. Inspect the result
 
 - Compare the template overlays against the boss positions on the canvas.
+- The summary above the table shows a tri-state pill — **Full**, **Partial**, and **Unmatched** counts — for the leading variant, so you can see at a glance how many bosses each axis-pair classification covers.
+- The match table promotes a **Match** column (`matched` / `partial` / `unmatched`) and tags ROI corner rows with a **Reference** pill — those four rows anchor the bay frame and are not scored. Redundant columns (raw `x_ratio` / `y_ratio` / separate `template_uv`) are hidden by default; everything you need is folded into the single `template_uv` cell.
 - Continue only when the leading result looks plausible against the visible geometry.
 
 If no template produces a believable match, try the following before moving on:

@@ -10,6 +10,7 @@ This sub-stage prepares the **reference points** — boss locations and corner a
 
 1. Review the detected boss points on the canvas.
       - ROI corners are included as default. Untick the option, if it is not the case.
+      - Corner reference points are always derived from the current saved ROI — if you go back to 4A and adjust the ROI, the four corners refresh automatically the next time 4B reads them; you do not need to re-place them by hand.
       - The other reference points are identified from the segmented "bosses" from STEP 3.
 2. Remove obvious false detections.
 3. Add or reposition points where an important boss has been missed or misplaced.

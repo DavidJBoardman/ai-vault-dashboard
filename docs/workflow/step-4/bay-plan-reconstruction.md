@@ -59,7 +59,9 @@ Switch the canvas tool to **Inspect** (top-right canvas toolbar) and hover a lab
 
 - **Cut typology** — the matched axis cuts (e.g., `starcut_n=3 × starcut_n=2`).
 - **Errors** — how far each axis was from the nearest cut-line ratio, as a percentage.
-- **Match status** — `matched` (both axes within tolerance) or `no match`.
+- **Match status** — `matched` (both axes within tolerance), `partial (x only)` / `partial (y only)` (one axis hit, the other did not), or `no match`.
+
+Partial-match bosses are rendered in **amber** on the canvas to distinguish them from full matches (template colour) and unmatched bosses (default colour). In **Idealised** view they snap on the hit axis only and keep their measured coordinate on the missed axis.
 
 Use this to find bosses where 4C struggled before deciding whether to re-run matching or move on.
 
@@ -69,7 +71,7 @@ Tick **Show idealised overlay** in the bay-plan panel to paint the *other* view 
 
 - In Measured view, the overlay renders the idealised graph in violet dashed lines.
 - In Idealised view, the overlay renders the measured graph in orange dashed lines.
-- Thin grey snap lines connect each measured boss to its idealised counterpart, making per-boss residuals readable at a glance.
+- Magenta dashed snap lines connect each measured boss to its idealised counterpart, making per-boss residuals readable at a glance.
 
 The overlay is disabled until at least one boss has an idealised position from Step 4C.
 

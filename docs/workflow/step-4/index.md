@@ -10,7 +10,7 @@ Medieval vault plans were conceived as intersecting patterns of ribs, laid out t
 
 ## Sub-stages
 
-2D Geometry Analysis is consisted of four sequential sub-stages, labelled **4A–4D** in the interface:
+2D Geometry Analysis consists of four sequential sub-stages, labelled **4A–4D** in the interface:
 
 | Sub-stage | Name | Key action |
 |-----------|------|------------|
@@ -18,8 +18,6 @@ Medieval vault plans were conceived as intersecting patterns of ribs, laid out t
 | **4B** | [Reference Points](reference-points.md) | Review and adjust the boss and corner nodes used by later stages |
 | **4C** | [Cut-Typology Matching](cut-typology-matching.md) | Score each boss against starcut and circlecut templates to identify the best-fit design typology |
 | **4D** | [Bay-Plan Reconstruction](bay-plan-reconstruction.md) | Infer the rib network as a graph of nodes and edges |
-
-
 
 ## Interface layout
 

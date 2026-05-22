@@ -10,13 +10,15 @@ Define the **Region of Interest (ROI)**, a rotatable rectangle that isolates one
 
 ### 1. Position the ROI
 
-Use the interactive canvas to place the ROI over the vault bay:
+If Step 3 produced an ROI, a blue banner ("Starting point imported from Step 3") appears in the side panel and the rectangle is pre-placed for you. Otherwise, start from the default rectangle. Either way, adjust it on the canvas:
 
 - **Drag** to move the rectangle.
 - **Corner handles** to resize.
-- **Rotation handle** to align with the bay boundaries.
+- **Rotation handle** on the canvas, or the **ROI rotation** slider in the side panel (−180° to 180°), to align with the bay boundaries.
 
-Use the overlay controls to check that the ROI encloses the bay you actually want to analyse.
+The **Edit ROI** checkbox in the side panel hides the rectangle when unticked, which is useful for checking the underlying image without the overlay.
+
+Use the overlay controls to check that the ROI encloses the bay you actually want to analyse. **Reset ROI** restores the default rectangle if you want to start over.
 
 ### 2. Save the ROI
 
