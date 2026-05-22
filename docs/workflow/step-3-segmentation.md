@@ -53,6 +53,7 @@ Once you are satisfied with the boundary:
 1. Click **Confirm ROI & Set Corners A–D** in the ROI panel.
 2. Four gold dot markers labelled **A**, **B**, **C**, **D** (top-left, top-right, bottom-right, bottom-left) are placed at the exact corner positions as mask entries.
 3. The ROI status pill changes to **✓ ROI** and the segmentation tools become active.
+4. If no segmentation masks exist yet, **rib and boss stone segmentation runs automatically** — see [Auto-segmentation](#auto-segmentation) below.
 
 If you need to adjust the boundary after confirming, switch back to the ROI tool and redraw. The confirmation clears automatically when the rectangle is moved or resized and must be re-confirmed before segmenting.
 
@@ -67,6 +68,23 @@ After segmenting, any masks that fall outside the bay boundary can be removed:
 ---
 
 ## Stage 2 — Segmenting features
+
+### Auto-segmentation
+
+When the ROI is confirmed on a project with no existing masks, segmentation runs automatically for **ribs** and **boss stones**. You do not need to select prompts or click any button — the model searches the full image immediately.
+
+A status card in the Segmentation panel tracks progress:
+
+| Status | Meaning |
+|--------|---------|
+| Spinner + "Searching for ribs and boss stones…" | Model is running — this takes a few seconds on first load, faster afterwards |
+| Green tick + found count | Segmentation complete; review the results on the canvas |
+| Amber warning | Nothing detected — adjust the ROI or add features manually with the Box tool |
+
+After the run, all masks falling outside the ROI are removed automatically.
+
+!!! tip
+    The first inference run loads the SAM model (about 2 GB). Subsequent runs in the same session are noticeably faster.
 
 ### Choosing what to segment
 
@@ -92,60 +110,65 @@ The Polygon, Box, and Eraser tools are disabled until the ROI is confirmed.
 
 ---
 
-### Text prompts
+### Re-running segmentation
 
-Text prompts tell SAM what kind of feature you are looking for before running segmentation. They act as a semantic guide on top of the spatial prompt.
+Use the **Re-run Segmentation** button to search again with the current prompts. This is useful after adjusting the ROI or when the initial run missed features.
 
-**Quick presets** — click a preset button to add it immediately:
+By default, re-running searches for `rib` and `boss stone`. To add or change prompts, expand the **Custom prompts** section below the button:
 
-| Preset | Use for |
-|--------|---------|
-| `rib` | Main vault ribs |
-| `boss stone` | Keystone bosses at rib junctions |
+- Click the `rib` or `boss stone` preset buttons to add those terms.
+- Type a custom label into the field and press **Enter** or click **+**.
+- Active prompts are shown as removable tags.
 
-**Custom prompts** — type into the prompt field and press **Enter** or click **+** to add any term not covered by the presets. If a standard label like `rib` or `intrados` gives poor results, try alternative descriptions such as:
+Alternative terms that can work better on some scans:
 
 - `soffit` or `vault ceiling` — alternative terms for the intrados surface
 - `arch line` or `vault rib line` — can work better when ribs are narrow or faint
 - `keystone` — for prominent decorative keystones not classified as boss stones
 - `tierceron` or `lierne` — for secondary and linking ribs in more complex vaults
 
-Active prompts appear as tags below the input. Click **×** on a tag to remove it. Multiple prompts can be active at once; SAM will segment instances of each type in a single pass.
+### Status feedback
 
-![Stage 2 — Select text prompts and run segmentation](../images/step-3/step3b-text-prompt-select.png){ width="800" .center }
+After each segmentation run:
 
-With `rib` selected as the prompt, clicking **Run SAM Segmentation** returns masks for all detected rib instances across the full image automatically.
+- A **green success card** shows how many ribs and boss stones were found.
+- An **amber warning card** appears if nothing was detected, with a suggestion to try the Box tool.
+- A **red error card** appears if the backend returned an error.
 
-!!! note
-    When using the **Box** or **Polygon** tools to run segmentation, only the name assigned to that box or polygon is used as the text prompt — not the active text prompt list. This allows you to run multiple targeted segmentations in one pass without changing the global prompt list.
+The processing overlay on the canvas updates throughout the run:
 
-### Running SAM segmentation
-
-1. Add at least one text prompt (or draw a box/polygon — see below).
-2. Click **Run SAM Segmentation**.
-3. The model processes the full image and returns masks for all detected instances.
-4. New masks are merged into the existing set — see [Duplicate handling](#duplicate-handling) below.
-5. Masks outside the ROI are automatically removed after each run.
+- *"Loading SAM model…"* — first run only; loads once per session.
+- *"Searching for ribs and boss stones…"* — model is actively scanning.
+- *"This may take a moment for large images…"* — active search in progress.
 
 ---
 
 ### Box prompts (Find Similar)
 
-Use box prompts when you want to point the model at a specific visible instance and have it find all similar features across the image. This is particularly effective for boss stones, which can be hard to describe by text alone.
+Use box prompts when the auto-segmentation missed specific features — boss stones are most commonly missed on the first pass. The Box tool lets you show the model a clear example and have it find all similar features across the image.
 
-1. Select the **Box** tool.
-2. Drag a rectangle around a clear example of the target feature on the canvas.
-3. A **Name This Selection** dialog appears — enter a label (e.g. `boss stone`, `rib`) or click one of the quick-select options.
+![Stage 2 — Box tool showing missing feature guide](../images/step-3/step3b-text-prompt-select.png){ width="800" .center }
+
+A **"Missing boss stones or ribs?"** guide is available below the Re-run button (expand it to see the steps):
+
+1. Select the **Box** tool in the tool grid.
+2. Drag a rectangle around a **clear, well-lit example** of the missed feature on the canvas. Name it `boss stone` or `rib` when prompted.
+3. Click **Find Similar** — the model searches the entire image for features matching your example.
+
+To improve accuracy, add a **negative box** (click the **+/−** toggle to switch it to **−**) over any shadows, adjacent masonry, or other features you want the model to avoid.
 
 ![Box tool — naming a selection](../images/step-3/step3c-box-select.png){ width="800" .center }
 
-4. Use the **+/−** toggle on a drawn box to mark it as a positive prompt (include) or negative prompt (exclude). Negative prompts tell the model what to avoid.
-5. Add as many boxes as needed across the image.
-6. Click **Find Similar** to run segmentation using all drawn boxes simultaneously.
+After **Find Similar** completes, an inline result appears below the button:
+
+- **Green** — count of features found; drawn boxes are cleared automatically.
+- **Amber** — nothing matched; advice on improving the example.
+- **Red** — segmentation error.
 
 ![Box tool — running Find Similar after marking features](../images/step-3/step3d-find-similar.png){ width="800" .center }
 
-The box name becomes the class label for all masks produced by that prompt. Draw one clear positive box on the best visible example, then add negative boxes on areas to avoid (shadows, adjacent features of a similar shape) for cleaner results.
+!!! note
+    When using the **Box** or **Polygon** tools, only the name assigned to that box or polygon is used as the text prompt — not the active text prompt list. This allows targeted segmentation without changing the global prompt.
 
 The **Polygon** tool works identically but lets you draw a freeform closed outline instead of a rectangle — useful for irregularly shaped features or when you need to exclude a specific sub-region.
 
@@ -162,6 +185,8 @@ Use the eraser to clean up the edges of an existing mask without deleting it ent
 
 ![Eraser tool — brush size and mask selection](../images/step-3/step3e-eraser-tool.png){ width="400" .center }
 
+**Visibility while erasing:** when a mask is selected, the eraser automatically dims it to roughly half-opacity so you can see the underlying projection through it, and fades all other masks nearly out of view. The eraser cursor gains a red-tinted fill to remain clearly visible over any mask colour. When you switch away from the Eraser tool the normal display restores.
+
 Only visible masks appear in the eraser's selection list. To erase a mask that is hidden, make it visible first using the checkbox in the Segments panel.
 
 ---
@@ -170,9 +195,10 @@ Only visible masks appear in the eraser's selection list. To erase a mask that i
 
 Each time new masks are returned from SAM they are merged with the existing masks using these rules:
 
-- **IoU threshold of 0.35.** If a new mask overlaps an existing mask by more than 35% of their combined area, they are considered duplicates.
+- **Same-label IoU threshold of 0.35.** A new mask is compared against existing masks of the **same feature type** only. If they overlap by more than 35% of their combined area, they are considered duplicates. Boss stone masks never replace rib masks and vice versa.
 - **Quality replacement.** If the new mask has a higher predicted IoU quality score than the existing one, the existing mask is replaced. If the new mask is lower quality, it is discarded.
-- **No false duplicates.** Masks that only partially overlap (below the threshold) are kept as separate instances.
+- **Within-batch deduplication.** Multiple overlapping masks returned in the same SAM run are also deduplicated against each other — the highest-quality mask is kept.
+- **Pixel-level NMS on the backend.** Before masks are sent to the frontend, the backend applies greedy pixel-level non-maximum suppression within each label group. This prevents SAM from returning two masks for the same physical rib.
 
 This means repeated segmentation runs progressively improve mask quality rather than accumulating duplicates.
 
@@ -184,8 +210,11 @@ This means repeated segmentation runs progressively improve mask quality rather 
 
 At the top of the image panel:
 
-- **Opacity slider** — adjusts how strongly the coloured masks are blended over the projection image.
+- **Opacity slider** — adjusts how strongly the coloured masks are blended over the projection image. Drag left to see more of the underlying scan.
+- **Focus toggle** — when enabled, dims all masks except the currently selected or hovered mask (20% opacity for background masks, full opacity for the focused one). Useful for identifying overlapping or adjacent masks.
 - **Labels toggle** — shows or hides the short label identifier on each mask in the canvas overlay.
+
+**Hover spotlight:** hovering any mask row in the Segments panel immediately highlights that mask on the canvas (others fade), even when Focus mode is off.
 
 ### Segments panel
 
@@ -198,7 +227,7 @@ All current masks are listed below the tool card, grouped by feature type. Withi
 - **Delete whole group** — click the trash icon on the group header row.
 - **Reorder** — drag masks within the list using the grip handle on the left.
 
-Changes to the mask list are saved to the project file immediately.
+Changes to the mask list are saved to the project file immediately. Every segmentation run also saves automatically, so closing and reopening the project preserves all masks.
 
 ### Undo and Redo
 
@@ -241,7 +270,7 @@ The short suffix letter or number is shown on the canvas overlay (e.g. `E` rathe
 - Rib masks cover the main rib surfaces without large gaps or excessive spill onto adjacent masonry.
 - Boss stones are marked clearly at the main rib intersections.
 - No major masks are missing or obviously wrong.
-- Saving happens automatically when masks are added or deleted; click **Continue to Step 4** to proceed.
+- Saving happens automatically after every segmentation run and every manual edit; click **Continue to Step 4** to proceed.
 
 ## Expected result
 
