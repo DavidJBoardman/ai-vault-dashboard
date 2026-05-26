@@ -713,6 +713,67 @@ class CutTypologyMatchingService:
             ],
         }
 
+    @classmethod
+    def _derive_boss_matches(
+        cls,
+        axis_match: Optional[Dict[str, Any]],
+        variants: Sequence["TemplateVariant"],
+    ) -> List[Dict[str, Any]]:
+        """Derive a boss's whole-template matches from its per-axis candidates.
+
+        A non-cross variant V matches the boss iff V.variant_label appears in
+        both xCandidates and yCandidates. A cross variant (V.x_source_label =
+        Sx, V.y_source_label = Sy) matches iff Sx ∈ xCandidates and Sy ∈
+        yCandidates. The match's xRatio/yRatio/xError/yError come from the
+        lowest-error candidate for the relevant label on each axis.
+        """
+        if not axis_match:
+            return []
+
+        def _best_by_label(cands: Sequence[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+            best: Dict[str, Dict[str, Any]] = {}
+            for cand in cands or []:
+                label = str(cand.get("cut") or "")
+                existing = best.get(label)
+                if existing is None or float(cand.get("error", 9999)) < float(existing.get("error", 9999)):
+                    best[label] = cand
+            return best
+
+        x_by_label = _best_by_label(axis_match.get("xCandidates") or [])
+        y_by_label = _best_by_label(axis_match.get("yCandidates") or [])
+
+        matches: List[Dict[str, Any]] = []
+        for variant in variants:
+            is_cross = bool(variant.x_source_label and variant.y_source_label)
+            if is_cross:
+                x_key = str(variant.x_source_label)
+                y_key = str(variant.y_source_label)
+            else:
+                x_key = variant.variant_label
+                y_key = variant.variant_label
+
+            x_hit = x_by_label.get(x_key)
+            y_hit = y_by_label.get(y_key)
+            if not x_hit or not y_hit:
+                continue
+
+            matches.append(
+                {
+                    "variantLabel": variant.variant_label,
+                    "templateType": variant.template_type,
+                    "isCrossTemplate": is_cross,
+                    "xTemplate": variant.x_source_label,
+                    "yTemplate": variant.y_source_label,
+                    "xRatio": float(x_hit.get("ratio")),
+                    "yRatio": float(y_hit.get("ratio")),
+                    "xError": float(x_hit.get("error")),
+                    "yError": float(y_hit.get("error")),
+                    "xRatioIndex": None,
+                    "yRatioIndex": None,
+                }
+            )
+        return matches
+
     @staticmethod
     def _derive_match_state(point_type: str, axis_match: Optional[Dict[str, Any]]) -> str:
         # Corners are reference anchors, never matched against a typology
