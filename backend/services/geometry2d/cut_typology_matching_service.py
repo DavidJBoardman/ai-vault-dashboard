@@ -1305,38 +1305,6 @@ class CutTypologyMatchingService:
         return None
 
     @staticmethod
-    def _match_with_ratio_sets(
-        bosses_uv: np.ndarray,
-        *,
-        x_ratios: np.ndarray,
-        y_ratios: np.ndarray,
-        tolerance: float,
-        x_template_label: Optional[str] = None,
-        y_template_label: Optional[str] = None,
-    ) -> Dict[int, Dict[str, Any]]:
-        out: Dict[int, Dict[str, Any]] = {}
-        for boss_idx in range(bosses_uv.shape[0]):
-            boss_uv = bosses_uv[boss_idx]
-            x_idx, y_idx, x_dist, y_dist = match_boss_to_ratios(
-                (float(boss_uv[0]), float(boss_uv[1])),
-                x_ratios,
-                y_ratios,
-                tolerance,
-            )
-            out[boss_idx] = {
-                "matched": bool(x_idx is not None and y_idx is not None),
-                "x_ratio_idx": x_idx,
-                "y_ratio_idx": y_idx,
-                "x_ratio": float(x_ratios[x_idx]) if x_idx is not None else None,
-                "y_ratio": float(y_ratios[y_idx]) if y_idx is not None else None,
-                "x_dist": float(x_dist),
-                "y_dist": float(y_dist),
-                "x_template": x_template_label,
-                "y_template": y_template_label,
-            }
-        return out
-
-    @staticmethod
     def _serialize_overlay_variants(variants: Iterable[TemplateVariant]) -> List[Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
         for variant in variants:
