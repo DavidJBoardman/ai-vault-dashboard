@@ -774,6 +774,47 @@ class CutTypologyMatchingService:
             )
         return matches
 
+    @classmethod
+    def _derive_variant_summaries(
+        cls,
+        variants: Sequence["TemplateVariant"],
+        boss_ids_in_order: Sequence[int],
+        axis_matches_by_id: Dict[int, Dict[str, Any]],
+        overlay_lookup,
+    ) -> List[Dict[str, Any]]:
+        """Build per-variant coverage summaries from per-boss derived matches.
+
+        `overlay_lookup(variant_label)` returns the variant's overlay dict
+        (linesUv / pointsUv); overlay geometry is a primitive built by
+        `_build_variants`, not derived evidence.
+        """
+        total = len(boss_ids_in_order)
+        summaries: List[Dict[str, Any]] = []
+        for variant in variants:
+            matched_ids: List[int] = []
+            for boss_id in boss_ids_in_order:
+                axis_match = axis_matches_by_id.get(int(boss_id))
+                if not axis_match:
+                    continue
+                if cls._derive_boss_matches(axis_match, [variant]):
+                    matched_ids.append(int(boss_id))
+            summaries.append(
+                {
+                    "variantLabel": variant.variant_label,
+                    "templateType": variant.template_type,
+                    "variant": variant.variant,
+                    "n": variant.n,
+                    "isCrossTemplate": bool(variant.x_source_label and variant.y_source_label),
+                    "xTemplate": variant.x_source_label,
+                    "yTemplate": variant.y_source_label,
+                    "matchedCount": len(matched_ids),
+                    "coverage": float(len(matched_ids) / total) if total > 0 else 0.0,
+                    "matchedBossIds": matched_ids,
+                    "overlay": overlay_lookup(variant.variant_label),
+                }
+            )
+        return summaries
+
     @staticmethod
     def _derive_match_state(point_type: str, axis_match: Optional[Dict[str, Any]]) -> str:
         # Corners are reference anchors, never matched against a typology

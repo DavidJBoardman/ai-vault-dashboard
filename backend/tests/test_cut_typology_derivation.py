@@ -109,3 +109,73 @@ class DeriveBossMatchesTests(TestCase):
         matches = CutTypologyMatchingService._derive_boss_matches(None, variants)
 
         self.assertEqual(matches, [])
+
+
+class DeriveVariantSummariesTests(TestCase):
+    def _variants(self):
+        return [
+            _FakeVariant("starcut_n=2", "starcut", "starcut", 2),
+            _FakeVariant("starcut_n=3", "starcut", "starcut", 3),
+            _FakeVariant("circlecut_inner", "circlecut", "inner", 0),
+        ]
+
+    def _overlay_for(self, label):
+        return {"linesUv": [], "pointsUv": []}
+
+    def test_counts_bosses_per_variant(self):
+        variants = self._variants()
+        boss_axis = {
+            1: _axis_match(
+                x_cands=[("starcut_n=2", 0.5, 0.001)],
+                y_cands=[("starcut_n=2", 0.5, 0.001)],
+            ),
+            2: _axis_match(
+                x_cands=[("starcut_n=2", 0.5, 0.001), ("starcut_n=3", 0.333, 0.002)],
+                y_cands=[("starcut_n=2", 0.5, 0.001), ("starcut_n=3", 0.667, 0.002)],
+            ),
+        }
+        boss_ids_in_order = [1, 2]
+
+        summaries = CutTypologyMatchingService._derive_variant_summaries(
+            variants=variants,
+            boss_ids_in_order=boss_ids_in_order,
+            axis_matches_by_id=boss_axis,
+            overlay_lookup=self._overlay_for,
+        )
+
+        by_label = {s["variantLabel"]: s for s in summaries}
+        self.assertEqual(by_label["starcut_n=2"]["matchedCount"], 2)
+        self.assertEqual(sorted(by_label["starcut_n=2"]["matchedBossIds"]), [1, 2])
+        self.assertEqual(by_label["starcut_n=3"]["matchedCount"], 1)
+        self.assertEqual(by_label["starcut_n=3"]["matchedBossIds"], [2])
+        self.assertEqual(by_label["circlecut_inner"]["matchedCount"], 0)
+        self.assertEqual(by_label["circlecut_inner"]["matchedBossIds"], [])
+
+    def test_coverage_is_relative_to_boss_count(self):
+        variants = [_FakeVariant("starcut_n=2", "starcut", "starcut", 2)]
+        boss_axis = {
+            1: _axis_match([("starcut_n=2", 0.5, 0.0)], [("starcut_n=2", 0.5, 0.0)]),
+            2: _axis_match([], []),
+            3: _axis_match([], []),
+            4: _axis_match([], []),
+        }
+
+        summaries = CutTypologyMatchingService._derive_variant_summaries(
+            variants=variants,
+            boss_ids_in_order=[1, 2, 3, 4],
+            axis_matches_by_id=boss_axis,
+            overlay_lookup=self._overlay_for,
+        )
+
+        self.assertAlmostEqual(summaries[0]["coverage"], 0.25)
+
+    def test_zero_bosses_yields_zero_coverage(self):
+        variants = [_FakeVariant("starcut_n=2", "starcut", "starcut", 2)]
+        summaries = CutTypologyMatchingService._derive_variant_summaries(
+            variants=variants,
+            boss_ids_in_order=[],
+            axis_matches_by_id={},
+            overlay_lookup=self._overlay_for,
+        )
+        self.assertEqual(summaries[0]["matchedCount"], 0)
+        self.assertEqual(summaries[0]["coverage"], 0.0)
