@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
@@ -102,6 +102,34 @@ function createWindow() {
   }
 
   mainWindow = new BrowserWindow(windowOptions);
+
+  // Route external links (target="_blank", window.open, raw clicks on
+  // http(s) URLs) to the OS browser instead of navigating the app window —
+  // otherwise the BrowserWindow loads the external site and the user has no
+  // way back to the app.
+  const isInternalUrl = (url: string): boolean => {
+    return (
+      url.startsWith('http://localhost:3000') ||
+      (staticServerUrl !== null && url.startsWith(staticServerUrl)) ||
+      url.startsWith('file://') ||
+      url.startsWith('devtools://')
+    );
+  };
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isInternalUrl(url) && /^https?:\/\//i.test(url)) {
+      event.preventDefault();
+      void shell.openExternal(url);
+    }
+  });
 
   // Show window when ready to prevent visual flash
   mainWindow.once('ready-to-show', () => {
