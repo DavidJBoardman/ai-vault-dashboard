@@ -108,7 +108,7 @@ class CutTypologyEvidencePersistenceTests(unittest.TestCase):
                 roi={"cx": 0.0, "cy": 0.0, "w": 100.0, "h": 100.0, "rotation_deg": 0.0, "scale": 1.0},
                 params={"tolerance": 0.02},
                 ran_at="2026-05-22T11:00:00",
-                boss_points_with_uv=[
+                points_with_uv=[
                     {"id": 1, "label": "boss A", "pointType": "boss", "u": 0.5, "v": 0.5, "x": 100.0, "y": 100.0},
                 ],
                 axis_cut_matches_by_id={
@@ -134,7 +134,7 @@ class CutTypologyEvidencePersistenceTests(unittest.TestCase):
                 roi={"cx": 50.0, "cy": 50.0, "w": 100.0, "h": 100.0, "rotation_deg": 0.0, "scale": 1.0},
                 params={"tolerance": 0.02},
                 ran_at="2026-05-22T11:00:00",
-                boss_points_with_uv=[
+                points_with_uv=[
                     {"id": 1, "label": "boss A", "pointType": "boss", "u": 0.5, "v": 0.5, "x": 100.0, "y": 100.0},
                 ],
                 axis_cut_matches_by_id={
@@ -159,6 +159,46 @@ class CutTypologyEvidencePersistenceTests(unittest.TestCase):
             self.assertIn("starcut_n=2", content)
             # circlecut_inner should NOT appear in this CSV because reading=starcut.
             self.assertNotIn("circlecut_inner", content)
+
+    def test_set_reading_preserves_corner_rows(self):
+        """Corner reference rows must survive a reading switch."""
+        import csv as _csv
+        service = CutTypologyMatchingService()
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "proj"
+            (project_dir / "2d_geometry" / "cut_typology_matching").mkdir(parents=True)
+            service._write_axis_evidence(
+                project_dir=project_dir,
+                roi={"cx": 50.0, "cy": 50.0, "w": 100.0, "h": 100.0, "rotation_deg": 0.0, "scale": 1.0},
+                params={"tolerance": 0.02},
+                ran_at="2026-05-22T11:00:00",
+                points_with_uv=[
+                    {"id": 1, "label": "boss A", "pointType": "boss", "u": 0.5, "v": 0.5, "x": 100.0, "y": 100.0},
+                    {"id": 2, "label": "Corner A", "pointType": "corner", "u": 0.0, "v": 0.0, "x": 0.0, "y": 0.0},
+                    {"id": 3, "label": "Corner B", "pointType": "corner", "u": 1.0, "v": 0.0, "x": 100.0, "y": 0.0},
+                ],
+                axis_cut_matches_by_id={
+                    1: {
+                        "xCandidates": [{"cut": "starcut_n=2", "ratio": 0.5, "error": 0.0}],
+                        "yCandidates": [{"cut": "starcut_n=2", "ratio": 0.5, "error": 0.0}],
+                    },
+                },
+            )
+            result = service._set_reading_sync_with_dir(project_dir, "starcut")
+
+            # The summary metrics describe bosses only — corners aren't counted.
+            self.assertEqual(result["total"], 1)
+            self.assertEqual(result["matched"], 1)
+
+            csv_path = service._matching_csv_path(project_dir)
+            rows = list(_csv.DictReader(csv_path.open("r", encoding="utf-8")))
+            self.assertEqual(len(rows), 3)
+            corner_rows = [r for r in rows if r["point_type"] == "corner"]
+            self.assertEqual(len(corner_rows), 2)
+            for cr in corner_rows:
+                self.assertEqual(cr["variant_label"], "roi_corner")
+                self.assertEqual(cr["template_type"], "corner")
+                self.assertEqual(cr["match_state"], "unmatched")
 
 
 if __name__ == "__main__":

@@ -184,8 +184,39 @@ class CutTypologyMatchingService:
 
         rows: List[Dict[str, Any]] = []
         matched_count = 0
+        boss_total = 0
         for boss in bosses:
             boss_id = int(boss.get("id"))
+            point_type = str(boss.get("pointType", "boss"))
+            is_corner = point_type == "corner"
+            if is_corner:
+                # Corners are reference anchors; preserve their labelling from
+                # the initial-run CSV so the table stays consistent across
+                # reading switches.
+                rows.append(
+                    {
+                        "boss_id": boss_id,
+                        "point_label": str(boss.get("label") or boss_id),
+                        "point_type": point_type,
+                        "variant_label": "roi_corner",
+                        "template_type": "corner",
+                        "x_cut": "None",
+                        "y_cut": "None",
+                        "x_ratio": "None",
+                        "y_ratio": "None",
+                        "boss_uv": str([boss.get("u"), boss.get("v")]),
+                        "template_uv": "None",
+                        "boss_xy": str([int(round(float(boss.get("x", 0.0)))), int(round(float(boss.get("y", 0.0))))]),
+                        "template_xy": "None",
+                        "x_error": "None",
+                        "y_error": "None",
+                        "matched": False,
+                        "match_state": "unmatched",
+                    }
+                )
+                continue
+
+            boss_total += 1
             x_pick = self._pick_for_reading(boss.get("xCandidates") or [], reading)
             y_pick = self._pick_for_reading(boss.get("yCandidates") or [], reading)
             matched = bool(x_pick and y_pick)
@@ -207,7 +238,7 @@ class CutTypologyMatchingService:
                 {
                     "boss_id": boss_id,
                     "point_label": str(boss.get("label") or boss_id),
-                    "point_type": str(boss.get("pointType", "boss")),
+                    "point_type": point_type,
                     "variant_label": reading,
                     "template_type": "reading",
                     "x_cut": x_cut,
@@ -253,13 +284,13 @@ class CutTypologyMatchingService:
             writer.writeheader()
             writer.writerows(rows)
 
-        total = len(bosses) or 1
+        coverage_denom = boss_total or 1
         return {
             "projectDir": str(project_dir),
             "reading": reading,
             "matched": matched_count,
-            "total": len(bosses),
-            "coverage": float(matched_count) / float(total),
+            "total": boss_total,
+            "coverage": float(matched_count) / float(coverage_denom),
             "csvPath": str(csv_path),
         }
 
@@ -447,7 +478,7 @@ class CutTypologyMatchingService:
             roi=roi,
             params=resolved_params,
             ran_at=ran_at,
-            boss_points_with_uv=boss_points_with_uv,
+            points_with_uv=points_with_uv,
             axis_cut_matches_by_id=axis_cut_matches_by_id,
         )
         self._persist_matching_result(project_dir, payload)
@@ -786,19 +817,22 @@ class CutTypologyMatchingService:
         roi: Dict[str, float],
         params: Dict[str, Any],
         ran_at: str,
-        boss_points_with_uv: Sequence[Dict[str, Any]],
+        points_with_uv: Sequence[Dict[str, Any]],
         axis_cut_matches_by_id: Dict[int, Dict[str, Any]],
     ) -> None:
         evidence_path = cls._axis_evidence_path(project_dir)
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Persist bosses and corners alike so the reading-rewrite path
+        # (`_set_reading_sync_with_dir`) can re-emit corner rows; corners carry
+        # empty candidate lists since they aren't matched against templates.
         bosses: List[Dict[str, Any]] = []
-        for point in boss_points_with_uv:
-            boss_id = int(point["id"])
-            axis = axis_cut_matches_by_id.get(boss_id) or {}
+        for point in points_with_uv:
+            point_id = int(point["id"])
+            axis = axis_cut_matches_by_id.get(point_id) or {}
             bosses.append(
                 {
-                    "id": boss_id,
+                    "id": point_id,
                     "label": str(point.get("label") or ""),
                     "pointType": str(point.get("pointType", "boss")),
                     "u": float(point.get("u", 0.0)),
