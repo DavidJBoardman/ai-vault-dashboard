@@ -20,7 +20,7 @@ from services.geometry2d.utils.corner_anchors import (
 )
 from services.geometry2d.utils.roi_math import image_to_unit, unit_to_image
 from services.geometry2d.utils.template_keypoints import generate_keypoints
-from services.geometry2d.utils.template_scoring import extract_template_ratios, match_boss_to_ratios
+from services.geometry2d.utils.template_scoring import extract_template_ratios
 
 DEFAULT_TEMPLATE_PARAMS: Dict[str, Any] = {
     "starcutMin": 2,
@@ -364,95 +364,41 @@ class CutTypologyMatchingService:
         boss_points_with_uv = [point for point in points_with_uv if str(point.get("pointType", "boss")) != "corner"]
         corner_points_with_uv = [point for point in points_with_uv if str(point.get("pointType", "boss")) == "corner"]
 
-        bosses_uv = (
-            np.array([[float(p["u"]), float(p["v"])] for p in boss_points_with_uv], dtype=float).reshape(-1, 2)
-            if boss_points_with_uv
-            else np.empty((0, 2), dtype=float)
-        )
         variants = self._build_variants(roi, resolved_params)
         tolerance = float(resolved_params["tolerance"])
 
-        per_variant_matches: Dict[str, Dict[int, Dict[str, Any]]] = {}
-        variant_summaries: List[Dict[str, Any]] = []
-        for variant in variants:
-            if variant.x_source_label and variant.y_source_label:
-                x_source = self._get_variant_by_label(variants, variant.x_source_label)
-                y_source = self._get_variant_by_label(variants, variant.y_source_label)
-                if x_source is None or y_source is None:
-                    continue
-                x_ratios, _ = extract_template_ratios(x_source.template_uv)
-                _, y_ratios = extract_template_ratios(y_source.template_uv)
-                matched = self._match_with_ratio_sets(
-                    bosses_uv,
-                    x_ratios=x_ratios,
-                    y_ratios=y_ratios,
-                    tolerance=tolerance,
-                    x_template_label=variant.x_source_label,
-                    y_template_label=variant.y_source_label,
-                )
-            else:
-                x_ratios, y_ratios = extract_template_ratios(variant.template_uv)
-                matched = self._match_with_ratio_sets(
-                    bosses_uv,
-                    x_ratios=x_ratios,
-                    y_ratios=y_ratios,
-                    tolerance=tolerance,
-                )
-
-            per_variant_matches[variant.variant_label] = matched
-            matched_indices = [idx for idx, info in matched.items() if bool(info.get("matched"))]
-            matched_ids = [int(boss_points_with_uv[idx]["id"]) for idx in matched_indices]
-            variant_summaries.append(
-                {
-                    "variantLabel": variant.variant_label,
-                    "templateType": variant.template_type,
-                    "variant": variant.variant,
-                    "n": variant.n,
-                    "isCrossTemplate": bool(variant.x_source_label and variant.y_source_label),
-                    "xTemplate": variant.x_source_label,
-                    "yTemplate": variant.y_source_label,
-                    "matchedCount": len(matched_indices),
-                    "coverage": float(len(matched_indices) / len(boss_points_with_uv)) if boss_points_with_uv else 0.0,
-                    "matchedBossIds": matched_ids,
-                    "overlay": {
-                        "linesUv": variant.overlay_lines_uv,
-                        "pointsUv": variant.overlay_points_uv,
-                    },
-                }
-            )
-
-        per_boss_rows: List[Dict[str, Any]] = []
-        boss_matches_by_id: Dict[int, List[Dict[str, Any]]] = {}
+        # Pipeline A only: per-axis candidates per boss → whole-template
+        # matches and variant summaries by set intersection.
         axis_cut_matches_by_id: Dict[int, Dict[str, Any]] = {}
-        for idx, point in enumerate(boss_points_with_uv):
-            boss_matches: List[Dict[str, Any]] = []
-            for summary in variant_summaries:
-                variant_label = str(summary["variantLabel"])
-                info = per_variant_matches.get(variant_label, {}).get(idx)
-                if not info or not bool(info.get("matched")):
-                    continue
-                boss_matches.append(
-                    {
-                        "variantLabel": variant_label,
-                        "templateType": summary.get("templateType"),
-                        "isCrossTemplate": summary.get("isCrossTemplate", False),
-                        "xTemplate": info.get("x_template"),
-                        "yTemplate": info.get("y_template"),
-                        "xRatio": info.get("x_ratio"),
-                        "yRatio": info.get("y_ratio"),
-                        "xError": info.get("x_dist"),
-                        "yError": info.get("y_dist"),
-                        "xRatioIndex": info.get("x_ratio_idx"),
-                        "yRatioIndex": info.get("y_ratio_idx"),
-                    }
-                )
-            boss_matches_by_id[int(point["id"])] = boss_matches
+        for point in boss_points_with_uv:
             axis_cut_matches_by_id[int(point["id"])] = self._build_axis_cut_match(
                 boss_uv=(float(point["u"]), float(point["v"])),
                 variants=variants,
                 tolerance=tolerance,
             )
 
+        overlay_by_label = {
+            variant.variant_label: {
+                "linesUv": variant.overlay_lines_uv,
+                "pointsUv": variant.overlay_points_uv,
+            }
+            for variant in variants
+        }
+        variant_summaries = self._derive_variant_summaries(
+            variants=variants,
+            boss_ids_in_order=[int(p["id"]) for p in boss_points_with_uv],
+            axis_matches_by_id=axis_cut_matches_by_id,
+            overlay_lookup=lambda label: overlay_by_label.get(label, {"linesUv": [], "pointsUv": []}),
+        )
+
+        boss_matches_by_id: Dict[int, List[Dict[str, Any]]] = {}
+        for point in boss_points_with_uv:
+            boss_id = int(point["id"])
+            boss_matches_by_id[boss_id] = self._derive_boss_matches(
+                axis_cut_matches_by_id.get(boss_id), variants,
+            )
+
+        per_boss_rows: List[Dict[str, Any]] = []
         for point in points_with_uv:
             point_type = str(point.get("pointType", "boss"))
             if point_type == "corner":
@@ -466,13 +412,14 @@ class CutTypologyMatchingService:
                     }
                 )
                 continue
+            boss_id = int(point["id"])
             per_boss_rows.append(
                 {
                     **point,
-                    "matchedAny": len(boss_matches_by_id.get(int(point["id"]), [])) > 0,
-                    "matchedCount": len(boss_matches_by_id.get(int(point["id"]), [])),
-                    "matches": boss_matches_by_id.get(int(point["id"]), []),
-                    "axisCutMatch": axis_cut_matches_by_id.get(int(point["id"])),
+                    "matchedAny": len(boss_matches_by_id.get(boss_id, [])) > 0,
+                    "matchedCount": len(boss_matches_by_id.get(boss_id, [])),
+                    "matches": boss_matches_by_id.get(boss_id, []),
+                    "axisCutMatch": axis_cut_matches_by_id.get(boss_id),
                 }
             )
 
