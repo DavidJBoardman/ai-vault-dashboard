@@ -179,3 +179,52 @@ class DeriveVariantSummariesTests(TestCase):
         )
         self.assertEqual(summaries[0]["matchedCount"], 0)
         self.assertEqual(summaries[0]["coverage"], 0.0)
+
+
+class CircleFamilyTieTests(TestCase):
+    """Inner-circle and outer-circle are peers; neither should win on rank alone."""
+
+    def test_variant_priority_ties_inner_and_outer(self):
+        inner = CutTypologyMatchingService._variant_priority("circlecut_inner")
+        outer = CutTypologyMatchingService._variant_priority("circlecut_outer")
+        self.assertEqual(inner, outer)
+
+    def test_axis_cut_priority_lets_error_break_inner_outer_tie(self):
+        # With family rank tied, the candidate with the smaller error must win.
+        candidates = [
+            {"cut": "circlecut_inner", "ratio": 0.5, "error": 0.005},
+            {"cut": "circlecut_outer", "ratio": 0.5, "error": 0.001},
+        ]
+        sorted_cands = sorted(
+            candidates,
+            key=lambda item: (
+                CutTypologyMatchingService._axis_cut_priority(str(item["cut"])),
+                float(item["error"]),
+                float(item["ratio"]),
+            ),
+        )
+        self.assertEqual(sorted_cands[0]["cut"], "circlecut_outer")
+
+    def test_axis_cut_priority_ties_inner_outer_at_same_error(self):
+        # If error is also equal, ordering is deterministic but not biased
+        # towards inner — the key tuples up to error must be identical.
+        inner_key = (
+            CutTypologyMatchingService._axis_cut_priority("circlecut_inner"),
+            0.001,
+        )
+        outer_key = (
+            CutTypologyMatchingService._axis_cut_priority("circlecut_outer"),
+            0.001,
+        )
+        self.assertEqual(inner_key, outer_key)
+
+    def test_variant_summary_rank_key_ties_inner_outer_complexity(self):
+        inner_key = CutTypologyMatchingService._variant_summary_rank_key(
+            {"matchedCount": 3, "templateType": "circlecut", "variantLabel": "circlecut_inner", "n": 0}
+        )
+        outer_key = CutTypologyMatchingService._variant_summary_rank_key(
+            {"matchedCount": 3, "templateType": "circlecut", "variantLabel": "circlecut_outer", "n": 0}
+        )
+        # First three slots (-matched, complexity, n) must match; only the
+        # final string label may differ.
+        self.assertEqual(inner_key[:3], outer_key[:3])

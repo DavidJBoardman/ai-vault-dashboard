@@ -3,6 +3,17 @@
 [Done] Suggested ROI - add Beta label
 [Done] OVerlay ribs, boss stone not working on "Bay Plan"
 
+Cut-Typology fidelity to Tracing the Past (Hill)
+[] Verify starcut diagonals are in the candidate set. Hill's starcut = grid lines PLUS sub-cell diagonals; most bosses sit on diagonal intersections, not grid intersections. If `_build_variants` only emits k/n grid lines, real starcuts are under-credited. Highest-value fidelity check.
+[] Tie inner-circle and outer-circle family rank. Currently `_variant_priority` returns (1,0) for inner and (2,0) for outer — an unjustified prior. Hill treats them as peers. Surgical fix in backend + frontend; needs `_axis_cut_priority` to drop the variant-label tiebreak so error decides ties honestly. (Planning below.)
+[] Express tolerance in source-drawing units (metres on the original bay), not normalised. Survey/scan noise is roughly fixed in mm, not in fraction-of-bay; current ±3% normalised means ±60 mm on a chapel bay vs ±240 mm on a nave bay. Optional small percent-of-bay floor.
+[] Anomaly-aware reading summary. Replace "matched/partial/unmatched" coverage chip with Hill-style narrative: "11 of 12 bosses on starcut n=3; one anomaly at boss F lying on outer-circle spoke." Cosmetic but matches how historians actually report.
+
+Cut-Typology UX (Step 4C interface)
+[] Simplify the Step 4C panel so tuning advanced parameters → rerun matching is a one-click flow. Current state: advanced parameters, run button, overlay toggles, reading selector and match table are spread out. Goal: a single tuning surface where the user nudges tolerance / starcut range / family toggles and sees the recomputed reading immediately, without scrolling between sections.
+[] Add grid hover on the canvas: hovering a template cell or cut line should highlight the contributing bosses (and vice versa — hovering a boss should highlight the cut line / cell it sits on). Bridges the table evidence and the visual evidence.
+[] Better organise the cut-typology overlay list: collapse by family (starcut / circlecut inner / circlecut outer), default-open the recommended reading's family, show n alongside each entry, and surface the per-variant matched count inline so the user doesn't have to open the modal table.
+
 Others
 [Done] Rename app to Vault Analyser
 [Done] Project saved locations 

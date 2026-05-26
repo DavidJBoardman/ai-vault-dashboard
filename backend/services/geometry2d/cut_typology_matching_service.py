@@ -578,10 +578,11 @@ class CutTypologyMatchingService:
                 return (0, int(variant_label.split("=", 1)[1]))
             except Exception:
                 return (0, 9999)
-        if variant_label == "circlecut_inner":
+        # circlecut_inner and circlecut_outer are peers in Hill's typology;
+        # ties between them are decided by measurement error downstream, not
+        # by an a-priori family prior.
+        if variant_label in ("circlecut_inner", "circlecut_outer"):
             return (1, 0)
-        if variant_label == "circlecut_outer":
-            return (2, 0)
         return (3, 9999)
 
     @classmethod
@@ -593,11 +594,14 @@ class CutTypologyMatchingService:
         if template_type == "starcut":
             complexity = 0
         elif template_type == "circlecut":
-            complexity = 1 if variant_label == "circlecut_inner" else 2
+            # Inner and outer circle templates share complexity rank; ties
+            # are decided by matched count / n upstream and by variant_label
+            # only as a deterministic last-resort.
+            complexity = 1
         elif template_type == "cross" or bool(summary.get("isCrossTemplate")):
-            complexity = 3
+            complexity = 2
         else:
-            complexity = 4
+            complexity = 3
 
         n_value = int(summary["n"]) if isinstance(summary.get("n"), (int, float)) else 9999
         return (-matched_count, complexity, n_value, variant_label)
@@ -615,9 +619,11 @@ class CutTypologyMatchingService:
         )[0]
 
     @classmethod
-    def _axis_cut_priority(cls, variant_label: str) -> Tuple[int, int, str]:
-        family, value = cls._variant_priority(variant_label)
-        return (family, value, variant_label)
+    def _axis_cut_priority(cls, variant_label: str) -> Tuple[int, int]:
+        # Returns (family, n). The candidate sort key in _axis_ratio_candidates
+        # appends `error` and `ratio` next, so error breaks ties between
+        # equal-family candidates — never the variant-label string.
+        return cls._variant_priority(variant_label)
 
     @classmethod
     def _axis_ratio_candidates(

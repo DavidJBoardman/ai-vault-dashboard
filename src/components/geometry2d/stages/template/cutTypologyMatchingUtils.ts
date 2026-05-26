@@ -352,8 +352,9 @@ function matchPriority(label?: string): [number, number] {
     const n = Number(label.split("=", 2)[1]);
     return [0, Number.isFinite(n) ? n : 9999];
   }
-  if (label === "circlecut_inner") return [1, 0];
-  if (label === "circlecut_outer") return [2, 0];
+  // Inner and outer circlecut are peers in Hill's typology; ties are
+  // resolved by measurement error downstream, not by an a-priori family rank.
+  if (label === "circlecut_inner" || label === "circlecut_outer") return [1, 0];
   return [3, 9999];
 }
 
@@ -437,11 +438,9 @@ export interface CutTypologyReadingOption {
 }
 
 /**
- * Cover-all family decision: the first family whose axis candidates cover
- * every boss on both axes wins, in fixed order: starcut, then
- * circlecut_inner, then circlecut_outer (tiebroken by total axis error if
- * both inner and outer cover). Falls back to `mixed` when no single family
- * covers everything.
+ * Cover-all family decision: starcut wins first by parsimony; circlecut
+ * inner and outer are peers, decided between by total axis error.
+ * `mixed` is offered only when it strictly beats every single family.
  */
 export function recommendCutTypologyReading(
   rows: Geometry2DCutTypologyBossResult[],
@@ -497,17 +496,20 @@ export function recommendCutTypologyReading(
   } else if (outerCovers) {
     recommended = "circlecut_outer";
   } else {
-    // No family covers all. Prefer the highest-matching single family
-    // (parsimony: starcut > inner > outer) unless mixed strictly beats every
-    // single family.
+    // No family covers all. Mixed wins only when it strictly beats every
+    // single family. Starcut takes parsimony precedence when tied with a
+    // circle family; inner vs outer is decided by total axis error.
     if (mixedMatched > Math.max(starcutMatched, innerMatched, outerMatched)) {
       recommended = "mixed";
     } else if (starcutMatched >= innerMatched && starcutMatched >= outerMatched) {
       recommended = "starcut";
-    } else if (innerMatched >= outerMatched) {
-      recommended = "circlecut_inner";
+    } else if (innerMatched !== outerMatched) {
+      recommended = innerMatched > outerMatched ? "circlecut_inner" : "circlecut_outer";
     } else {
-      recommended = "circlecut_outer";
+      recommended =
+        totalAxisError(bossRows, isInnerCut) <= totalAxisError(bossRows, isOuterCut)
+          ? "circlecut_inner"
+          : "circlecut_outer";
     }
   }
 
@@ -516,10 +518,11 @@ export function recommendCutTypologyReading(
     { reading: "circlecut_inner", matched: innerMatched, total, covers: innerCovers },
     { reading: "circlecut_outer", matched: outerMatched, total, covers: outerCovers },
   ];
-  // Show "mixed" only when it strictly outperforms every single family. Mixed's
-  // per-axis picks follow the family priority order (starcut → inner → outer),
-  // so whenever its matched count equals the best single family's, the picks
-  // coincide and listing it is pure duplication.
+  // Show "mixed" only when it strictly outperforms every single family.
+  // Mixed's per-axis picks follow the family priority order (starcut first,
+  // then circlecut with error as the inner/outer tiebreak), so whenever its
+  // matched count equals the best single family's, the picks coincide and
+  // listing it is pure duplication.
   const bestSingleFamilyMatched = Math.max(starcutMatched, innerMatched, outerMatched);
   if (mixedMatched > bestSingleFamilyMatched) {
     options.push({ reading: "mixed", matched: mixedMatched, total, covers: mixedCovers });
