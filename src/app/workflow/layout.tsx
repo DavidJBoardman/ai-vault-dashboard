@@ -74,7 +74,7 @@ export default function WorkflowLayout({
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen flex flex-col">
+      <div className="h-screen flex flex-col">
         {/* Top Header */}
         <header className="h-14 border-b border-border/40 bg-card/50 backdrop-blur-sm flex items-center px-4 gap-4">
           {/* Logo and Home */}
@@ -108,7 +108,7 @@ export default function WorkflowLayout({
         </header>
         
         {/* Main Content */}
-        <div className="flex-1 flex">
+        <div className="flex-1 flex min-h-0">
           {/* Sidebar */}
           <aside className="w-56 border-r border-border/40 bg-card/30 flex flex-col">
             <ScrollArea className="flex-1">
