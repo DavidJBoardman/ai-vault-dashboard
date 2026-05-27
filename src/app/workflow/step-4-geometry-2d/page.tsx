@@ -215,7 +215,7 @@ export default function Step4Geometry2DPage() {
             onContinue={handleContinue}
           />
 
-          <div className="grid lg:grid-cols-12 gap-6">
+          <div className="grid lg:grid-cols-12 gap-6 items-start">
             <div className="lg:col-span-5 space-y-4">
               {(isRoiStage || isNodesStage || isMatchingStage || isReconstructStage) && (
                 <Card>
@@ -466,7 +466,7 @@ export default function Step4Geometry2DPage() {
               )}
             </div>
 
-            <div className="lg:col-span-7">
+            <div className="lg:col-span-7 lg:sticky lg:top-4 self-start">
               <div className="space-y-4">
                 <ProjectionCanvas
                   selectedProjection={controller.selectedProjection}
