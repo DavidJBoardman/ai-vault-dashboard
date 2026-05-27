@@ -92,7 +92,7 @@ function renderBayProportion(data: ReportData): string {
     <p class="vr-card-eyebrow">Best match</p>
     <p class="vr-card-headline">${escape(best.label)}</p>
     <div class="vr-card-grid">
-      <div><span class="vr-muted">Measured ratio:</span> <strong>${measured != null ? fmt(measured) : "n/a"}</strong></div>
+      <div><span class="vr-muted">Measured ratio:</span> <strong>${measured != null ? fmt(measured) : "n/a"}</strong>${measured != null && measured > 0 ? ` <span class="vr-muted">(W:H = 1 : ${(1 / measured).toFixed(2)})</span>` : ""}</div>
       <div><span class="vr-muted">Error:</span> <strong>${fmt(best.err)}</strong></div>
     </div>
     ${

@@ -117,12 +117,12 @@ export function RoiBayProportionPanel({
               <div>
                 <p className="text-xs text-muted-foreground">Measured bay proportion (W/H)</p>
                 <p className="text-2xl font-semibold leading-none mt-1">{vaultRatio.toFixed(4)}</p>
+                {vaultRatio > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    W : H = 1 : {(1 / vaultRatio).toFixed(2)}
+                  </p>
+                )}
               </div>
-              {bossCount !== undefined && (
-                <span className="text-xs px-2 py-1 rounded bg-muted text-muted-foreground">
-                  {bossCount} bosses used
-                </span>
-              )}
             </div>
 
             {bestSuggestion && (

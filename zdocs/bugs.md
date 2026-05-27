@@ -5,7 +5,7 @@
 
 Cut-Typology fidelity to Tracing the Past (Hill)
 [] Verify starcut diagonals are in the candidate set. Hill's starcut = grid lines PLUS sub-cell diagonals; most bosses sit on diagonal intersections, not grid intersections. If `_build_variants` only emits k/n grid lines, real starcuts are under-credited. Highest-value fidelity check.
-[] Tie inner-circle and outer-circle family rank. Currently `_variant_priority` returns (1,0) for inner and (2,0) for outer — an unjustified prior. Hill treats them as peers. Surgical fix in backend + frontend; needs `_axis_cut_priority` to drop the variant-label tiebreak so error decides ties honestly. (Planning below.)
+[x] Tie inner-circle and outer-circle family rank. DONE (commit cfba40c) — `_variant_priority` and frontend `matchPriority` return the same tuple for both circle variants; `_axis_cut_priority` drops the variant-label tiebreak so error decides ties; `_variant_summary_rank_key` gives both equal complexity.
 [] Express tolerance in source-drawing units (metres on the original bay), not normalised. Survey/scan noise is roughly fixed in mm, not in fraction-of-bay; current ±3% normalised means ±60 mm on a chapel bay vs ±240 mm on a nave bay. Optional small percent-of-bay floor.
 [] Anomaly-aware reading summary. Replace "matched/partial/unmatched" coverage chip with Hill-style narrative: "11 of 12 bosses on starcut n=3; one anomaly at boss F lying on outer-circle spoke." Cosmetic but matches how historians actually report.
 

@@ -31,6 +31,11 @@ export function BayProportionSection({ data }: { data: ReportData }) {
               <div>
                 <span className="text-muted-foreground">Measured ratio: </span>
                 <span className="font-medium">{measured != null ? fmt(measured) : "n/a"}</span>
+                {measured != null && measured > 0 && (
+                  <span className="ml-2 text-muted-foreground">
+                    (W:H = 1 : {(1 / measured).toFixed(2)})
+                  </span>
+                )}
               </div>
               <div>
                 <span className="text-muted-foreground">Error: </span>
