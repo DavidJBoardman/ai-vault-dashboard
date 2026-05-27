@@ -16,8 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Slider } from "@/components/ui/slider";
-import { ChevronDown, ChevronUp, EyeOff, FileText, Play, RefreshCw, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, EyeOff, FileText, RefreshCw, Sparkles } from "lucide-react";
 import {
   buildPerBossTypologySummary,
   buildReadingSummary,
@@ -29,6 +28,7 @@ import {
 } from "./cutTypologyMatchingUtils";
 import { CutTypologyMatchTable } from "./CutTypologyMatchTable";
 import { CutTypologyReadingBlock } from "./CutTypologyReadingBlock";
+import { CutTypologyTuningRow } from "./CutTypologyTuningRow";
 
 const RESET_TEMPLATE_PARAMS: Geometry2DCutTypologyParams = {
   starcutMin: 2,
@@ -144,7 +144,6 @@ export function CutTypologyMatchingPanel({
     () => (perBoss && perBoss.length > 0 ? buildReadingSummary(perBoss, selectedReading) : null),
     [perBoss, selectedReading],
   );
-  const tolerancePercent = (params.tolerance * 100).toFixed(1);
 
   return (
     <>
@@ -182,6 +181,88 @@ export function CutTypologyMatchingPanel({
               </p>
             </div>
           )}
+
+          <CutTypologyTuningRow
+            tolerance={params.tolerance}
+            isLoadingState={isLoadingState}
+            isRunningMatching={isRunningMatching}
+            hasRun={!!lastRunAt}
+            onToleranceChange={(tolerance) => onParamChange({ tolerance })}
+            onRunMatching={onRunMatching}
+          />
+
+          <details
+            ref={advancedParamsRef}
+            open={isAdvancedParamsOpen}
+            onToggle={(event) => setIsAdvancedParamsOpen((event.currentTarget as HTMLDetailsElement).open)}
+            className="rounded-md border border-border bg-card/40 px-3 py-2"
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium text-foreground">
+              <span>Advanced parameters</span>
+              {isAdvancedParamsOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+            </summary>
+            <div className="mt-3 space-y-2.5">
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => onParamChange(RESET_TEMPLATE_PARAMS)}
+                >
+                  Reset defaults
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-1">Starcut min n</p>
+                  <Input
+                    type="number"
+                    min={2}
+                    max={12}
+                    step={1}
+                    value={params.starcutMin}
+                    onChange={(event) => onParamChange({ starcutMin: Number(event.target.value) })}
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-1">Starcut max n</p>
+                  <Input
+                    type="number"
+                    min={2}
+                    step={1}
+                    value={params.starcutMax}
+                    onChange={(event) => onParamChange({ starcutMax: Number(event.target.value) })}
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between rounded-md border border-border px-2.5 py-2">
+                  <p className="text-xs font-medium">Include starcut grids</p>
+                  <Checkbox
+                    checked={params.includeStarcut}
+                    onCheckedChange={(checked) => onParamChange({ includeStarcut: checked === true })}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border border-border px-2.5 py-2">
+                  <p className="text-xs font-medium">Include circlecut inner</p>
+                  <Checkbox
+                    checked={params.includeInner}
+                    onCheckedChange={(checked) => onParamChange({ includeInner: checked === true })}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border border-border px-2.5 py-2">
+                  <p className="text-xs font-medium">Include circlecut outer</p>
+                  <Checkbox
+                    checked={params.includeOuter}
+                    onCheckedChange={(checked) => onParamChange({ includeOuter: checked === true })}
+                  />
+                </div>
+              </div>
+            </div>
+          </details>
 
           <details
             open={isTemplateOverlayOpen}
@@ -255,118 +336,7 @@ export function CutTypologyMatchingPanel({
             </div>
           </details>
 
-          <details
-            ref={advancedParamsRef}
-            open={isAdvancedParamsOpen}
-            onToggle={(event) => setIsAdvancedParamsOpen((event.currentTarget as HTMLDetailsElement).open)}
-            className="rounded-md border border-border bg-card/40 px-3 py-2"
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium text-foreground">
-              <span>Advanced parameters</span>
-              {isAdvancedParamsOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-            </summary>
-            <div className="mt-3 space-y-2.5">
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8"
-                  onClick={() => onParamChange(RESET_TEMPLATE_PARAMS)}
-                >
-                  Reset defaults
-                </Button>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <p className="text-[11px] text-muted-foreground mb-1">Starcut min n</p>
-                  <Input
-                    type="number"
-                    min={2}
-                    max={12}
-                    step={1}
-                    value={params.starcutMin}
-                    onChange={(event) => onParamChange({ starcutMin: Number(event.target.value) })}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div>
-                  <p className="text-[11px] text-muted-foreground mb-1">Starcut max n</p>
-                  <Input
-                    type="number"
-                    min={2}
-                    step={1}
-                    value={params.starcutMax}
-                    onChange={(event) => onParamChange({ starcutMax: Number(event.target.value) })}
-                    className="h-8 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-md border border-border px-2.5 py-2 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium">Point-to-cut tolerance</span>
-                  <span className="font-semibold tabular-nums text-foreground">±{tolerancePercent}%</span>
-                </div>
-                <Slider
-                  min={0.001}
-                  max={0.1}
-                  step={0.001}
-                  value={[params.tolerance]}
-                  onValueChange={(value) => onParamChange({ tolerance: value[0] ?? params.tolerance })}
-                />
-                <div className="flex justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
-                  <span>Stricter</span>
-                  <span>Looser</span>
-                </div>
-                <div className="rounded-sm border border-border/60 bg-muted/40 px-2 py-1.5 text-xs leading-relaxed text-foreground/90">
-                  <p>
-                    <span className="font-semibold tabular-nums">{params.tolerance.toFixed(3)}</span>
-                    {" = within "}
-                    <span className="font-semibold">±{tolerancePercent}%</span>
-                    {" of bay width/height."}
-                  </p>
-                  <p className="text-muted-foreground">
-                    Lower is stricter; higher accepts rougher point placement.
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between rounded-md border border-border px-2.5 py-2">
-                  <p className="text-xs font-medium">Include starcut grids</p>
-                  <Checkbox
-                    checked={params.includeStarcut}
-                    onCheckedChange={(checked) => onParamChange({ includeStarcut: checked === true })}
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-border px-2.5 py-2">
-                  <p className="text-xs font-medium">Include circlecut inner</p>
-                  <Checkbox
-                    checked={params.includeInner}
-                    onCheckedChange={(checked) => onParamChange({ includeInner: checked === true })}
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-border px-2.5 py-2">
-                  <p className="text-xs font-medium">Include circlecut outer</p>
-                  <Checkbox
-                    checked={params.includeOuter}
-                    onCheckedChange={(checked) => onParamChange({ includeOuter: checked === true })}
-                  />
-                </div>
-              </div>
-            </div>
-          </details>
-
           <div className="space-y-3">
-            <Button
-              onClick={onRunMatching}
-              disabled={isLoadingState || isRunningMatching}
-              className="w-full gap-2"
-            >
-              {isRunningMatching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {lastRunAt ? "Run matching again" : "Run matching"}
-            </Button>
-
             <Button
               variant="outline"
               className="h-12 w-full items-center justify-between rounded-md border-border/80 bg-card/50 px-3 text-left hover:bg-card/70"
