@@ -301,7 +301,7 @@ export function CutTypologyMatchingPanel({
                 </Button>
               </div>
 
-              <ScrollArea className="h-36 rounded-md border border-border">
+              <ScrollArea className="h-72 rounded-md border border-border">
                 <div className="p-2 space-y-1.5">
                   {rankedOverlayVariants.map((variant) => {
                     const checked = selectedOverlayLabels.includes(variant.variantLabel);
