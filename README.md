@@ -275,32 +275,38 @@ For the current unsigned internal-build setup, no extra GitHub configuration is 
 
 ### Replacing the version and tagging a build
 
-Before creating a release tag, update the software version in the source:
+`package.json` is the single source of truth for the app version. Bump it there and every other surface picks it up automatically:
 
-- `[package.json](./package.json)`
-- `[src/app/page.tsx](./src/app/page.tsx)`
-- `[backend/main.py](./backend/main.py)`
+- `src/app/page.tsx` imports `version` from `package.json` and renders it in the footer.
+- Electron exposes the same value via `app.getVersion()` (window title, About dialog, packaged installer metadata).
+- `backend/main.py` reads `VAULT_ANALYSER_VERSION` (injected by Electron at spawn time) and falls back to walking up to `package.json` when run standalone (`npm run backend:dev:uv`). The value is reported by `FastAPI(version=...)` (visible at `/docs`) and in the `/` root response.
 
-Then commit and push a matching tag:
+`backend/pyproject.toml` has its own `version` field for Python-package metadata; that only matters if you publish the backend as a wheel and is intentionally independent of the app version.
+
+To release `v0.1.1`:
 
 ```bash
-git add package.json package-lock.json src/app/page.tsx backend/main.py
-git commit -m "Release v0.1.0"
+# 1. Bump the version in package.json (only).
+npm version 0.1.1 --no-git-tag-version    # or edit "version" by hand
+
+# 2. Commit and push, then tag.
+git add package.json package-lock.json
+git commit -m "Release v0.1.1"
 git push origin main
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 If you need to replace an existing tag, remove it locally and remotely first:
 
 ```bash
-git tag -d v0.1.0
-git push origin :refs/tags/v0.1.0
-git tag v0.1.0
-git push origin v0.1.0
+git tag -d v0.1.1
+git push origin :refs/tags/v0.1.1
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
-hat tag push will trigger the GitHub desktop build workflow and publish the packaged apps to the matching GitHub Release.
+That tag push will trigger the GitHub desktop build workflow and publish the packaged apps to the matching GitHub Release.
 
 ```
 # run it on mac without signing
