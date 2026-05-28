@@ -55,11 +55,25 @@ Each matched boss receives an idealised template position that can be preferred 
 
 ### 3. Inspect the result
 
-- Compare the template overlays against the boss positions on the canvas.
-- Hover or focus a template row to preview that grid without permanently enabling it; a separate **Preview** chip marks temporary overlays, while checked overlays stay in the normal legend. Standardcut overlays use solid coloured lines for their `n` value. Click a boss marker on the preview to pin a magenta reference guide through that point, aligned to the ROI width and height axes; click the same boss again or empty canvas to clear it.
-- The summary above the table shows a tri-state pill — **Full**, **Partial**, and **Unmatched** counts — for the leading variant, so you can see at a glance how many bosses each axis-pair classification covers.
-- The match table promotes a **Match** column (`matched` / `partial` / `unmatched`) and tags ROI corner rows with a **Reference** pill — those four rows anchor the bay frame and are not scored. Redundant columns (raw `x_ratio` / `y_ratio` / separate `template_uv`) are hidden by default; everything you need is folded into the single `template_uv` cell.
-- Continue only when the leading result looks plausible against the visible geometry.
+Work through three regions of the panel — the canvas, the summary pill, and the match table — then decide whether to continue.
+
+**On the canvas**
+
+- Compare the template overlays against the boss positions.
+- **Hover or focus a template row** to preview that grid without enabling it permanently. Previews are marked with a **Preview** chip; checked overlays stay in the normal legend. Standardcut overlays draw solid coloured lines for their `n` value.
+- **Click a boss marker** to pin a **magenta reference guide** through that point, aligned to the ROI width and height axes. Click the same boss again — or empty canvas — to clear it.
+
+**In the summary pill (above the table)**
+
+- A tri-state pill shows **Full**, **Partial**, and **Unmatched** counts for the leading variant, so you can see at a glance how each axis-pair classification covers the bosses.
+
+**In the match table**
+
+- The **Match** column reports `matched` / `partial` / `unmatched` per boss.
+- ROI corner rows are tagged with a **Reference** pill — those four anchor the bay frame and are not scored.
+- Redundant columns (raw `x_ratio` / `y_ratio` / separate `template_uv`) are hidden by default; everything you need is folded into the single `template_uv` cell.
+
+Continue only when the leading result looks plausible against the visible geometry.
 
 #### Switching the reading
 
