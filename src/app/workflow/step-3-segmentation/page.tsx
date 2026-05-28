@@ -180,6 +180,7 @@ export default function Step3SegmentationPage() {
   // Segmentation state
   const [masks, setMasks] = useState<SegmentationMask[]>([]);
   const [overlayOpacity, setOverlayOpacity] = useState(0.8);
+  const [hoveredMaskId, setHoveredMaskId] = useState<string | null>(null);
   
   // Box drawing state
   const [drawnBoxes, setDrawnBoxes] = useState<DrawnBox[]>([]);
@@ -257,6 +258,8 @@ export default function Step3SegmentationPage() {
   const [canRedo, setCanRedo] = useState(false);
   // Stable ref so undo/redo callbacks always see the latest masks without stale closure
   const masksRef = useRef<SegmentationMask[]>([]);
+  // AbortController for cancelling an in-flight segmentation run
+  const abortControllerRef = useRef<AbortController | null>(null);
   
   // Get selected projection
   const selectedProjection = useMemo(() => {
@@ -326,6 +329,10 @@ export default function Step3SegmentationPage() {
     maskFutureRef.current = [];
     setCanUndo(true);
     setCanRedo(false);
+  }, []);
+
+  const handleCancelSegmentation = useCallback(() => {
+    abortControllerRef.current?.abort();
   }, []);
 
   const handleAddPrompt = () => {
@@ -716,6 +723,25 @@ export default function Step3SegmentationPage() {
     [isROISet, roi, selectedProjection]
   );
 
+  // Compute the effective canvas opacity for a given mask.
+  // Eraser mode dims everything else so you can see through the active mask.
+  // Highlight mode (and hover) spotlights the focused mask.
+  const getCanvasMaskOpacity = useCallback(
+    (maskId: string): number => {
+      if (activeTool === "eraser") {
+        if (!activeMaskId) return overlayOpacity * 0.5;
+        return maskId === activeMaskId
+          ? Math.min(overlayOpacity, 0.45)
+          : overlayOpacity * 0.12;
+      }
+      if (hoveredMaskId) {
+        return maskId === hoveredMaskId ? overlayOpacity : overlayOpacity * 0.2;
+      }
+      return overlayOpacity;
+    },
+    [activeTool, activeMaskId, overlayOpacity, hoveredMaskId]
+  );
+
   // ── Shared mask-update helper ────────────────────────────────────────────
   /**
    * Merge `newMasks` (from SAM) into `existingMasks`, handling:
@@ -737,9 +763,10 @@ export default function Step3SegmentationPage() {
         return union > 0 ? inter / union : 0;
       };
 
-      // IoU threshold: 0.35 catches rib overlaps better than 0.5.
-      // Quality-based: if the new mask has higher predictedIou, replace the old one.
-      const IOU_THRESHOLD = 0.35;
+      // IoU threshold: bbox IoU is unreliable for elongated ribs whose boxes
+      // overlap heavily even when the actual mask pixels barely touch, so we
+      // use a higher value to avoid discarding distinct parallel ribs.
+      const IOU_THRESHOLD = 0.6;
 
       const replacedExistingIds = new Set<string>();
       for (const nm of newMasks) {
@@ -803,8 +830,24 @@ export default function Step3SegmentationPage() {
       ];
       let colorIndex = Object.keys(groupColors).length;
 
-      const renumbered = newMasks
-        .filter((m) => !isDuplicate(m))
+      // Accept new masks greedily: check each candidate against both surviving
+      // existing masks (isDuplicate) AND already-accepted new masks so that
+      // two overlapping masks returned in the same SAM batch don't both survive.
+      const acceptedNew: SegmentationMask[] = [];
+      for (const nm of newMasks) {
+        if (isDuplicate(nm)) continue;
+        const nmBase = getBaseLabel(nm.label).toLowerCase();
+        const overlapsAccepted = acceptedNew.some(
+          (am) =>
+            am.bbox &&
+            nm.bbox &&
+            getBaseLabel(am.label).toLowerCase() === nmBase &&
+            calculateBboxIoU(am.bbox, nm.bbox) > IOU_THRESHOLD
+        );
+        if (!overlapsAccepted) acceptedNew.push(nm);
+      }
+
+      const renumbered = acceptedNew
         .map((m) => {
           const baseLabel = m.label.replace(/\s*#?\d+$/, "").trim();
           const baseLabelLower = baseLabel.toLowerCase();
@@ -841,7 +884,7 @@ export default function Step3SegmentationPage() {
     []
   );
 
-  // Sync updated masks to the store and persist to the backend save file
+  // ── Persist masks to store + backend ────────────────────────────────────
   const syncAndSave = useCallback(async (updatedMasks: SegmentationMask[]) => {
     setSegmentations(updatedMasks.map(m => ({
       id: m.id,
@@ -1541,7 +1584,11 @@ export default function Step3SegmentationPage() {
   // Run segmentation with drawn boxes
   const handleBoxSegment = async () => {
     if (!selectedProjection || drawnBoxes.length === 0) return;
-    
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsProcessing(true);
     setBoxSegResult(null);
 
@@ -1551,7 +1598,6 @@ export default function Step3SegmentationPage() {
         ? `Searching for "${firstBoxName}" across the full image…`
         : "Searching for matching features across the full image…"
     );
-    pushToHistory(masks);
 
     try {
       const boxPrompts: BoxPrompt[] = drawnBoxes.map(box => ({
@@ -1564,7 +1610,7 @@ export default function Step3SegmentationPage() {
         mode: firstBoxName ? "combined" : "box",
         boxes: boxPrompts,
         textPrompts: firstBoxName ? [firstBoxName] : undefined,
-      });
+      }, controller.signal);
 
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
@@ -1572,6 +1618,7 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (newMasks.length > 0) {
+          pushToHistory(masksRef.current);
           const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, newMasks));
           setMasks(updatedMasks);
           setDrawnBoxes([]);
@@ -1585,8 +1632,12 @@ export default function Step3SegmentationPage() {
         setBoxSegResult({ type: "error", message: `Segmentation failed: ${errorMsg || "Unknown error"}` });
       }
     } catch (error) {
-      console.error("Box segmentation error:", error);
-      setBoxSegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
+      if (error instanceof Error && error.name === "AbortError") {
+        // User cancelled — discard silently
+      } else {
+        console.error("Box segmentation error:", error);
+        setBoxSegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
+      }
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -1596,7 +1647,11 @@ export default function Step3SegmentationPage() {
   // Run segmentation with polygons (converts to bounding boxes for SAM)
   const handlePolygonSegment = async () => {
     if (!selectedProjection || drawnPolygons.length === 0) return;
-    
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsProcessing(true);
     setPolySegResult(null);
 
@@ -1606,8 +1661,7 @@ export default function Step3SegmentationPage() {
         ? `Searching for "${firstName}" within the drawn region…`
         : "Searching for features within the drawn region…"
     );
-    pushToHistory(masks);
-    
+
     try {
       // Convert polygons to bounding boxes for SAM
       const boxPrompts: BoxPrompt[] = drawnPolygons.map(polygon => {
@@ -1617,19 +1671,19 @@ export default function Step3SegmentationPage() {
         const maxX = Math.max(...xs);
         const minY = Math.min(...ys);
         const maxY = Math.max(...ys);
-        
+
         return {
           coords: [minX, minY, maxX, maxY] as [number, number, number, number],
           label: polygon.label,
         };
       });
-      
+
       const response = await runSegmentation({
         projectionId: selectedProjection.id,
         mode: firstName ? "combined" : "box",
         boxes: boxPrompts,
         textPrompts: firstName ? [firstName] : undefined,
-      });
+      }, controller.signal);
 
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
@@ -1637,6 +1691,7 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (newMasks.length > 0) {
+          pushToHistory(masksRef.current);
           const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, newMasks));
           setMasks(updatedMasks);
           setDrawnPolygons([]);
@@ -1650,8 +1705,12 @@ export default function Step3SegmentationPage() {
         setPolySegResult({ type: "error", message: `Segmentation failed: ${errorMsg || "Unknown error"}` });
       }
     } catch (error) {
-      console.error("Polygon segmentation error:", error);
-      setPolySegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
+      if (error instanceof Error && error.name === "AbortError") {
+        // User cancelled — discard silently
+      } else {
+        console.error("Polygon segmentation error:", error);
+        setPolySegResult({ type: "error", message: "An unexpected error occurred. Check the backend is running and try again." });
+      }
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -1660,11 +1719,14 @@ export default function Step3SegmentationPage() {
   
   const handleAutoSegment = async () => {
     if (!selectedProjection) return;
-    
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsProcessing(true);
     setAutoSegStatus("running");
     setProcessingMessage("Loading SAM model…");
-    pushToHistory(masks);
 
     try {
       const hasPrompts = textPrompts.length > 0;
@@ -1679,15 +1741,15 @@ export default function Step3SegmentationPage() {
           ? `Searching for ${textPrompts.join(", ")}…`
           : "Running automatic segmentation…"
       );
-      
+
       const response = await runSegmentation({
         projectionId: selectedProjection.id,
         mode: hasPrompts ? "text" : "auto",
         textPrompts: hasPrompts ? textPrompts : undefined,
-      });
-      
+      }, controller.signal);
+
       console.log("Segmentation response:", response);
-      
+
       // Handle the response - check both wrapper success and inner success
       const data = response.data as any;
       const isSuccess = response.success && data?.success !== false;
@@ -1696,6 +1758,7 @@ export default function Step3SegmentationPage() {
 
       if (isSuccess) {
         if (autoMasks.length > 0) {
+          pushToHistory(masksRef.current);
           const updatedMasks = filterMasksByROI(computeUpdatedMasks(masksRef.current, autoMasks));
           setMasks(updatedMasks);
           // Fire-and-forget backend save; autoSegStatus summary computed by the
@@ -1712,7 +1775,15 @@ export default function Step3SegmentationPage() {
         setAutoSegStatus("error");
       }
     } catch (error) {
-      console.error("Segmentation error:", error);
+      if (error instanceof Error && error.name === "AbortError") {
+        // User cancelled — reset status back to idle so they can re-run
+        setAutoSegStatus("idle");
+        setAutoSegSummary("");
+      } else {
+        console.error("Segmentation error:", error);
+        setAutoSegSummary("An unexpected error occurred. Check the backend is running and try again.");
+        setAutoSegStatus("error");
+      }
     } finally {
       setIsProcessing(false);
       setProcessingMessage("");
@@ -1966,7 +2037,7 @@ export default function Step3SegmentationPage() {
                     ) : (
                       <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
                     )}
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <p className="font-medium">
                         {autoSegStatus === "running"
                           ? processingMessage || "Searching…"
@@ -1979,6 +2050,16 @@ export default function Step3SegmentationPage() {
                         <p className="text-muted-foreground mt-0.5">Check the image — boss stones are sometimes missed. Use Box select to add any that are missing.</p>
                       )}
                     </div>
+                    {autoSegStatus === "running" && (
+                      <button
+                        type="button"
+                        onClick={handleCancelSegmentation}
+                        className="shrink-0 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
+                        title="Cancel segmentation"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -2642,6 +2723,8 @@ export default function Step3SegmentationPage() {
                               draggable
                               onDragStart={(e) => handleDragStart(e, mask.id)}
                               onDragEnd={handleDragEnd}
+                              onMouseEnter={() => setHoveredMaskId(mask.id)}
+                              onMouseLeave={() => setHoveredMaskId(null)}
                               className={cn(
                                 "group flex items-center gap-1 px-1 py-0.5 rounded text-xs cursor-grab active:cursor-grabbing hover:bg-muted/50",
                                 mask.visible ? "opacity-100" : "opacity-40",
@@ -2740,16 +2823,18 @@ export default function Step3SegmentationPage() {
                         {Math.round(overlayOpacity * 100)}%
                       </span>
                       {/* Label toggle */}
-                      <Button
-                        variant={showMaskLabels ? "default" : "outline"}
-                        size="sm"
-                        className="gap-1.5 h-8 ml-auto"
-                        onClick={() => setShowMaskLabels(v => !v)}
-                        title="Toggle mask labels"
-                      >
-                        <Tag className="w-3 h-3" />
-                        Labels
-                      </Button>
+                      <div className="ml-auto flex items-center gap-1.5">
+                        <Button
+                          variant={showMaskLabels ? "default" : "outline"}
+                          size="sm"
+                          className="gap-1.5 h-8"
+                          onClick={() => setShowMaskLabels(v => !v)}
+                          title="Toggle mask labels"
+                        >
+                          <Tag className="w-3 h-3" />
+                          Labels
+                        </Button>
+                      </div>
                     </div>
                   )}
                   
@@ -2801,8 +2886,8 @@ export default function Step3SegmentationPage() {
                         {visibleMasks.map((mask) => (
                           <div
                             key={mask.id}
-                            className="absolute inset-0 pointer-events-none"
-                            style={{ opacity: overlayOpacity }}
+                            className="absolute inset-0 pointer-events-none transition-opacity duration-150"
+                            style={{ opacity: getCanvasMaskOpacity(mask.id) }}
                           >
                             {/* Strong colored mask overlay */}
                             <div
@@ -2878,8 +2963,13 @@ export default function Step3SegmentationPage() {
                               top: eraserPos.y - eraserSize,
                               width: eraserSize * 2,
                               height: eraserSize * 2,
-                              borderColor: activeMaskId ? "rgba(248,113,113,0.9)" : "rgba(156,163,175,0.7)",
-                              boxShadow: activeMaskId ? "0 0 6px rgba(248,113,113,0.5)" : undefined,
+                              borderColor: activeMaskId ? "rgba(248,113,113,1)" : "rgba(156,163,175,0.8)",
+                              backgroundColor: activeMaskId
+                                ? "rgba(248,113,113,0.18)"
+                                : "rgba(255,255,255,0.08)",
+                              boxShadow: activeMaskId
+                                ? "0 0 0 1px rgba(0,0,0,0.4), inset 0 0 6px rgba(248,113,113,0.3)"
+                                : "0 0 0 1px rgba(0,0,0,0.3)",
                             }}
                           />
                         )}
@@ -3299,6 +3389,15 @@ export default function Step3SegmentationPage() {
                               ? "The model loads once per session — subsequent runs are faster."
                               : "This may take a moment for large images. Masks outside the ROI will be removed automatically."}
                           </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 mt-1"
+                            onClick={handleCancelSegmentation}
+                          >
+                            <X className="w-3 h-3" />
+                            Cancel
+                          </Button>
                         </div>
                       </div>
                     )}
