@@ -59,6 +59,9 @@ nav:
       - "Step 8: Analysis": workflow/step-8-analysis.md
   - System:
       - Technical Overview: system.md
+  - Appendix:
+      - "A: Cut-Typology Matching Algorithm": appendix/cut-typology-algorithm.md
+      - "B: Bay-Plan Reconstruction Algorithm": appendix/bay-plan-algorithm.md
 
 plugins:
   - search

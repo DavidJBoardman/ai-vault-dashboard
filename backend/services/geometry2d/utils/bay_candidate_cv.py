@@ -143,7 +143,36 @@ def _segment_overlap_score(
     if total <= 0:
         return 0.0
     overlap = np.logical_and(corridor_bool, mask > 0)
-    return float(np.count_nonzero(overlap) / total)
+    overlap_count = int(np.count_nonzero(overlap))
+    if overlap_count <= 0:
+        return 0.0
+    raw_score = float(overlap_count / total)
+
+    # Directional weighting: a corridor full of rib pixels only counts if
+    # those pixels are elongated along the segment. A rib that crosses the
+    # corridor sideways produces overlap pixels whose principal axis is
+    # perpendicular to the segment; we attenuate those toward zero so they
+    # cannot pass the candidate gate (see M-P false positive in step 4D).
+    seg_dx = float(p2[0] - p1[0])
+    seg_dy = float(p2[1] - p1[1])
+    seg_len = math.hypot(seg_dx, seg_dy)
+    if seg_len < 1.0 or overlap_count < 8:
+        return raw_score
+    ys, xs = np.nonzero(overlap)
+    dx = xs.astype(np.float64) - float(xs.mean())
+    dy = ys.astype(np.float64) - float(ys.mean())
+    ux = seg_dx / seg_len
+    uy = seg_dy / seg_len
+    along = dx * ux + dy * uy
+    perp = dx * (-uy) + dy * ux
+    var_along = float(np.var(along))
+    var_perp = float(np.var(perp))
+    total_var = var_along + var_perp
+    if total_var < 1e-6:
+        return raw_score
+    alignment = var_along / total_var  # 1 → fully along, 0 → fully perpendicular
+    weight = max(0.0, min(1.0, (alignment - 0.3) / 0.4))
+    return raw_score * weight
 
 
 def _third_boss_penalty(
@@ -301,6 +330,10 @@ def build_angular_nearest_candidates(
                 }
             )
 
+        # Nearest-per-direction: the closest neighbour in each angle_tol wedge
+        # wins, which suppresses long corner-to-centre edges when an
+        # intermediate boss lies within angle_tol of the same line (rib then
+        # appears as a chain of short segments instead of one long edge).
         neighbours.sort(key=lambda row: float(row["distanceUv"]))
         kept: List[Dict[str, float | int]] = []
         for row in neighbours:

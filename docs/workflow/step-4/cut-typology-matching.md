@@ -14,7 +14,7 @@ Vault Analyser tests several template families derived from this tradition:
 :   An *n*-by-*n* regular grid dividing the bay into equal fractions along both axes. Grid intersections correspond to the fractional positions at which medieval designers placed tiercerons and lierne junctions. The app tests divisors from *n* = 2 to *n* = 6 by default.
 
 **Inner circlecut**
-:   A circle with radius equal to the bay's longest side, drawn centred on the bay. Intersections between this circle, the bay's bisectors, and lines to the corners produce keypoints that do not correspond to simple fractions.
+:   A circle centred on the bay with radius equal to *half* the bay's longest side — so it touches the midpoints of the two longer edges. Intersections between this circle, the bay's bisectors, and lines to the corners produce keypoints that do not correspond to simple fractions.
 
 **Outer circlecut**
 :   Similar, but the circle passes through all four bay corners (radius = half diagonal), producing a different set of construction-line intersections.
@@ -48,7 +48,7 @@ When you run matching, the backend:
       - **Matched** — both axes fall within tolerance.
       - **Partial** — only one axis hits (e.g., *x* matches but *y* misses). The hit axis still snaps to its cut-line; the other keeps the measured coordinate.
       - **Unmatched** — neither axis hits.
-4. **Ranks variants** — sorts by the number of matched bosses; ties are broken in favour of the lowest divisor *n*.
+4. **Ranks variants** — sorts by the number of matched bosses, then by a **parsimony prior** that prefers simpler families (starcut → circlecut → cross-template), then by the lowest divisor *n*, then by total per-axis error. The family prior reflects that medieval designers reached for the simplest figure that fits — see [Appendix A](../../appendix/cut-typology-algorithm.md) for the full rank key.
 5. **Persists results** — saves the matching payload to `cut_typology_result.json` and a per-boss CSV to `boss_cut_typology_match.csv`. The CSV includes `match_state`, `x_ratio`, `y_ratio`, the chosen cuts, and a compact `template_uv` cell (4 dp; partial rows show only the hit axis).
 
 Each matched boss receives an idealised template position that can be preferred over the raw centroid during reconstruction.
@@ -60,6 +60,16 @@ Each matched boss receives an idealised template position that can be preferred 
 - The summary above the table shows a tri-state pill — **Full**, **Partial**, and **Unmatched** counts — for the leading variant, so you can see at a glance how many bosses each axis-pair classification covers.
 - The match table promotes a **Match** column (`matched` / `partial` / `unmatched`) and tags ROI corner rows with a **Reference** pill — those four rows anchor the bay frame and are not scored. Redundant columns (raw `x_ratio` / `y_ratio` / separate `template_uv`) are hidden by default; everything you need is folded into the single `template_uv` cell.
 - Continue only when the leading result looks plausible against the visible geometry.
+
+#### Switching the reading
+
+The reading-block dropdown at the top of the panel lets you re-express the per-boss CSV against a chosen family rather than the auto-selected leading variant:
+
+- **starcut** — every boss is reported against its best starcut grid (whichever *n* fits each axis).
+- **circlecut inner** / **circlecut outer** — every boss is reported against the chosen circle template.
+- **mixed (per-boss)** — each boss keeps its own best-fit family (the default; equivalent to the leading variant).
+
+Switching the reading does not re-run matching; it just rewrites `boss_cut_typology_match.csv` and the summary counters from the cached per-axis evidence (`boss_axis_candidates.json`). Use it to inspect the same scan under alternative typologies without having to re-match.
 
 If no template produces a believable match, try the following before moving on:
 

@@ -14,14 +14,19 @@ Start with the default settings. Tune the advanced parameters below only if the 
 
 | Parameter | Description |
 |-----------|-------------|
-| Reconstruction mode | `angular_nearest` (default) or `delaunay` |
-| Angle tolerance | Minimum angular separation between candidate directions per node |
-| Candidate min score | Rib-mask overlap threshold for accepting a candidate edge |
+| Reconstruction mode | **Evidence-guided graph** (default) or **Delaunay** |
+| Angle tolerance | Minimum angular separation between candidate directions per node (evidence-guided mode) |
+| Candidate min score | Rib-mask overlap threshold for accepting a candidate edge (evidence-guided mode) |
 | Candidate max distance | Maximum (u, v) distance between nodes for a candidate edge |
 | Corridor width | Pixel width of the rib-mask overlap corridor |
 | Min / max node degree | Degree bounds for the graph-selection and repair passes |
 | Boundary tolerance | (u, v) margin for classifying a node as lying on the ROI boundary |
 | Enforce planarity | Whether to reject edges that would cross existing selected edges |
+| Use ROI boundary (Delaunay) | When in Delaunay mode, include the four ROI edges as Steiner constraints |
+| Use cross axes (Delaunay) | Add the two ROI diagonals as Steiner constraints |
+| Use half lines (Delaunay) | Add the four ROI half-axes (bisectors) as Steiner constraints |
+
+The internal candidate-generation routine for evidence-guided mode is `angular_nearest` (you'll see this label in raw diagnostics); see [Appendix B](../../appendix/bay-plan-algorithm.md) for the full algorithm.
 
 ### 2. Run reconstruction
 
@@ -51,7 +56,7 @@ If the graph has obvious errors, try the following before editing manually:
 - Lower **candidate min score** to recover missing edges in areas with weak rib-mask evidence.
 - Raise **max node degree** if key junctions are losing edges.
 - Lower **candidate max distance** if the graph connects nodes across the bay that should not be linked.
-- Switch **reconstruction mode** to `delaunay` for comparison — if it produces a cleaner graph, the rib-mask evidence may be too noisy for angular-nearest.
+- Switch **reconstruction mode** to **Delaunay** for comparison — if it produces a cleaner graph, the rib-mask evidence may be too noisy for the evidence-guided pass.
 
 ### Inspect-mode hover popup
 
