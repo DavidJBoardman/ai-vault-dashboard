@@ -59,7 +59,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Info,
-  Focus,
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
 
@@ -181,7 +180,6 @@ export default function Step3SegmentationPage() {
   // Segmentation state
   const [masks, setMasks] = useState<SegmentationMask[]>([]);
   const [overlayOpacity, setOverlayOpacity] = useState(0.8);
-  const [highlightMode, setHighlightMode] = useState(false);
   const [hoveredMaskId, setHoveredMaskId] = useState<string | null>(null);
   
   // Box drawing state
@@ -736,13 +734,12 @@ export default function Step3SegmentationPage() {
           ? Math.min(overlayOpacity, 0.45)
           : overlayOpacity * 0.12;
       }
-      const focusId = hoveredMaskId ?? (highlightMode ? activeMaskId : null);
-      if (focusId) {
-        return maskId === focusId ? overlayOpacity : overlayOpacity * 0.2;
+      if (hoveredMaskId) {
+        return maskId === hoveredMaskId ? overlayOpacity : overlayOpacity * 0.2;
       }
       return overlayOpacity;
     },
-    [activeTool, activeMaskId, overlayOpacity, hoveredMaskId, highlightMode]
+    [activeTool, activeMaskId, overlayOpacity, hoveredMaskId]
   );
 
   // ── Shared mask-update helper ────────────────────────────────────────────
@@ -1407,6 +1404,28 @@ export default function Step3SegmentationPage() {
   };
   
   // Sync updated masks to the store and persist to the backend save file
+  const handleUndo = useCallback(() => {
+    if (maskHistoryRef.current.length === 0) return;
+    const previous = maskHistoryRef.current[0];
+    maskFutureRef.current = [masksRef.current, ...maskFutureRef.current].slice(0, 10);
+    maskHistoryRef.current = maskHistoryRef.current.slice(1);
+    setCanUndo(maskHistoryRef.current.length > 0);
+    setCanRedo(true);
+    setMasks(previous);
+    void syncAndSave(previous);
+  }, [syncAndSave]);
+
+  const handleRedo = useCallback(() => {
+    if (maskFutureRef.current.length === 0) return;
+    const next = maskFutureRef.current[0];
+    maskHistoryRef.current = [masksRef.current, ...maskHistoryRef.current].slice(0, 10);
+    maskFutureRef.current = maskFutureRef.current.slice(1);
+    setCanUndo(true);
+    setCanRedo(maskFutureRef.current.length > 0);
+    setMasks(next);
+    void syncAndSave(next);
+  }, [syncAndSave]);
+
   const handleUndo = useCallback(() => {
     if (maskHistoryRef.current.length === 0) return;
     const previous = maskHistoryRef.current[0];
@@ -2828,16 +2847,6 @@ export default function Step3SegmentationPage() {
                       </span>
                       {/* Label toggle */}
                       <div className="ml-auto flex items-center gap-1.5">
-                        <Button
-                          variant={highlightMode ? "default" : "outline"}
-                          size="sm"
-                          className="gap-1.5 h-8"
-                          onClick={() => setHighlightMode(v => !v)}
-                          title="Focus mode — dims all masks except the selected or hovered one"
-                        >
-                          <Focus className="w-3 h-3" />
-                          Focus
-                        </Button>
                         <Button
                           variant={showMaskLabels ? "default" : "outline"}
                           size="sm"
