@@ -766,9 +766,10 @@ export default function Step3SegmentationPage() {
         return union > 0 ? inter / union : 0;
       };
 
-      // IoU threshold: 0.35 catches rib overlaps better than 0.5.
-      // Quality-based: if the new mask has higher predictedIou, replace the old one.
-      const IOU_THRESHOLD = 0.35;
+      // IoU threshold: bbox IoU is unreliable for elongated ribs whose boxes
+      // overlap heavily even when the actual mask pixels barely touch, so we
+      // use a higher value to avoid discarding distinct parallel ribs.
+      const IOU_THRESHOLD = 0.6;
 
       const replacedExistingIds = new Set<string>();
       for (const nm of newMasks) {

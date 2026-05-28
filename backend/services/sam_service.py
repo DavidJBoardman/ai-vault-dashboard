@@ -534,7 +534,7 @@ class SAM3Service:
     def _apply_pixel_nms(
         self,
         raw_masks: List[Dict],
-        iou_threshold: float = 0.3,
+        iou_threshold: float = 0.5,
     ) -> List[Dict]:
         """
         Greedy pixel-level NMS within a set of same-label masks.
