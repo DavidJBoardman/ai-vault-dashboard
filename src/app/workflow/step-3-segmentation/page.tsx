@@ -1403,29 +1403,6 @@ export default function Step3SegmentationPage() {
     setEditingMaskName("");
   };
   
-  // Sync updated masks to the store and persist to the backend save file
-  const handleUndo = useCallback(() => {
-    if (maskHistoryRef.current.length === 0) return;
-    const previous = maskHistoryRef.current[0];
-    maskFutureRef.current = [masksRef.current, ...maskFutureRef.current].slice(0, 10);
-    maskHistoryRef.current = maskHistoryRef.current.slice(1);
-    setCanUndo(maskHistoryRef.current.length > 0);
-    setCanRedo(true);
-    setMasks(previous);
-    void syncAndSave(previous);
-  }, [syncAndSave]);
-
-  const handleRedo = useCallback(() => {
-    if (maskFutureRef.current.length === 0) return;
-    const next = maskFutureRef.current[0];
-    maskHistoryRef.current = [masksRef.current, ...maskHistoryRef.current].slice(0, 10);
-    maskFutureRef.current = maskFutureRef.current.slice(1);
-    setCanUndo(true);
-    setCanRedo(maskFutureRef.current.length > 0);
-    setMasks(next);
-    void syncAndSave(next);
-  }, [syncAndSave]);
-
   const handleUndo = useCallback(() => {
     if (maskHistoryRef.current.length === 0) return;
     const previous = maskHistoryRef.current[0];
