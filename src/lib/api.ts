@@ -230,11 +230,13 @@ export async function loadSamModel(): Promise<ApiResponse<{
 }
 
 export async function runSegmentation(
-  params: SegmentationParams
+  params: SegmentationParams,
+  signal?: AbortSignal
 ): Promise<ApiResponse<SegmentationResult>> {
   return apiRequest<SegmentationResult>("/api/segmentation/run", {
     method: "POST",
     body: JSON.stringify(params),
+    signal,
   });
 }
 
