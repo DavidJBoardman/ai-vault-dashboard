@@ -30,10 +30,10 @@ The internal candidate-generation routine for evidence-guided mode is `angular_n
 
 ### 2. Run reconstruction
 
-The backend loads the **measured** boss positions saved by sub-stage 4B (the raw segmented locations, not the idealised template positions from 4C) along with the grouped rib-segmentation mask. The idealised template positions from 4C are kept alongside as a parallel view but are not used for graph scoring — they're scored against the rib mask, which lives in measured-image space. The reconstruction then:
+The backend loads the **measured** boss positions saved by sub-stage 4B (the raw segmented locations, not the idealised template positions from 4C) along with the grouped rib-segmentation mask. The idealised template positions from 4C are kept alongside as a parallel view but are not used for graph scoring. They're scored against the rib mask, which lives in measured-image space. The reconstruction then:
 
-1. **Generates candidate edges** — for each node, finds nearby neighbours in distinct directions and scores each edge by rib-mask overlap.[^1] An alternative Delaunay mode is available when mask evidence is weak.[^2]
-2. **Selects the final graph** — adds boundary edges first, then greedily adds candidates in score order (subject to degree limits and optional planarity), and repairs any under-connected nodes.
+1. **Generates candidate edges:** for each node, finds nearby neighbours in distinct directions and scores each edge by rib-mask overlap.[^1] An alternative Delaunay mode is available when mask evidence is weak.[^2]
+2. **Selects the final graph:** adds boundary edges first, then greedily adds candidates in score order (subject to degree limits and optional planarity), and repairs any under-connected nodes.
 3. **Scores the result** on four weighted components:
 
 | Component | Weight | Description |
@@ -47,8 +47,8 @@ The backend loads the **measured** boss positions saved by sub-stage 4B (the raw
 
 - Compare the graph against the underlying projection and masks using the layer toggles.
 - Use the **Measured / Idealised** view toggle at the top of the panel to switch the rendered node positions:
-    - **Measured** (default) — bosses sit at their segmented positions in the projection image. This is the graph the reconstruction algorithm was scored against.
-    - **Idealised** — bosses snap to the nearest cut-line ratios of the template variant matched in Step 4C. Bosses that 4C could not match remain at their measured position in both views. The toggle is disabled when no 4C matches exist.
+    - **Measured** (default): bosses sit at their segmented positions in the projection image. This is the graph the reconstruction algorithm was scored against.
+    - **Idealised**: bosses snap to the nearest cut-line ratios of the template variant matched in Step 4C. Bosses that 4C could not match remain at their measured position in both views. The toggle is disabled when no 4C matches exist.
 - Add missing edges or remove wrong ones manually. Manual edits are saved alongside the computed graph.
 
 If the graph has obvious errors, try the following before editing manually:
@@ -56,15 +56,15 @@ If the graph has obvious errors, try the following before editing manually:
 - Lower **candidate min score** to recover missing edges in areas with weak rib-mask evidence.
 - Raise **max node degree** if key junctions are losing edges.
 - Lower **candidate max distance** if the graph connects nodes across the bay that should not be linked.
-- Switch **reconstruction mode** to **Delaunay** for comparison — if it produces a cleaner graph, the rib-mask evidence may be too noisy for the evidence-guided pass.
+- Switch **reconstruction mode** to **Delaunay** for comparison. If it produces a cleaner graph, the rib-mask evidence may be too noisy for the evidence-guided pass.
 
 ### Inspect-mode hover popup
 
 Switch the canvas tool to **Inspect** (top-right canvas toolbar) and hover a labelled boss. The popup shows the Step 4C match result for that boss:
 
-- **Cut typology** — the matched axis cuts (e.g., `starcut_n=3 × starcut_n=2`).
-- **Errors** — how far each axis was from the nearest cut-line ratio, as a percentage.
-- **Match status** — `matched` (both axes within tolerance), `partial (x only)` / `partial (y only)` (one axis hit, the other did not), or `no match`.
+- **Cut typology:** the matched axis cuts (e.g., `starcut_n=3 × starcut_n=2`).
+- **Errors:** how far each axis was from the nearest cut-line ratio, as a percentage.
+- **Match status:** `matched` (both axes within tolerance), `partial (x only)` / `partial (y only)` (one axis hit, the other did not), or `no match`.
 
 Partial-match bosses are rendered in **amber** on the canvas to distinguish them from full matches (template colour) and unmatched bosses (default colour). In **Idealised** view they snap on the hit axis only and keep their measured coordinate on the missed axis.
 
@@ -84,8 +84,8 @@ The overlay is disabled until at least one boss has an idealised position from S
 
 Once the graph has been reviewed, use the `DXF` export to save the reconstructed bay plan. The export emits four CAD layers so both views are available downstream:
 
-- `BAY_RIBS_MEASURED` and `BAY_NODES_MEASURED` — the measured (segmented) graph used for scoring.
-- `BAY_RIBS_IDEAL` and `BAY_NODES_IDEAL` — the idealised view derived from Step 4C. Bosses without a 4C match are omitted from these layers.
+- `BAY_RIBS_MEASURED` and `BAY_NODES_MEASURED`,the measured (segmented) graph used for scoring.
+- `BAY_RIBS_IDEAL` and `BAY_NODES_IDEAL`, the idealised view derived from Step 4C. Bosses without a 4C match are omitted from these layers.
 
 The final node set (including saved manual corrections) and the reconstructed plan edges that define the 2D rib layout are written into both layer groups.
 
@@ -97,7 +97,7 @@ Use this file when you need a CAD-readable record of the Step 4 result before co
 
 ## Why it matters
 
-The bay plan is the main 2D output: Step 5 reprojects it into three-dimensional space. Errors here — missing ribs, false connections, misplaced nodes — propagate into all downstream 3D geometry.
+The bay plan is the main 2D output: Step 5 reprojects it into three-dimensional space. Errors here, such as missing ribs, false connections, misplaced nodes, propagate into all downstream 3D geometry.
 
 ## Before moving on
 

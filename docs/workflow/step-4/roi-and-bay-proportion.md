@@ -44,11 +44,11 @@ Use the **Overlays** tab to compare the saved and suggested ROI outlines. If the
 
 Medieval vault bays were set out using proportional systems to define the relationship between length and width.[^1] The ratio suggestions shown after analysis tell you which of these systems best matches the bay you are analysing:
 
-**Modular ratios** — simple whole-number proportions such as 2:1, 3:2, 4:3, or 5:4. These are the most common; for example, the retrochoir aisles at Wells use 3:2 and the Lady Chapel at Chester uses 4:3.
+**Modular ratios:** simple whole-number proportions such as 2:1, 3:2, 4:3, or 5:4. These are the most common; for example, the retrochoir aisles at Wells use 3:2 and the Lady Chapel at Chester uses 4:3.
 
-**Quadrature proportions** — ratios derived from rotating a square (1:√2, 1:√3, 1:√5, etc.). The chancel at Nantwich may use 1:√2; 1:√5 proportions have been identified in the Wells transept.
+**Quadrature proportions:** ratios derived from rotating a square (1:√2, 1:√3, 1:√5, etc.). The chancel at Nantwich may use 1:√2; 1:√5 proportions have been identified in the Wells transept.
 
-**Golden rectangle** — the proportion 1:φ (1:1.618…). Widely discussed in studies of medieval architecture but not yet confirmed in any of the Tracing the Past case-study vaults.
+**Golden rectangle:** the proportion 1:φ (1:1.618…). Widely discussed in studies of medieval architecture but not yet confirmed in any of the Tracing the Past case-study vaults.
 
 You do not need to choose one of the suggested ratios manually. They are there to support interpretation, while the measured proportion is carried forward automatically.
 
