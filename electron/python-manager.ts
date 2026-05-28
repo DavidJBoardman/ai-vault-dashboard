@@ -124,6 +124,7 @@ export class PythonManager {
           ...process.env,
           PYTHONIOENCODING: 'utf-8',
           PYTHONUNBUFFERED: '1',
+          VAULT_ANALYSER_VERSION: app.getVersion(),
         };
 
         this.process = spawn(pythonPath, args, {
@@ -159,6 +160,7 @@ export class PythonManager {
             PYTHONUNBUFFERED: '1',
             VAULT_ANALYSER_DATA_ROOT: dataRoot,
             VAULT_ANALYSER_LEGACY_DATA_ROOTS: legacyDataRoots.join(path.delimiter),
+            VAULT_ANALYSER_VERSION: app.getVersion(),
           },
         });
       }

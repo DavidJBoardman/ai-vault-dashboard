@@ -5,9 +5,37 @@ FastAPI server for point cloud processing, segmentation, and geometry analysis.
 
 import argparse
 import asyncio
+import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Any
+
+
+def _resolve_app_version() -> str:
+    """Resolve the app version from a single source of truth (package.json).
+
+    Order: VAULT_ANALYSER_VERSION env var (injected by Electron) → walk up
+    from this file to find package.json (dev / standalone runs) → fallback.
+    """
+    env_value = os.environ.get("VAULT_ANALYSER_VERSION", "").strip()
+    if env_value:
+        return env_value
+    here = Path(__file__).resolve()
+    for parent in (here.parent, *here.parents):
+        candidate = parent / "package.json"
+        if candidate.exists():
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+                version = str(data.get("version") or "").strip()
+                if version:
+                    return version
+            except (OSError, json.JSONDecodeError):
+                break
+    return "0.0.0+unknown"
+
+
+APP_VERSION = _resolve_app_version()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,7 +74,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Vault Analyser API",
     description="Backend API for Medieval Vault Architecture Analysis",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -154,7 +182,7 @@ async def root():
     """Root endpoint with API info."""
     return {
         "name": "Vault Analyzer API",
-        "version": "0.1.0",
+        "version": APP_VERSION,
         "docs": "/docs",
         "health": "/health",
     }

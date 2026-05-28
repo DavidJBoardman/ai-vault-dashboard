@@ -17,6 +17,7 @@ import {
   CheckCircle
 } from "lucide-react";
 import { useProjectStore } from "@/lib/store";
+import { version as APP_VERSION } from "../../package.json";
 import { 
   listProjects, 
   loadProject as loadProjectApi, 
@@ -481,7 +482,7 @@ export default function HomePage() {
             </a>
           </div>
           <p className="text-sm text-muted-foreground">
-            Vault Analyser v0.1.0 • Medieval Architecture Analysis Platform •{" "}
+            Vault Analyser v{APP_VERSION} • Medieval Architecture Analysis Platform •{" "}
             <a
               href="https://www.tracingthepast.org.uk/"
               target="_blank"
