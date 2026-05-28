@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Geometry2DNodePoint } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +59,8 @@ export function NodePreparationCard({
   onGoToRoi,
 }: NodePreparationCardProps) {
   const [draftInputs, setDraftInputs] = useState<Record<string, string>>({});
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef(new Map<number, HTMLDivElement>());
 
   const formatCoord = (point: Geometry2DNodePoint, axis: "x" | "y") => {
     const pixelValue = axis === "x" ? point.x : point.y;
@@ -84,6 +86,24 @@ export function NodePreparationCard({
       return out;
     });
   };
+
+  useEffect(() => {
+    if (selectedPointId === undefined) return;
+    window.requestAnimationFrame(() => {
+      const row = rowRefs.current.get(selectedPointId);
+      const viewport = scrollAreaRef.current?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
+      if (!row || !viewport) return;
+      const rowTop = row.offsetTop;
+      const rowBottom = rowTop + row.offsetHeight;
+      const visibleTop = viewport.scrollTop;
+      const visibleBottom = visibleTop + viewport.clientHeight;
+      if (rowTop < visibleTop) {
+        viewport.scrollTo({ top: rowTop, behavior: "smooth" });
+      } else if (rowBottom > visibleBottom) {
+        viewport.scrollTo({ top: rowBottom - viewport.clientHeight, behavior: "smooth" });
+      }
+    });
+  }, [points, selectedPointId]);
 
   return (
     <Card>
@@ -160,7 +180,7 @@ export function NodePreparationCard({
           </Button>
         </div>
 
-        <ScrollArea className="h-[22.5rem] rounded-md border border-border">
+        <ScrollArea ref={scrollAreaRef} className="h-[22.5rem] rounded-md border border-border">
           <div className="p-1.5 space-y-1.5">
             <div className="sticky top-0 z-10 bg-background/95 backdrop-blur grid grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5.1rem_1.75rem] gap-1.5 px-1.5 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               <div>Point</div>
@@ -172,6 +192,10 @@ export function NodePreparationCard({
             {points.map((point) => (
               <div
                 key={point.id}
+                ref={(node) => {
+                  if (node) rowRefs.current.set(point.id, node);
+                  else rowRefs.current.delete(point.id);
+                }}
                 className={`grid grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5.1rem_1.75rem] gap-1.5 items-center rounded border px-1.5 py-1.5 cursor-pointer ${
                   selectedPointId === point.id
                     ? "border-primary/70 bg-primary/10"

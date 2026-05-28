@@ -54,6 +54,7 @@ interface CutTypologyMatchingPanelProps {
   isLoadingMatchCsv: boolean;
   onParamChange: (patch: Partial<Geometry2DCutTypologyParams>) => void;
   onOverlayToggle: (variantLabel: string, enabled: boolean) => void;
+  onOverlayPreviewChange?: (variantLabel: string | null) => void;
   onRunMatching: () => void;
   onHideAllOverlays: () => void;
   onShowPrimaryOverlays: () => void;
@@ -78,6 +79,7 @@ export function CutTypologyMatchingPanel({
   isLoadingMatchCsv,
   onParamChange,
   onOverlayToggle,
+  onOverlayPreviewChange,
   onRunMatching,
   onHideAllOverlays,
   onShowPrimaryOverlays,
@@ -281,7 +283,7 @@ export function CutTypologyMatchingPanel({
               {isTemplateOverlayOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
             </summary>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Compare the cuts associated with the current per-boss typology reading.
+              Hover to preview a grid temporarily; tick it to keep it visible.
             </p>
             <div className="mt-2 space-y-2.5">
               <div className="grid grid-cols-2 gap-2">
@@ -307,7 +309,19 @@ export function CutTypologyMatchingPanel({
                     const checked = selectedOverlayLabels.includes(variant.variantLabel);
                     const result = variantResultsByLabel.get(variant.variantLabel);
                     return (
-                      <div key={variant.variantLabel} className="rounded-md border border-border px-2 py-1.5 space-y-1">
+                      <div
+                        key={variant.variantLabel}
+                        tabIndex={0}
+                        onMouseEnter={() => onOverlayPreviewChange?.(variant.variantLabel)}
+                        onMouseLeave={() => onOverlayPreviewChange?.(null)}
+                        onFocus={() => onOverlayPreviewChange?.(variant.variantLabel)}
+                        onBlur={() => onOverlayPreviewChange?.(null)}
+                        className={`rounded-md border px-2 py-1.5 space-y-1 outline-none transition-colors ${
+                          checked
+                            ? "border-border bg-background/20"
+                            : "border-border bg-background/5 hover:border-amber-300/45 hover:bg-amber-500/[0.06] focus-visible:border-amber-300/55 focus-visible:bg-amber-500/[0.08]"
+                        }`}
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
                             <Checkbox

@@ -59,6 +59,32 @@ export function getCompactNodeLabel(label: string | number | null | undefined): 
   return raw;
 }
 
+export type BossTemplateMatchState = "corner" | "matched" | "partial" | "unmatched";
+
+export function getBossMatchState(point: {
+  pointType?: string;
+  matchedXTemplateLabel?: string | null;
+  matchedYTemplateLabel?: string | null;
+}): BossTemplateMatchState {
+  if (point.pointType === "corner") return "corner";
+  const hasX = !!point.matchedXTemplateLabel;
+  const hasY = !!point.matchedYTemplateLabel;
+  if (hasX && hasY) return "matched";
+  if (hasX || hasY) return "partial";
+  return "unmatched";
+}
+
+export function buildActiveTemplateOverlayLabels(
+  selectedLabels: readonly string[],
+  previewLabel: string | null | undefined
+): string[] {
+  const next = [...selectedLabels];
+  if (previewLabel && !next.includes(previewLabel)) {
+    next.push(previewLabel);
+  }
+  return next;
+}
+
 export interface DelaunayConstraintStyle {
   stroke: string;
   opacity: number;

@@ -46,6 +46,7 @@ interface Geometry2DInspectorPanelProps {
   isLoadingMatchingCsv: boolean;
   onMatchingParamChange: (patch: Partial<Geometry2DCutTypologyParams>) => void;
   onMatchingOverlayToggle: (variantLabel: string, enabled: boolean) => void;
+  onTemplateOverlayPreviewChange?: (variantLabel: string | null) => void;
   onMatchingHideAllOverlays: () => void;
   onMatchingShowPrimaryOverlays: () => void;
   onRunMatching: () => void;
@@ -101,6 +102,7 @@ export function Geometry2DInspectorPanel({
   isLoadingMatchingCsv,
   onMatchingParamChange,
   onMatchingOverlayToggle,
+  onTemplateOverlayPreviewChange,
   onMatchingHideAllOverlays,
   onMatchingShowPrimaryOverlays,
   onRunMatching,
@@ -161,6 +163,7 @@ export function Geometry2DInspectorPanel({
           isLoadingMatchCsv={isLoadingMatchingCsv}
           onParamChange={onMatchingParamChange}
           onOverlayToggle={onMatchingOverlayToggle}
+          onOverlayPreviewChange={onTemplateOverlayPreviewChange}
           onHideAllOverlays={onMatchingHideAllOverlays}
           onShowPrimaryOverlays={onMatchingShowPrimaryOverlays}
           onRunMatching={onRunMatching}

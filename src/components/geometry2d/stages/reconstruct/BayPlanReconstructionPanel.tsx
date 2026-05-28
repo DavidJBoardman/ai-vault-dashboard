@@ -347,6 +347,15 @@ export function BayPlanReconstructionPanel({
     });
   }, [availableNodeIds, displayedManualEdges, edgeLabelCollator, edgeSearchQuery, edgeSort, nodeLabelByIndex, selectedEdgeKey]);
 
+  const selectedManualEdgeLabel = useMemo(() => {
+    if (!selectedEdgeKey) return null;
+    const selectedEdge = manualEdges.find((edge) => edgeKey(edge) === selectedEdgeKey);
+    if (!selectedEdge) return null;
+    const startLabel = nodeLabelByIndex.get(selectedEdge.a) || String(selectedEdge.a);
+    const endLabel = nodeLabelByIndex.get(selectedEdge.b) || String(selectedEdge.b);
+    return `${startLabel} -> ${endLabel}`;
+  }, [manualEdges, nodeLabelByIndex, selectedEdgeKey]);
+
   useEffect(() => {
     if (!selectedEdgeKey) return;
     if (!showManualRibEdits) {
@@ -787,7 +796,14 @@ export function BayPlanReconstructionPanel({
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <CardTitle className="text-base font-medium">Manual rib edits</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="text-base font-medium">Manual rib edits</CardTitle>
+                {hasManualRibChanges ? (
+                  <Badge variant="outline" className="border-amber-400/45 bg-amber-500/10 text-amber-100">
+                    Unsaved edits
+                  </Badge>
+                ) : null}
+              </div>
               <CardDescription className="text-xs">
                 Adjust reconstructed ribs node by node only where the automatic result is unconvincing.
               </CardDescription>
@@ -863,7 +879,14 @@ export function BayPlanReconstructionPanel({
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                       Reconstructed ribs
                     </p>
-                    <span className="text-xs text-muted-foreground">{manualEdges.length} total</span>
+                    <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+                      {selectedManualEdgeLabel ? (
+                        <Badge variant="secondary" className="bg-amber-500/15 text-amber-100">
+                          Selected {selectedManualEdgeLabel}
+                        </Badge>
+                      ) : null}
+                      <span className="text-muted-foreground">{manualEdges.length} total</span>
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Input
@@ -876,7 +899,7 @@ export function BayPlanReconstructionPanel({
                   </div>
 
                   {filteredManualEdges.length > 0 ? (
-                    <div className="max-h-72 overflow-auto rounded-md border border-border/70 bg-background/50">
+                    <div className="max-h-[clamp(16rem,34vh,24rem)] overflow-auto rounded-md border border-border/70 bg-background/50">
                       <table className="w-full table-fixed text-xs">
                         <thead className="sticky top-0 bg-background/95 backdrop-blur">
                           <tr className="border-b border-border/70 text-left text-muted-foreground">
@@ -915,8 +938,10 @@ export function BayPlanReconstructionPanel({
                                   if (node) rowRefs.current.set(currentEdgeKey, node);
                                   else rowRefs.current.delete(currentEdgeKey);
                                 }}
-                                className={`cursor-pointer border-b border-border/50 align-top last:border-b-0 ${
-                                  isSelected ? "bg-amber-500/12 ring-1 ring-inset ring-amber-400/50" : "hover:bg-muted/20"
+                                className={`cursor-pointer border-b border-l-2 border-border/50 align-top last:border-b-0 ${
+                                  isSelected
+                                    ? "border-l-amber-300 bg-amber-500/18 ring-1 ring-inset ring-amber-300/70"
+                                    : "border-l-transparent hover:bg-muted/20"
                                 }`}
                                 onClick={() => onSelectEdge(isSelected ? null : currentEdgeKey)}
                               >

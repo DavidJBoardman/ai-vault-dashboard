@@ -32,6 +32,7 @@ export default function Step4Geometry2DPage() {
   const [selectedReconstructionEdgeKey, setSelectedReconstructionEdgeKey] = useState<string | null>(null);
   const [stageToolTab, setStageToolTab] = useState<"controls" | "manualEdit" | "overlays">("controls");
   const [matchingAdvancedParamsFocusSignal, setMatchingAdvancedParamsFocusSignal] = useState(0);
+  const [previewTemplateOverlayLabel, setPreviewTemplateOverlayLabel] = useState<string | null>(null);
   const hasInitialisedRoiEvidenceLayers = useRef(false);
   const hasInitialisedNodeLayers = useRef(false);
   const hasInitialisedMatchingLayers = useRef(false);
@@ -156,10 +157,17 @@ export default function Step4Geometry2DPage() {
 
   useEffect(() => {
     setStageToolTab("controls");
+    setPreviewTemplateOverlayLabel(null);
     if (!isReconstructStage) {
       setSelectedReconstructionEdgeKey(null);
     }
   }, [controller.activeSection, isReconstructStage]);
+
+  useEffect(() => {
+    if (!isMatchingStage) {
+      setPreviewTemplateOverlayLabel(null);
+    }
+  }, [isMatchingStage]);
 
   const handleSelectReconstructionEdge = (edgeKey: string | null) => {
     setSelectedReconstructionEdgeKey(edgeKey);
@@ -324,6 +332,7 @@ export default function Step4Geometry2DPage() {
                   isLoadingMatchingCsv={controller.isLoadingTemplateMatchCsv}
                   onMatchingParamChange={controller.handleTemplateParamChange}
                   onMatchingOverlayToggle={controller.handleTemplateOverlayToggle}
+                  onTemplateOverlayPreviewChange={setPreviewTemplateOverlayLabel}
                   onMatchingHideAllOverlays={controller.handleTemplateHideAllOverlays}
                   onMatchingShowPrimaryOverlays={controller.handleTemplateShowPrimaryOverlays}
                   onRunMatching={controller.handleRunTemplateMatching}
@@ -538,6 +547,8 @@ export default function Step4Geometry2DPage() {
                   templateBossPoints={controller.activeSection === "nodes" || controller.activeSection === "matching" ? controller.templatePoints : []}
                   selectedBossPointId={controller.activeSection === "nodes" ? controller.selectedTemplatePointId : undefined}
                   selectedTemplateOverlays={controller.activeSection === "matching" ? controller.selectedTemplateOverlays : []}
+                  templateOverlayVariants={controller.activeSection === "matching" ? controller.templateOverlayVariants : []}
+                  previewTemplateOverlayLabel={controller.activeSection === "matching" ? previewTemplateOverlayLabel : null}
                   matchingEvidenceLoaded={controller.activeSection === "matching" ? controller.matchingEvidenceLoaded : false}
                   matchingUnmatchedNodeIds={controller.activeSection === "matching" ? controller.matchingUnmatchedNodeIds : []}
                   showRoiCornerGuides={

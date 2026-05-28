@@ -17,8 +17,10 @@ import {
 } from "@/lib/api";
 import { toImageSrc } from "@/lib/utils";
 import {
+  buildActiveTemplateOverlayLabels,
   getCompactNodeLabel,
   getDelaunayConstraintStyle,
+  getBossMatchState,
   getNodePointTag,
   getReconstructionBossStyle,
 } from "@/components/geometry2d/projectionCanvasUtils";
@@ -66,6 +68,8 @@ interface ProjectionCanvasProps {
   templateBossPoints?: Geometry2DNodePoint[];
   selectedBossPointId?: number;
   selectedTemplateOverlays?: Geometry2DCutTypologyOverlayVariant[];
+  templateOverlayVariants?: Geometry2DCutTypologyOverlayVariant[];
+  previewTemplateOverlayLabel?: string | null;
   matchingEvidenceLoaded?: boolean;
   matchingUnmatchedNodeIds?: number[];
   showRoiCornerGuides?: boolean;
@@ -114,6 +118,8 @@ export function ProjectionCanvas({
   templateBossPoints = [],
   selectedBossPointId,
   selectedTemplateOverlays = [],
+  templateOverlayVariants = [],
+  previewTemplateOverlayLabel = null,
   matchingEvidenceLoaded = false,
   matchingUnmatchedNodeIds = [],
   showRoiCornerGuides = false,
@@ -164,6 +170,7 @@ export function ProjectionCanvas({
     matchState: "matched" | "partial" | "unmatched";
     outOfBounds: boolean;
   } | null>(null);
+  const [activeBossGuideId, setActiveBossGuideId] = useState<number | null>(null);
   const [hoveredReconstructionEdge, setHoveredReconstructionEdge] = useState<{
     a: number;
     b: number;
@@ -198,7 +205,25 @@ export function ProjectionCanvas({
     bossHoverInfoMode === "matching" &&
     hasStableMatchingEvidence &&
     templateBossPoints.some((point) => isTemplatePointUnmatched(point));
-  const showTemplateOverlayLegend = selectedTemplateOverlays.length > 0;
+  const activeBossGuidePoint =
+    bossHoverInfoMode === "matching"
+      ? templateBossPoints.find((point) => point.id === activeBossGuideId) || null
+      : null;
+  const activeBossGuideState = activeBossGuidePoint
+    ? getBossMatchState(activeBossGuidePoint)
+    : "unmatched";
+  const activeTemplateOverlayLabels = buildActiveTemplateOverlayLabels(
+    selectedTemplateOverlays.map((variant) => variant.variantLabel),
+    previewTemplateOverlayLabel
+  );
+  const renderedTemplateOverlays = activeTemplateOverlayLabels
+    .map((label) =>
+      selectedTemplateOverlays.find((variant) => variant.variantLabel === label) ||
+      templateOverlayVariants.find((variant) => variant.variantLabel === label)
+    )
+    .filter((variant): variant is Geometry2DCutTypologyOverlayVariant => !!variant);
+  const isPreviewingTemplateOverlay = !!previewTemplateOverlayLabel;
+  const showTemplateOverlayLegend = renderedTemplateOverlays.length > 0;
   const showCornerGuideLegend = showRoiCornerGuides && showROI && bossHoverInfoMode === "nodes";
   const showAnyRoiLayer = showROI || showOriginalComparison || showUpdatedComparison;
   const projectionResolution = selectedProjection?.settings?.resolution || 2048;
@@ -423,7 +448,7 @@ export function ProjectionCanvas({
     }
     if (variant.templateType === "circlecut") {
       return {
-        color: label === "circlecut_outer" ? "#38bdf8" : "#22d3ee",
+        color: label === "circlecut_outer" ? "#38bdf8" : "#10b981",
         label: label === "circlecut_outer" ? "Circlecut outer" : "Circlecut inner",
         canvasDash: [],
         svgDash: "none",
@@ -432,13 +457,11 @@ export function ProjectionCanvas({
     }
     if (variant.templateType === "starcut") {
       const n = typeof variant.n === "number" ? variant.n : null;
-      const dash = n !== null && n >= 4 ? (n >= 6 ? [2.5, 2.5] : [6, 3]) : [];
-      const svgDash = n !== null && n >= 4 ? (n >= 6 ? "0.55 0.5" : "1.2 0.8") : "none";
       return {
         color: getStarcutOverlayColor(n),
         label: n !== null ? `Standardcut n=${n}` : "Standardcut",
-        canvasDash: dash,
-        svgDash,
+        canvasDash: [],
+        svgDash: "none",
         width: 1.35,
       };
     }
@@ -483,6 +506,9 @@ export function ProjectionCanvas({
       return [item];
     });
   })();
+  const previewTemplateOverlay = previewTemplateOverlayLabel
+    ? renderedTemplateOverlays.find((variant) => variant.variantLabel === previewTemplateOverlayLabel) || null
+    : null;
 
   const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
   const getViewportRect = (event: React.MouseEvent<HTMLDivElement>) =>
@@ -609,6 +635,15 @@ export function ProjectionCanvas({
       event.preventDefault();
       return;
     }
+    if (bossHoverInfoMode === "matching" && !roiInteractive && !bossPointInteractive) {
+      const nearestBoss = findNearestBossAtPointer(event);
+      if (nearestBoss && nearestBoss.distance <= 14) {
+        setActiveBossGuideId((currentId) => currentId === nearestBoss.id ? null : nearestBoss.id);
+        event.preventDefault();
+        return;
+      }
+      setActiveBossGuideId(null);
+    }
     if (bossPointInteractive) {
       const nearestBoss = findNearestBossAtPointer(event, true);
       if (nearestBoss && nearestBoss.distance <= 14) {
@@ -676,7 +711,7 @@ export function ProjectionCanvas({
             yTemplateLabel: point.matchedYTemplateLabel,
             xError: point.matchedXError,
             yError: point.matchedYError,
-            matched: bossHoverInfoMode === "matching" && hasStableMatchingEvidence ? !isUnmatched : !!(point.matchedXTemplateLabel && point.matchedYTemplateLabel),
+            matched: !!(point.matchedXTemplateLabel && point.matchedYTemplateLabel),
             matchState: (() => {
               const hasX = !!point.matchedXTemplateLabel;
               const hasY = !!point.matchedYTemplateLabel;
@@ -943,14 +978,15 @@ export function ProjectionCanvas({
       }
     }
 
-    if (selectedTemplateOverlays.length > 0) {
-      selectedTemplateOverlays.forEach((variant) => {
+    if (renderedTemplateOverlays.length > 0) {
+      renderedTemplateOverlays.forEach((variant) => {
         const style = getTemplateOverlayStyle(variant);
+        const isPreview = previewTemplateOverlayLabel === variant.variantLabel;
         context.save();
         context.strokeStyle = style.color;
         context.fillStyle = style.color;
-        context.globalAlpha = 0.78;
-        context.lineWidth = style.width;
+        context.globalAlpha = isPreviewingTemplateOverlay ? (isPreview ? 0.9 : 0.28) : 0.78;
+        context.lineWidth = isPreview ? style.width + 0.45 : style.width;
         context.setLineDash(style.canvasDash);
 
         variant.overlay.linesUv.forEach((line) => {
@@ -982,13 +1018,10 @@ export function ProjectionCanvas({
         const isCorner = point.pointType === "corner";
         const isOutside = point.outOfBounds;
         const isSelected = selectedBossPointId === point.id;
+        const matchState = getBossMatchState(point);
         const isUnmatched = isTemplatePointUnmatched(point);
-        // Partial = exactly one of the two axis labels is set. Renders amber
-        // so the user can tell at-a-glance it isn't a full typology match.
-        const hasXMatch = !!point.matchedXTemplateLabel;
-        const hasYMatch = !!point.matchedYTemplateLabel;
         const isPartial = !isCorner && !isUnmatched && bossHoverInfoMode === "matching"
-          && hasStableMatchingEvidence && (hasXMatch !== hasYMatch);
+          && hasStableMatchingEvidence && matchState === "partial";
         const fill = isOutside
           ? "#ef4444"
           : isUnmatched
@@ -1505,10 +1538,33 @@ export function ProjectionCanvas({
                   ))}
                 </>
               )}
+              {previewTemplateOverlay && (
+                (() => {
+                  const previewStyle = getTemplateOverlayStyle(previewTemplateOverlay);
+                  return (
+                    <span className="inline-flex items-center gap-1.5 rounded border border-amber-300/35 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-amber-100">
+                      <span
+                        className="h-0 w-4 border-t-2"
+                        style={{ borderColor: previewStyle.color, borderTopStyle: previewStyle.canvasDash.length > 0 ? "dashed" : "solid" }}
+                      />
+                      Preview: {previewStyle.label}
+                    </span>
+                  );
+                })()
+              )}
               {hasUnmatchedTemplateBosses && (
                 <span className="inline-flex items-center gap-1.5 rounded border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-white/80">
                   <span className="h-2.5 w-2.5 rounded-full border border-white bg-red-500" />
                   Unmatched node
+                </span>
+              )}
+              {activeBossGuidePoint && activeBossGuideState !== "corner" && (
+                <span className="inline-flex items-center gap-1.5 rounded border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-white/80">
+                  <span
+                    className="h-0 w-4 border-t-2 border-dashed"
+                    style={{ borderColor: "#f472b6" }}
+                  />
+                  Reference guide
                 </span>
               )}
               {showReconstruction && (
@@ -1760,14 +1816,17 @@ export function ProjectionCanvas({
                 </svg>
               )}
 
-              {(selectedTemplateOverlays.length > 0 || templateBossPoints.length > 0) && (
+              {(renderedTemplateOverlays.length > 0 || templateBossPoints.length > 0) && (
                 <svg
                   className="absolute inset-0 w-full h-full pointer-events-none"
                   viewBox="0 0 100 100"
                   preserveAspectRatio="none"
                 >
-                {selectedTemplateOverlays.map((variant) => {
+                {renderedTemplateOverlays.map((variant) => {
                   const style = getTemplateOverlayStyle(variant);
+                  const overlayOpacity = isPreviewingTemplateOverlay && variant.variantLabel !== previewTemplateOverlayLabel
+                    ? 0.28
+                    : 0.86;
                   return (
                     <g key={variant.variantLabel}>
                       {variant.overlay.linesUv.map((line, lineIndex) => {
@@ -1784,7 +1843,7 @@ export function ProjectionCanvas({
                             stroke={style.color}
                             strokeWidth={variant.templateType === "cross" ? 0.22 : 0.28}
                             strokeDasharray={style.svgDash}
-                            opacity={0.78}
+                            opacity={overlayOpacity}
                           />
                         );
                       })}
@@ -1797,7 +1856,7 @@ export function ProjectionCanvas({
                             cy={pos.y * 100}
                             r="0.28"
                             fill={style.color}
-                            opacity={0.78}
+                            opacity={overlayOpacity}
                           />
                         );
                       })}
@@ -1805,16 +1864,107 @@ export function ProjectionCanvas({
                   );
                 })}
 
+                {activeBossGuidePoint && activeBossGuideState !== "corner" && (
+                  <g>
+                    {(() => {
+                      const centerX = (activeBossGuidePoint.x / projectionResolution) * 100;
+                      const centerY = (activeBossGuidePoint.y / projectionResolution) * 100;
+                      const angle = (roi.rotation * Math.PI) / 180;
+                      const xAxis = { x: Math.cos(angle), y: Math.sin(angle) };
+                      const yAxis = { x: -Math.sin(angle), y: Math.cos(angle) };
+                      const halfLength = 125;
+                      const guideStroke = "#f472b6";
+
+                      return (
+                        <>
+                          <line
+                            x1={centerX - xAxis.x * halfLength}
+                            y1={centerY - xAxis.y * halfLength}
+                            x2={centerX + xAxis.x * halfLength}
+                            y2={centerY + xAxis.y * halfLength}
+                            stroke="#020617"
+                            strokeWidth="0.72"
+                            strokeDasharray="0.9 0.65"
+                            opacity="0.82"
+                          />
+                          <line
+                            x1={centerX - yAxis.x * halfLength}
+                            y1={centerY - yAxis.y * halfLength}
+                            x2={centerX + yAxis.x * halfLength}
+                            y2={centerY + yAxis.y * halfLength}
+                            stroke="#020617"
+                            strokeWidth="0.72"
+                            strokeDasharray="0.9 0.65"
+                            opacity="0.82"
+                          />
+                          <line
+                            x1={centerX - xAxis.x * halfLength}
+                            y1={centerY - xAxis.y * halfLength}
+                            x2={centerX + xAxis.x * halfLength}
+                            y2={centerY + xAxis.y * halfLength}
+                            stroke={guideStroke}
+                            strokeWidth="0.42"
+                            strokeDasharray="0.9 0.65"
+                            opacity="0.96"
+                          />
+                          <line
+                            x1={centerX - yAxis.x * halfLength}
+                            y1={centerY - yAxis.y * halfLength}
+                            x2={centerX + yAxis.x * halfLength}
+                            y2={centerY + yAxis.y * halfLength}
+                            stroke={guideStroke}
+                            strokeWidth="0.42"
+                            strokeDasharray="0.9 0.65"
+                            opacity="0.96"
+                          />
+                          <circle
+                            cx={centerX}
+                            cy={centerY}
+                            r="1.18"
+                            fill="none"
+                            stroke={guideStroke}
+                            strokeWidth="0.46"
+                            opacity="0.95"
+                          />
+                        </>
+                      );
+                    })()}
+                  </g>
+                )}
+
                 {templateBossPoints.map((point) => (
                   <g key={`boss-point-${point.id}`}>
                     {(() => {
                       const isManual = point.source === "manual";
                       const isOutside = point.outOfBounds;
                       const isSelected = selectedBossPointId === point.id;
-                      const isUnmatched = isTemplatePointUnmatched(point);
-                      const fill = isOutside ? "#ef4444" : isUnmatched ? "#ef4444" : isManual ? "#facc15" : "#ffffff";
-                      const stroke = isOutside ? "#7f1d1d" : isUnmatched ? "#ffffff" : isManual ? "#78350f" : "#0ea5e9";
-                      const radius = isSelected ? 1.15 : isManual ? 0.95 : 0.8;
+                      const isCorner = point.pointType === "corner";
+                      const matchState = getBossMatchState(point);
+                      const isUnmatched = bossHoverInfoMode === "matching" && hasStableMatchingEvidence && matchState === "unmatched";
+                      const isPartial = bossHoverInfoMode === "matching" && hasStableMatchingEvidence && matchState === "partial";
+                      const fill = isOutside
+                        ? "#ef4444"
+                        : isUnmatched
+                          ? "#ef4444"
+                          : isPartial
+                            ? "#f59e0b"
+                            : isCorner
+                              ? "#67e8f9"
+                              : isManual
+                                ? "#facc15"
+                                : "#ffffff";
+                      const stroke = isOutside
+                        ? "#7f1d1d"
+                        : isUnmatched
+                          ? "#ffffff"
+                          : isPartial
+                            ? "#78350f"
+                            : isManual
+                              ? "#78350f"
+                              : isCorner
+                                ? "#155e75"
+                                : "#0ea5e9";
+                      const radius = isSelected ? 1.15 : isCorner ? 0.95 : isManual ? 0.95 : 0.8;
                       return (
                         <>
                           {isUnmatched && (
@@ -2270,7 +2420,7 @@ export function ProjectionCanvas({
               )}
               </div>
 
-              {hoveredBoss && (
+              {hoveredBoss && hoveredBoss.id !== activeBossGuideId && (
                 <div
                   className="absolute z-20 min-w-[220px] rounded-md border border-primary/35 bg-background/95 px-2.5 py-2 text-[11px] leading-tight pointer-events-none shadow-lg"
                   style={{
