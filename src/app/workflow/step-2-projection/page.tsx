@@ -11,10 +11,11 @@ import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProjectStore } from "@/lib/store";
 import { createProjection, getPointCloudPreview, getProjectionImageUrl, PointData } from "@/lib/api";
-import { 
+import {
   AlertCircle,
-  ChevronLeft, 
-  ChevronRight, 
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ChevronDown,
   Plus,
   Trash2,
@@ -27,7 +28,6 @@ import {
   Image as ImageIcon,
   Box,
   Grid3X3,
-  Layers,
   Settings2
 } from "lucide-react";
 import { cn, toImageSrc } from "@/lib/utils";
@@ -64,7 +64,6 @@ const POINT_COUNT_PRESETS = [
   { value: 2000000, label: "2M" },
 ];
 
-// Helper to format numbers
 const formatNumber = (n: number) => {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
@@ -73,14 +72,13 @@ const formatNumber = (n: number) => {
 
 type ColorMode2D = "height" | "rgb" | "intensity" | "uniform";
 
-// Canvas-based 2D projection preview - handles ALL points efficiently
-function Projection2DPreview({ 
-  points, 
+function Projection2DPreview({
+  points,
   perspective,
   resolution,
   totalPointCount
-}: { 
-  points: PointData[]; 
+}: {
+  points: PointData[];
   perspective: Perspective;
   resolution: number;
   totalPointCount: number;
@@ -88,8 +86,7 @@ function Projection2DPreview({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [colorMode, setColorMode] = useState<ColorMode2D>("height");
   const [pointSize, setPointSize] = useState(1);
-  
-  // HSL to RGB helper
+
   const hsl2rgb = useCallback((h: number, s: number, l: number): [number, number, number] => {
     const c = (1 - Math.abs(2 * l - 1)) * s;
     const x = c * (1 - Math.abs((h * 6) % 2 - 1));
@@ -103,24 +100,21 @@ function Projection2DPreview({
     else { r = c; g = 0; b = x; }
     return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
   }, []);
-  
-  // Render to canvas - can handle ALL points
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || points.length === 0) return;
-    
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
-    const size = 800; // Internal canvas resolution
+
+    const size = 800;
     canvas.width = size;
     canvas.height = size;
-    
-    // Clear and draw background
+
     ctx.fillStyle = '#0a0f1a';
     ctx.fillRect(0, 0, size, size);
-    
-    // Draw grid
+
     ctx.strokeStyle = '#1a2744';
     ctx.lineWidth = 1;
     for (let i = 1; i < 10; i++) {
@@ -134,13 +128,12 @@ function Projection2DPreview({
       ctx.lineTo(size, pos);
       ctx.stroke();
     }
-    
-    // Calculate bounds
+
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
     let minZ = Infinity, maxZ = -Infinity;
     let minIntensity = Infinity, maxIntensity = -Infinity;
-    
+
     for (const p of points) {
       if (p.x < minX) minX = p.x;
       if (p.x > maxX) maxX = p.x;
@@ -153,18 +146,17 @@ function Projection2DPreview({
         if (p.intensity > maxIntensity) maxIntensity = p.intensity;
       }
     }
-    
+
     const rangeX = maxX - minX || 1;
     const rangeY = maxY - minY || 1;
     const rangeZ = maxZ - minZ || 1;
     const rangeIntensity = maxIntensity - minIntensity || 1;
-    
-    // Project and sort all points by depth
+
     const projected: { x: number; y: number; depth: number; r: number; g: number; b: number }[] = [];
-    
+
     for (const p of points) {
       let px: number, py: number, depth: number;
-      
+
       switch (perspective) {
         case "top":
           px = (p.x - minX) / rangeX;
@@ -201,10 +193,9 @@ function Projection2DPreview({
           py = (p.y - minY) / rangeY;
           depth = (p.z - minZ) / rangeZ;
       }
-      
-      // Calculate color based on mode
+
       let r: number, g: number, b: number;
-      
+
       switch (colorMode) {
         case "rgb":
           if (p.r !== undefined && p.g !== undefined && p.b !== undefined) {
@@ -217,7 +208,6 @@ function Projection2DPreview({
             r = hr; g = hg; b = hb;
           }
           break;
-          
         case "intensity":
           if (p.intensity !== undefined) {
             const normalizedIntensity = (p.intensity - minIntensity) / rangeIntensity;
@@ -228,13 +218,11 @@ function Projection2DPreview({
             r = g = b = value;
           }
           break;
-          
         case "uniform":
           r = Math.floor(180 + depth * 40);
           g = Math.floor(140 + depth * 30);
           b = Math.floor(80 + depth * 20);
           break;
-          
         case "height":
         default:
           const normalized = (p.z - minZ) / rangeZ;
@@ -242,17 +230,15 @@ function Projection2DPreview({
           r = hr; g = hg; b = hb;
           break;
       }
-      
+
       projected.push({ x: px, y: py, depth, r, g, b });
     }
-    
-    // Sort by depth (back to front)
+
     projected.sort((a, b) => a.depth - b.depth);
-    
-    // Draw all points
+
     const margin = size * 0.03;
     const drawSize = size - margin * 2;
-    
+
     for (const p of projected) {
       ctx.fillStyle = `rgb(${Math.round(p.r)}, ${Math.round(p.g)}, ${Math.round(p.b)})`;
       ctx.beginPath();
@@ -265,16 +251,15 @@ function Projection2DPreview({
       );
       ctx.fill();
     }
-    
-    // Draw border
+
     ctx.strokeStyle = '#C9A227';
     ctx.lineWidth = 2;
     ctx.globalAlpha = 0.5;
     ctx.strokeRect(margin, margin, drawSize, drawSize);
     ctx.globalAlpha = 1;
-    
+
   }, [points, perspective, colorMode, pointSize, hsl2rgb]);
-  
+
   if (points.length === 0) {
     return (
       <div className="aspect-square bg-muted/30 rounded-lg flex items-center justify-center">
@@ -282,24 +267,21 @@ function Projection2DPreview({
       </div>
     );
   }
-  
+
   return (
     <div className="space-y-3">
       <div className="aspect-square bg-[#0a0f1a] rounded-lg overflow-hidden relative">
-        <canvas 
+        <canvas
           ref={canvasRef}
           className="w-full h-full"
           style={{ imageRendering: 'auto' }}
         />
-        
-        {/* Info overlays */}
         <div className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs">
           {resolution} × {resolution}
         </div>
         <div className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs capitalize">
           {perspective} projection
         </div>
-        {/* Bottom info bar - combined to avoid overlap */}
         <div className="absolute bottom-2 left-2 right-2 flex justify-between items-center">
           <div className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-[10px] flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
@@ -310,10 +292,8 @@ function Projection2DPreview({
           </div>
         </div>
       </div>
-      
-      {/* Controls - same style as 3D viewer */}
+
       <div className="flex items-end justify-between gap-4 flex-wrap">
-        {/* Color mode buttons */}
         <div className="flex gap-1 bg-muted/50 rounded-lg p-1">
           {(["height", "rgb", "intensity", "uniform"] as const).map((mode) => (
             <Button
@@ -327,8 +307,6 @@ function Projection2DPreview({
             </Button>
           ))}
         </div>
-        
-        {/* Point size slider */}
         <div className="flex items-center gap-3 bg-muted/50 rounded-lg px-3 py-2">
           <Label className="text-xs text-muted-foreground whitespace-nowrap">Point Size</Label>
           <Slider
@@ -348,7 +326,7 @@ function Projection2DPreview({
 export default function Step2ProjectionPage() {
   const router = useRouter();
   const { currentProject, addProjection, updateProjection, removeProjection, completeStep, saveProject } = useProjectStore();
-  
+
   // Projection settings
   const [perspective, setPerspective] = useState<Perspective>("bottom");
   const [resolution, setResolution] = useState(2048);
@@ -356,7 +334,7 @@ export default function Step2ProjectionPage() {
   const [kernelSize, setKernelSize] = useState(5);
   const [bottomUp, setBottomUp] = useState(true);
   const [scale, setScale] = useState(1.0);
-  
+
   // UI state
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -364,7 +342,6 @@ export default function Step2ProjectionPage() {
   const [pointCloudData, setPointCloudData] = useState<PointData[]>([]);
   const [activeTab, setActiveTab] = useState("3d");
   const [selectedProjectionId, setSelectedProjectionId] = useState<string | null>(null);
-  const [viewingPreview, setViewingPreview] = useState(false); // Track if user wants to view preview
   const [totalPointCount, setTotalPointCount] = useState(0);
   const [displayPointCount, setDisplayPointCount] = useState(100000);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -373,21 +350,23 @@ export default function Step2ProjectionPage() {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isLoadingSelectedImage, setIsLoadingSelectedImage] = useState(false);
   const [selectedImageType, setSelectedImageType] = useState<ProjectionImageType>("colour");
-  
-  // Get selected projection for display
+  // Whether the user has expanded the "generate a different projection" panel
+  const [showRegeneratePanel, setShowRegeneratePanel] = useState(false);
+
+  const hasAutoGeneratedRef = useRef(false);
+  const initialDisplayPointCountRef = useRef(displayPointCount);
+
+  const hasProjections = (currentProject?.projections?.length ?? 0) > 0;
+
   const selectedProjection = useMemo(() => {
     if (!selectedProjectionId || !currentProject?.projections) return null;
     return currentProject.projections.find(p => p.id === selectedProjectionId) || null;
   }, [selectedProjectionId, currentProject?.projections]);
-  
-  // Step 2 keeps all generated projection render modes available for inspection.
+
   const currentImage = useMemo(() => {
     if (!selectedProjection?.images) return null;
     return selectedProjection.images[selectedImageType] || null;
   }, [selectedImageType, selectedProjection]);
-  
-  // Load point cloud data
-  const initialDisplayPointCountRef = useRef(displayPointCount);
 
   const loadPointCloud = useCallback(async (maxPoints: number, showReloading = false) => {
     if (showReloading) {
@@ -395,7 +374,6 @@ export default function Step2ProjectionPage() {
     } else {
       setIsLoading(true);
     }
-    
     try {
       const response = await getPointCloudPreview(maxPoints);
       if (response.success && response.data) {
@@ -409,27 +387,22 @@ export default function Step2ProjectionPage() {
       setIsReloading(false);
     }
   }, []);
-  
-  // Load on mount
+
   useEffect(() => {
     loadPointCloud(initialDisplayPointCountRef.current);
   }, [loadPointCloud]);
-  
-  // Select first existing projection if available (but not if user is viewing preview)
+
+  // Auto-select the most recently generated projection
   useEffect(() => {
-    if (!selectedProjectionId && currentProject?.projections?.length && !viewingPreview) {
-      setSelectedProjectionId(currentProject.projections[0].id);
+    if (currentProject?.projections?.length && !selectedProjectionId) {
+      setSelectedProjectionId(currentProject.projections[currentProject.projections.length - 1].id);
     }
-  }, [currentProject?.projections, selectedProjectionId, viewingPreview]);
-  
-  const handleReloadPoints = () => {
-    loadPointCloud(displayPointCount, true);
-  };
-  
-  const handleGenerate = async () => {
+  }, [currentProject?.projections, selectedProjectionId]);
+
+  const handleGenerate = useCallback(async () => {
     setIsGenerating(true);
     setGenerationError(null);
-    
+
     try {
       const response = await createProjection({
         perspective,
@@ -439,58 +412,52 @@ export default function Step2ProjectionPage() {
         bottomUp,
         scale,
       });
-      
+
       if (response.success && response.data) {
         const colourPreview = await getProjectionImageUrl(response.data.id, "colour");
-
         addProjection({
           id: response.data.id,
-          settings: { 
-            perspective, 
-            resolution, 
-            sigma, 
-            kernelSize, 
-            bottomUp, 
-            scale 
-          },
-          images: {
-            colour: colourPreview || undefined,
-          },
+          settings: { perspective, resolution, sigma, kernelSize, bottomUp, scale },
+          images: { colour: colourPreview || undefined },
           previewImage: colourPreview || undefined,
           metadata: response.data.metadata,
         });
-        
-        // Auto-select the new projection
         setSelectedProjectionId(response.data.id);
+        setShowRegeneratePanel(false);
       } else {
-        const errorMessage = response.error || "Projection generation failed";
-        setGenerationError(errorMessage);
-        console.error("Projection failed:", errorMessage);
+        setGenerationError(response.error || "Projection generation failed");
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Failed to generate projection";
-      setGenerationError(errorMessage);
-      console.error("Failed to generate projection:", error);
+      setGenerationError(error instanceof Error ? error.message : "Failed to generate projection");
     } finally {
       setIsGenerating(false);
     }
-  };
-  
+  }, [perspective, resolution, sigma, kernelSize, bottomUp, scale, addProjection]);
+
+  // Auto-generate on first visit if no projections exist yet
+  useEffect(() => {
+    if (hasAutoGeneratedRef.current) return;
+    if (isLoading) return;
+    if (currentProject?.projections?.length) return;
+    hasAutoGeneratedRef.current = true;
+    void handleGenerate();
+  }, [isLoading, currentProject?.projections?.length, handleGenerate]);
+
+  const handleReloadPoints = () => loadPointCloud(displayPointCount, true);
+
   const handleContinue = async () => {
     await saveProject();
     completeStep(2, { projections: currentProject?.projections });
     router.push("/workflow/step-3-segmentation");
   };
 
+  // Lazy-load projection image types other than colour
   useEffect(() => {
     if (!selectedProjectionId) return;
-
-    const selectedProjectionForImage = currentProject?.projections.find((proj) => proj.id === selectedProjectionId);
-    if (!selectedProjectionForImage) return;
-
-    if (selectedProjectionForImage.images?.[selectedImageType]) return;
-
-    const imageOption = PROJECTION_IMAGE_OPTIONS.find((option) => option.value === selectedImageType);
+    const proj = currentProject?.projections.find((p) => p.id === selectedProjectionId);
+    if (!proj) return;
+    if (proj.images?.[selectedImageType]) return;
+    const imageOption = PROJECTION_IMAGE_OPTIONS.find((o) => o.value === selectedImageType);
     if (!imageOption) return;
 
     let cancelled = false;
@@ -500,619 +467,582 @@ export default function Step2ProjectionPage() {
         const image = await getProjectionImageUrl(selectedProjectionId, imageOption.apiType);
         if (!cancelled && image) {
           updateProjection(selectedProjectionId, {
-            images: {
-              [selectedImageType]: image,
-            },
-            previewImage: selectedImageType === "colour" ? image : selectedProjectionForImage.previewImage,
+            images: { [selectedImageType]: image },
+            previewImage: selectedImageType === "colour" ? image : proj.previewImage,
           });
         }
       } finally {
-        if (!cancelled) {
-          setIsLoadingSelectedImage(false);
-        }
+        if (!cancelled) setIsLoadingSelectedImage(false);
       }
     };
-
     void loadImage();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [currentProject?.projections, selectedImageType, selectedProjectionId, updateProjection]);
+
+  // ── Shared: projection image display ──────────────────────────────────────
+  const projectionImagePanel = selectedProjection && (
+    <div className="space-y-4">
+      <div className="flex justify-center gap-1">
+        {PROJECTION_IMAGE_OPTIONS.map((option) => (
+          <Button
+            key={option.value}
+            type="button"
+            variant={selectedImageType === option.value ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSelectedImageType(option.value)}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </div>
+      <div className="aspect-square max-w-lg mx-auto rounded-lg overflow-hidden bg-[#0a0f1a] relative">
+        {currentImage ? (
+          <img
+            src={toImageSrc(currentImage)}
+            alt={`${selectedProjection.settings.perspective} projection - ${selectedImageType}`}
+            className="w-full h-full object-contain"
+          />
+        ) : isLoadingSelectedImage ? (
+          <div className="w-full h-full flex items-center justify-center gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading image...
+          </div>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+            Image not available
+          </div>
+        )}
+        <div className="absolute top-3 left-3 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs capitalize">
+          {selectedProjection.settings.perspective} view
+        </div>
+        <div className="absolute top-3 right-3 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs">
+          {selectedProjection.settings.resolution}px · σ{selectedProjection.settings.sigma}
+        </div>
+        <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center">
+          <div className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-[10px] flex items-center gap-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+            Gaussian Splatting
+          </div>
+          <div className="bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] capitalize">
+            {PROJECTION_IMAGE_OPTIONS.find((o) => o.value === selectedImageType)?.label ?? "Colour"}
+          </div>
+        </div>
+      </div>
+      {selectedProjection.metadata && (
+        <p className="text-center text-xs text-muted-foreground">
+          {selectedProjection.metadata.point_count?.toLocaleString()} points rendered
+        </p>
+      )}
+    </div>
+  );
+
+  // ── Settings panel (reused in regenerate view) ────────────────────────────
+  const settingsPanel = (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg font-display">Projection Settings</CardTitle>
+        <CardDescription>Select view angle and output options</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Perspective selection */}
+        <div className="space-y-3">
+          <Label>Perspective View</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {PERSPECTIVE_OPTIONS.slice(0, 1).map((option) => (
+              <Button
+                key={option.value}
+                variant={perspective === option.value ? "default" : "outline"}
+                size="sm"
+                className={cn(
+                  "justify-start gap-2 h-auto py-2",
+                  perspective === option.value && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                )}
+                onClick={() => setPerspective(option.value)}
+              >
+                {option.icon}
+                <span>{option.label}</span>
+              </Button>
+            ))}
+            {!showMorePerspectives && perspective !== "bottom" && (() => {
+              const selected = PERSPECTIVE_OPTIONS.find(o => o.value === perspective);
+              return selected ? (
+                <Button
+                  key={selected.value}
+                  variant="default"
+                  size="sm"
+                  className="justify-start gap-2 h-auto py-2 ring-2 ring-primary ring-offset-2 ring-offset-background"
+                  onClick={() => setPerspective(selected.value)}
+                >
+                  {selected.icon}
+                  <span>{selected.label}</span>
+                </Button>
+              ) : null;
+            })()}
+          </div>
+          {showMorePerspectives && (
+            <div className="grid grid-cols-2 gap-2">
+              {PERSPECTIVE_OPTIONS.slice(1).map((option) => (
+                <Button
+                  key={option.value}
+                  variant={perspective === option.value ? "default" : "outline"}
+                  size="sm"
+                  className={cn(
+                    "justify-start gap-2 h-auto py-2",
+                    perspective === option.value && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                  )}
+                  onClick={() => setPerspective(option.value)}
+                >
+                  {option.icon}
+                  <span>{option.label}</span>
+                </Button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowMorePerspectives(!showMorePerspectives)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronDown className={cn("w-3 h-3 transition-transform", showMorePerspectives && "rotate-180")} />
+            {showMorePerspectives ? "View less" : "View more options"}
+          </button>
+          <p className="text-xs text-muted-foreground">
+            {PERSPECTIVE_OPTIONS.find(o => o.value === perspective)?.description}
+          </p>
+        </div>
+
+        {/* Advanced settings */}
+        <div className="border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+            className="w-full flex items-center justify-between p-3 bg-muted/50 hover:bg-muted transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Settings2 className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Advanced Settings</span>
+            </div>
+            <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", showAdvancedSettings && "rotate-180")} />
+          </button>
+          {showAdvancedSettings && (
+            <div className="p-4 space-y-5 border-t bg-muted/20">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Output Resolution</Label>
+                  <span className="text-sm font-medium text-primary">{resolution}px</span>
+                </div>
+                <Slider value={[resolution]} onValueChange={([v]) => setResolution(v)} min={512} max={4096} step={256} />
+                <div className="flex justify-between text-xs text-muted-foreground"><span>512px</span><span>4096px</span></div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Gaussian Spread (σ)</Label>
+                  <span className="text-sm font-medium text-primary">{sigma.toFixed(1)}</span>
+                </div>
+                <Slider value={[sigma * 10]} onValueChange={([v]) => setSigma(v / 10)} min={5} max={30} step={1} />
+                <p className="text-xs text-muted-foreground">Controls point spread. Higher = smoother, Lower = sharper</p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Kernel Size</Label>
+                  <span className="text-sm font-medium text-primary">{kernelSize}px</span>
+                </div>
+                <Slider value={[kernelSize]} onValueChange={([v]) => setKernelSize(v % 2 === 0 ? v + 1 : v)} min={3} max={11} step={2} />
+                <p className="text-xs text-muted-foreground">Gaussian kernel size (must be odd)</p>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Bottom-up View</Label>
+                  <p className="text-xs text-muted-foreground">Looking up at the vault</p>
+                </div>
+                <Button variant={bottomUp ? "default" : "outline"} size="sm" onClick={() => setBottomUp(!bottomUp)}>
+                  {bottomUp ? "On" : "Off"}
+                </Button>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Scale Factor</Label>
+                  <span className="text-sm font-medium text-primary">{scale.toFixed(1)}×</span>
+                </div>
+                <Slider value={[scale * 10]} onValueChange={([v]) => setScale(v / 10)} min={5} max={20} step={1} />
+                <p className="text-xs text-muted-foreground">Adjust to fit the vault region in the output image</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <Button onClick={handleGenerate} disabled={isGenerating || isLoading} className="w-full gap-2" size="lg">
+          {isGenerating ? (
+            <><Loader2 className="w-4 h-4 animate-spin" />Generating...</>
+          ) : (
+            <><Plus className="w-4 h-4" />Generate Projection</>
+          )}
+        </Button>
+
+        {generationError && (
+          <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <p>{generationError}</p>
+          </div>
+        )}
+
+        {totalPointCount > 0 && (
+          <p className="text-xs text-muted-foreground text-center">
+            Large point clouds are sampled automatically for stable projection generation.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="space-y-6">
-      <StepHeader 
+      <StepHeader
         title="3D to 2D Projection"
         description="Generate scaled 2D images from different perspectives for segmentation analysis"
       />
-      
-      <div className="grid lg:grid-cols-12 gap-6">
-        {/* Settings Panel */}
-        <div className="lg:col-span-4 space-y-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-display">Projection Settings</CardTitle>
-              <CardDescription>Select view angle and output options</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Perspective Selection */}
-              <div className="space-y-3">
-                <Label>Perspective View</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  {/* Always show Bottom Up (default) */}
-                  {PERSPECTIVE_OPTIONS.slice(0, 1).map((option) => (
-                    <Button
-                      key={option.value}
-                      variant={perspective === option.value ? "default" : "outline"}
-                      size="sm"
-                      className={cn(
-                        "justify-start gap-2 h-auto py-2",
-                        perspective === option.value && "ring-2 ring-primary ring-offset-2 ring-offset-background"
-                      )}
-                      onClick={() => setPerspective(option.value)}
-                    >
-                      {option.icon}
-                      <span>{option.label}</span>
-                    </Button>
-                  ))}
-                  {/* Show selected non-default option when collapsed */}
-                  {!showMorePerspectives && perspective !== "bottom" && (() => {
-                    const selected = PERSPECTIVE_OPTIONS.find(o => o.value === perspective);
-                    return selected ? (
-                      <Button
-                        key={selected.value}
-                        variant="default"
-                        size="sm"
-                        className="justify-start gap-2 h-auto py-2 ring-2 ring-primary ring-offset-2 ring-offset-background"
-                        onClick={() => setPerspective(selected.value)}
-                      >
-                        {selected.icon}
-                        <span>{selected.label}</span>
-                      </Button>
-                    ) : null;
-                  })()}
+
+      {/* ── State A: generating (initial auto-generate or manual regenerate) ── */}
+      {isGenerating && !hasProjections && (
+        <div className="h-[500px] rounded-lg bg-muted/30 flex items-center justify-center">
+          <div className="text-center space-y-3">
+            <Loader2 className="w-10 h-10 animate-spin mx-auto text-primary" />
+            <p className="text-sm font-medium">Generating bottom-up projection…</p>
+            <p className="text-xs text-muted-foreground">This usually takes 15–30 seconds</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── State B: has a projection, user hasn't opened regenerate panel ── */}
+      {hasProjections && !showRegeneratePanel && (
+        <div className="space-y-6">
+          {/* Projection image — centred, same width as the confirmation card */}
+          <div className="max-w-2xl mx-auto">
+            {projectionImagePanel}
+          </div>
+
+          {/* Confirmation card */}
+          <Card className="max-w-2xl mx-auto border-primary/20 bg-primary/5">
+            <CardContent className="py-5">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium text-sm">Does this projection look OK?</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Ribs and bosses should be clearly visible. If the image looks washed out or clipped, try regenerating with adjusted settings.
+                    </p>
+                  </div>
                 </div>
-
-                {/* Accordion: remaining options */}
-                {showMorePerspectives && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {PERSPECTIVE_OPTIONS.slice(1).map((option) => (
-                      <Button
-                        key={option.value}
-                        variant={perspective === option.value ? "default" : "outline"}
-                        size="sm"
-                        className={cn(
-                          "justify-start gap-2 h-auto py-2",
-                          perspective === option.value && "ring-2 ring-primary ring-offset-2 ring-offset-background"
-                        )}
-                        onClick={() => setPerspective(option.value)}
-                      >
-                        {option.icon}
-                        <span>{option.label}</span>
-                      </Button>
-                    ))}
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => setShowMorePerspectives(!showMorePerspectives)}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <ChevronDown className={cn("w-3 h-3 transition-transform", showMorePerspectives && "rotate-180")} />
-                  {showMorePerspectives ? "View less" : "View more options"}
-                </button>
-
-                <p className="text-xs text-muted-foreground">
-                  {PERSPECTIVE_OPTIONS.find(o => o.value === perspective)?.description}
-                </p>
-              </div>
-              
-              {/* Advanced Settings - Collapsible */}
-              <div className="border rounded-lg overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-                  className="w-full flex items-center justify-between p-3 bg-muted/50 hover:bg-muted transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <Settings2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Advanced Settings</span>
-                  </div>
-                  <ChevronDown 
-                    className={cn(
-                      "w-4 h-4 text-muted-foreground transition-transform",
-                      showAdvancedSettings && "rotate-180"
-                    )} 
-                  />
-                </button>
-                
-                {showAdvancedSettings && (
-                  <div className="p-4 space-y-5 border-t bg-muted/20">
-                    {/* Resolution */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Label>Output Resolution</Label>
-                        <span className="text-sm font-medium text-primary">{resolution}px</span>
-                      </div>
-                      <Slider
-                        value={[resolution]}
-                        onValueChange={([v]) => setResolution(v)}
-                        min={512}
-                        max={4096}
-                        step={256}
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>512px</span>
-                        <span>4096px</span>
-                      </div>
-                    </div>
-                    
-                    {/* Gaussian Sigma */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Label>Gaussian Spread (σ)</Label>
-                        <span className="text-sm font-medium text-primary">{sigma.toFixed(1)}</span>
-                      </div>
-                      <Slider
-                        value={[sigma * 10]}
-                        onValueChange={([v]) => setSigma(v / 10)}
-                        min={5}
-                        max={30}
-                        step={1}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Controls point spread. Higher = smoother, Lower = sharper
-                      </p>
-                    </div>
-                    
-                    {/* Kernel Size */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Label>Kernel Size</Label>
-                        <span className="text-sm font-medium text-primary">{kernelSize}px</span>
-                      </div>
-                      <Slider
-                        value={[kernelSize]}
-                        onValueChange={([v]) => setKernelSize(v % 2 === 0 ? v + 1 : v)}
-                        min={3}
-                        max={11}
-                        step={2}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Gaussian kernel size (must be odd)
-                      </p>
-                    </div>
-                    
-                    {/* Bottom-up toggle */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label>Bottom-up View</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Looking up at the vault
-                        </p>
-                      </div>
-                      <Button
-                        variant={bottomUp ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setBottomUp(!bottomUp)}
-                      >
-                        {bottomUp ? "On" : "Off"}
-                      </Button>
-                    </div>
-                    
-                    {/* Scale */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Label>Scale Factor</Label>
-                        <span className="text-sm font-medium text-primary">{scale.toFixed(1)}×</span>
-                      </div>
-                      <Slider
-                        value={[scale * 10]}
-                        onValueChange={([v]) => setScale(v / 10)}
-                        min={5}
-                        max={20}
-                        step={1}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Adjust to fit the vault region in the output image
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              <Button 
-                onClick={handleGenerate}
-                disabled={isGenerating || isLoading}
-                className="w-full gap-2"
-                size="lg"
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4" />
-                    Add Projection
-                  </>
-                )}
-              </Button>
-
-              {generationError && (
-                <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                  <p>{generationError}</p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setShowRegeneratePanel(true)}
+                  >
+                    <Settings2 className="w-3.5 h-3.5" />
+                    Generate a different one
+                  </Button>
+                  <Button size="sm" className="gap-1.5" onClick={handleContinue}>
+                    Yes, continue
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
-              )}
-              
-              {totalPointCount > 0 && (
-                <p className="text-xs text-muted-foreground text-center mt-2">
-                  Large point clouds are sampled automatically for stable projection generation.
-                </p>
-              )}
+              </div>
             </CardContent>
           </Card>
-          
-          {/* Generated Projections List */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-display flex items-center justify-between">
-                <span>Projections</span>
-                <span className="text-sm font-normal text-muted-foreground">
-                  {currentProject?.projections.length || 0} created
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {(currentProject?.projections.length || 0) === 0 ? (
-                <div className="text-center py-6 space-y-2">
-                  <ImageIcon className="w-8 h-8 mx-auto text-muted-foreground/50" />
-                  <p className="text-sm text-muted-foreground">
-                    No projections generated yet
-                  </p>
-                  <p className="text-xs text-muted-foreground/70">
-                    Select a view and click "Add Projection"
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+
+          {/* Previous projections list (only shown when more than one exist) */}
+          {(currentProject?.projections.length ?? 0) > 1 && (
+            <Card className="max-w-2xl mx-auto">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm font-medium">Previous projections</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
                   {currentProject?.projections.map((proj) => (
-                    <div 
+                    <div
                       key={proj.id}
                       className={cn(
                         "flex items-center justify-between p-2 rounded-lg transition-colors group cursor-pointer",
-                        selectedProjectionId === proj.id 
-                          ? "bg-primary/20 ring-1 ring-primary" 
+                        selectedProjectionId === proj.id
+                          ? "bg-primary/20 ring-1 ring-primary"
                           : "bg-muted/50 hover:bg-muted"
                       )}
-                      onClick={() => {
-                        setSelectedProjectionId(proj.id);
-                        setViewingPreview(false);
-                      }}
+                      onClick={() => setSelectedProjectionId(proj.id)}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded overflow-hidden bg-muted flex-shrink-0">
+                        <div className="w-10 h-10 rounded overflow-hidden bg-muted flex-shrink-0">
                           {(proj.images?.colour || proj.previewImage) ? (
-                            <img 
-                              src={toImageSrc(proj.images?.colour || proj.previewImage)}
-                              alt={`${proj.settings.perspective} projection`}
-                              className="w-full h-full object-cover"
-                            />
+                            <img src={toImageSrc(proj.images?.colour || proj.previewImage)} alt="" className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
-                              <Eye className="w-4 h-4 text-muted-foreground" />
+                              <Eye className="w-3 h-3 text-muted-foreground" />
                             </div>
                           )}
                         </div>
                         <div>
-                          <p className="text-sm font-medium capitalize">
-                            {proj.settings.perspective} View
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {proj.settings.resolution}px • σ{proj.settings.sigma}
-                          </p>
+                          <p className="text-sm font-medium capitalize">{proj.settings.perspective} View</p>
+                          <p className="text-xs text-muted-foreground">{proj.settings.resolution}px · σ{proj.settings.sigma}</p>
                         </div>
                       </div>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7"
                         onClick={(e) => {
                           e.stopPropagation();
                           removeProjection(proj.id);
-                          if (selectedProjectionId === proj.id) {
-                            setSelectedProjectionId(null);
-                            setViewingPreview(true);
-                          }
+                          if (selectedProjectionId === proj.id) setSelectedProjectionId(null);
                         }}
                       >
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
                       </Button>
                     </div>
                   ))}
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </div>
-        
-        {/* Preview Panel */}
-        <div className="lg:col-span-8">
-          <Card className="h-full">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div>
-                  <CardTitle className="text-lg font-display">Preview</CardTitle>
-                  <CardDescription>
-                    {selectedProjection 
-                      ? `Viewing generated ${selectedProjection.settings.perspective} projection`
-                      : `Displaying ${formatNumber(pointCloudData.length)} of ${formatNumber(totalPointCount)} points`}
-                    {!selectedProjection && totalPointCount > pointCloudData.length && (
-                      <span className="text-amber-500 ml-1">
-                        ({((pointCloudData.length / totalPointCount) * 100).toFixed(1)}% shown)
-                      </span>
-                    )}
-                  </CardDescription>
-                </div>
-                {!selectedProjection && (
-                  <Tabs value={activeTab} onValueChange={setActiveTab}>
-                    <TabsList className="h-8">
-                      <TabsTrigger value="3d" className="text-xs gap-1.5 px-3">
-                        <Box className="w-3 h-3" />
-                        3D View
-                      </TabsTrigger>
-                      <TabsTrigger value="2d" className="text-xs gap-1.5 px-3">
-                        <Grid3X3 className="w-3 h-3" />
-                        2D Preview
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Point Count Controls - collapsible */}
-              {!selectedProjection && (
-                <div className="border rounded-lg overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setShowDisplaySettings(!showDisplaySettings)}
-                    className="w-full flex items-center justify-between px-3 py-2 bg-muted/50 hover:bg-muted transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Eye className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Display Settings</span>
-                      <span className="text-xs text-muted-foreground font-mono">
-                        {formatNumber(displayPointCount)} pts
-                      </span>
-                    </div>
-                    <ChevronDown
-                      className={cn(
-                        "w-4 h-4 text-muted-foreground transition-transform",
-                        showDisplaySettings && "rotate-180"
-                      )}
-                    />
-                  </button>
+      )}
 
-                  {showDisplaySettings && (
-                    <div className="p-4 space-y-4 border-t bg-muted/20">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-sm font-medium">Display Points</Label>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-mono bg-background px-2 py-1 rounded">
-                            {formatNumber(displayPointCount)}
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleReloadPoints}
-                            disabled={isLoading || isReloading}
-                            className="gap-1.5"
-                          >
-                            {isReloading ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <RefreshCw className="w-3 h-3" />
-                            )}
-                            Reload
-                          </Button>
-                        </div>
-                      </div>
+      {/* ── State C: regenerate panel (two-column, full settings) ── */}
+      {showRegeneratePanel && (
+        <div className="grid lg:grid-cols-12 gap-6">
+          {/* Settings column */}
+          <div className="lg:col-span-4 space-y-4">
+            {settingsPanel}
 
-                      {/* Slider */}
-                      <div className="space-y-2">
-                        <Slider
-                          value={[displayPointCount]}
-                          onValueChange={([v]) => setDisplayPointCount(v)}
-                          min={10000}
-                          max={Math.min(totalPointCount || 2000000, 2000000)}
-                          step={10000}
-                          className="w-full"
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>10K</span>
-                          <span>{formatNumber(Math.min(totalPointCount || 2000000, 2000000))}</span>
-                        </div>
-                      </div>
-
-                      {/* Quick presets */}
-                      <div className="flex flex-wrap gap-2">
-                        {POINT_COUNT_PRESETS.filter(p => p.value <= (totalPointCount || 2000000)).map((preset) => (
-                          <Button
-                            key={preset.value}
-                            variant={displayPointCount === preset.value ? "default" : "outline"}
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => setDisplayPointCount(preset.value)}
-                          >
-                            {preset.label}
-                          </Button>
-                        ))}
-                        {totalPointCount > 0 && (
-                          <Button
-                            variant={displayPointCount === totalPointCount ? "default" : "outline"}
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => setDisplayPointCount(totalPointCount)}
-                          >
-                            All ({formatNumber(totalPointCount)})
-                          </Button>
+            {/* Projection list */}
+            {(currentProject?.projections.length ?? 0) > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg font-display flex items-center justify-between">
+                    <span>Projections</span>
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {currentProject?.projections.length ?? 0} created
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {currentProject?.projections.map((proj) => (
+                      <div
+                        key={proj.id}
+                        className={cn(
+                          "flex items-center justify-between p-2 rounded-lg transition-colors group cursor-pointer",
+                          selectedProjectionId === proj.id
+                            ? "bg-primary/20 ring-1 ring-primary"
+                            : "bg-muted/50 hover:bg-muted"
                         )}
-                      </div>
-
-                      <p className="text-xs text-muted-foreground">
-                        <strong>Note:</strong> The viewer shows a subset for performance. Projections will use all {formatNumber(totalPointCount)} points at full resolution.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {/* Main Preview Area */}
-              {isLoading ? (
-                <div className="h-[500px] rounded-lg bg-muted/30 flex items-center justify-center">
-                  <div className="text-center space-y-3">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-                    <p className="text-sm text-muted-foreground">Loading point cloud...</p>
-                  </div>
-                </div>
-              ) : selectedProjection?.images ? (
-                // Show selected generated projection with selectable render modes.
-                <div className="space-y-4">
-                  <div className="flex justify-center gap-1">
-                    {PROJECTION_IMAGE_OPTIONS.map((option) => (
-                      <Button
-                        key={option.value}
-                        type="button"
-                        variant={selectedImageType === option.value ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setSelectedImageType(option.value)}
+                        onClick={() => setSelectedProjectionId(proj.id)}
                       >
-                        {option.label}
-                      </Button>
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded overflow-hidden bg-muted flex-shrink-0">
+                            {(proj.images?.colour || proj.previewImage) ? (
+                              <img src={toImageSrc(proj.images?.colour || proj.previewImage)} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Eye className="w-4 h-4 text-muted-foreground" />
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium capitalize">{proj.settings.perspective} View</p>
+                            <p className="text-xs text-muted-foreground">{proj.settings.resolution}px · σ{proj.settings.sigma}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeProjection(proj.id);
+                            if (selectedProjectionId === proj.id) setSelectedProjectionId(null);
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     ))}
                   </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
-                  <div className="aspect-square max-w-lg mx-auto rounded-lg overflow-hidden bg-[#0a0f1a] relative">
-                    {currentImage ? (
-                      <img 
-                        src={toImageSrc(currentImage)}
-                        alt={`${selectedProjection.settings.perspective} projection - ${selectedImageType}`}
-                        className="w-full h-full object-contain"
-                      />
-                    ) : isLoadingSelectedImage ? (
-                      <div className="w-full h-full flex items-center justify-center gap-2 text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Loading image...
+          {/* Preview column */}
+          <div className="lg:col-span-8">
+            <Card className="h-full">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <CardTitle className="text-lg font-display">Preview</CardTitle>
+                    <CardDescription>
+                      {selectedProjection
+                        ? `Viewing ${selectedProjection.settings.perspective} projection`
+                        : `Displaying ${formatNumber(pointCloudData.length)} of ${formatNumber(totalPointCount)} points`}
+                    </CardDescription>
+                  </div>
+                  {!selectedProjection && (
+                    <Tabs value={activeTab} onValueChange={setActiveTab}>
+                      <TabsList className="h-8">
+                        <TabsTrigger value="3d" className="text-xs gap-1.5 px-3">
+                          <Box className="w-3 h-3" />3D View
+                        </TabsTrigger>
+                        <TabsTrigger value="2d" className="text-xs gap-1.5 px-3">
+                          <Grid3X3 className="w-3 h-3" />2D Preview
+                        </TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Display settings (point cloud view only) */}
+                {!selectedProjection && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowDisplaySettings(!showDisplaySettings)}
+                      className="w-full flex items-center justify-between px-3 py-2 bg-muted/50 hover:bg-muted transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Eye className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">Display Settings</span>
+                        <span className="text-xs text-muted-foreground font-mono">{formatNumber(displayPointCount)} pts</span>
                       </div>
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                        Image not available
+                      <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", showDisplaySettings && "rotate-180")} />
+                    </button>
+                    {showDisplaySettings && (
+                      <div className="p-4 space-y-4 border-t bg-muted/20">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm font-medium">Display Points</Label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-mono bg-background px-2 py-1 rounded">{formatNumber(displayPointCount)}</span>
+                            <Button variant="outline" size="sm" onClick={handleReloadPoints} disabled={isLoading || isReloading} className="gap-1.5">
+                              {isReloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                              Reload
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Slider
+                            value={[displayPointCount]}
+                            onValueChange={([v]) => setDisplayPointCount(v)}
+                            min={10000}
+                            max={Math.min(totalPointCount || 2000000, 2000000)}
+                            step={10000}
+                            className="w-full"
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>10K</span>
+                            <span>{formatNumber(Math.min(totalPointCount || 2000000, 2000000))}</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {POINT_COUNT_PRESETS.filter(p => p.value <= (totalPointCount || 2000000)).map((preset) => (
+                            <Button key={preset.value} variant={displayPointCount === preset.value ? "default" : "outline"} size="sm" className="h-7 text-xs" onClick={() => setDisplayPointCount(preset.value)}>
+                              {preset.label}
+                            </Button>
+                          ))}
+                          {totalPointCount > 0 && (
+                            <Button variant={displayPointCount === totalPointCount ? "default" : "outline"} size="sm" className="h-7 text-xs" onClick={() => setDisplayPointCount(totalPointCount)}>
+                              All ({formatNumber(totalPointCount)})
+                            </Button>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          <strong>Note:</strong> The viewer shows a subset for performance. Projections use all {formatNumber(totalPointCount)} points at full resolution.
+                        </p>
                       </div>
                     )}
-                    <div className="absolute top-3 left-3 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs capitalize">
-                      {selectedProjection.settings.perspective} view
-                    </div>
-                    <div className="absolute top-3 right-3 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs">
-                      {selectedProjection.settings.resolution}px • σ{selectedProjection.settings.sigma}
-                    </div>
-                    {/* Bottom info bar */}
-                    <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center">
-                      <div className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-[10px] flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                        Gaussian Splatting
-                      </div>
-                      <div className="bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] capitalize">
-                        {PROJECTION_IMAGE_OPTIONS.find((option) => option.value === selectedImageType)?.label || "Colour"}
-                      </div>
+                  </div>
+                )}
+
+                {/* Main preview area */}
+                {isLoading ? (
+                  <div className="h-[500px] rounded-lg bg-muted/30 flex items-center justify-center">
+                    <div className="text-center space-y-3">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                      <p className="text-sm text-muted-foreground">Loading point cloud...</p>
                     </div>
                   </div>
-                  
-                  {/* Metadata info */}
-                  {selectedProjection.metadata && (
-                    <div className="text-center text-xs text-muted-foreground">
-                      {selectedProjection.metadata.point_count?.toLocaleString()} points rendered
+                ) : selectedProjection?.images ? (
+                  <div className="space-y-4">
+                    {projectionImagePanel}
+                    <div className="text-center">
+                      <Button variant="outline" size="sm" onClick={() => setSelectedProjectionId(null)}>
+                        Back to Point Cloud
+                      </Button>
                     </div>
-                  )}
-                  
-                  <div className="text-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedProjectionId(null);
-                        setViewingPreview(true);
-                      }}
-                    >
-                      Back to Preview
-                    </Button>
                   </div>
-                </div>
-              ) : (
-                <div className="relative">
-                  {isReloading && (
-                    <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center rounded-lg">
-                      <div className="text-center space-y-2">
-                        <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-                        <p className="text-sm text-muted-foreground">Loading {formatNumber(displayPointCount)} points...</p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {activeTab === "3d" && (
-                    <>
-                      {/* Perspective indicator */}
-                      <div className="mb-3 flex items-center gap-3 px-3 py-2 bg-primary/10 rounded-lg">
-                        <div className="flex items-center gap-2 text-primary">
-                          {PERSPECTIVE_OPTIONS.find(o => o.value === perspective)?.icon}
-                          <span className="text-sm font-medium capitalize">{perspective} View Selected</span>
+                ) : (
+                  <div className="relative">
+                    {isReloading && (
+                      <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center rounded-lg">
+                        <div className="text-center space-y-2">
+                          <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                          <p className="text-sm text-muted-foreground">Loading {formatNumber(displayPointCount)} points...</p>
                         </div>
-                        <span className="text-xs text-muted-foreground">
-                          — Rotate the view to inspect, then click "Add Projection" to capture
-                        </span>
                       </div>
-                      
-                      {/* Use the same PointCloudViewer as Step 1 */}
-                      <PointCloudViewer
-                        points={pointCloudData}
-                        className="h-[500px] rounded-lg overflow-hidden"
-                        colorMode="height"
-                        showGrid={true}
-                        showBoundingBox={true}
-                      />
-                    </>
-                  )}
-                  {activeTab === "2d" && (
-                    <div className="flex justify-center">
-                      <div className="w-full max-w-lg">
-                        <Projection2DPreview
+                    )}
+                    {activeTab === "3d" && (
+                      <>
+                        <div className="mb-3 flex items-center gap-3 px-3 py-2 bg-primary/10 rounded-lg">
+                          <div className="flex items-center gap-2 text-primary">
+                            {PERSPECTIVE_OPTIONS.find(o => o.value === perspective)?.icon}
+                            <span className="text-sm font-medium capitalize">{perspective} View Selected</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            — Rotate the view to inspect, then click "Generate Projection" to capture
+                          </span>
+                        </div>
+                        <PointCloudViewer
                           points={pointCloudData}
-                          perspective={perspective}
-                          resolution={resolution}
-                          totalPointCount={totalPointCount}
+                          className="h-[500px] rounded-lg overflow-hidden"
+                          colorMode="height"
+                          showGrid={true}
+                          showBoundingBox={true}
                         />
+                      </>
+                    )}
+                    {activeTab === "2d" && (
+                      <div className="flex justify-center">
+                        <div className="w-full max-w-lg">
+                          <Projection2DPreview
+                            points={pointCloudData}
+                            perspective={perspective}
+                            resolution={resolution}
+                            totalPointCount={totalPointCount}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
-      </div>
-      
+      )}
+
       <StepActions>
         <Button variant="outline" onClick={() => router.push("/workflow/step-1-upload")} className="gap-2">
           <ChevronLeft className="w-4 h-4" />
           Back to Upload
         </Button>
-        <Button 
-          onClick={handleContinue} 
-          disabled={(currentProject?.projections.length || 0) === 0}
+        {showRegeneratePanel && (
+          <Button variant="ghost" onClick={() => setShowRegeneratePanel(false)} className="gap-2">
+            Cancel
+          </Button>
+        )}
+        <Button
+          onClick={handleContinue}
+          disabled={!hasProjections}
           className="gap-2"
         >
           Continue to Segmentation

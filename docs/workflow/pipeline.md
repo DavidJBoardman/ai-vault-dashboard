@@ -13,10 +13,18 @@ Vault Analyser is organised as an 8-step workflow. Each page in this section exp
 7. Calculate measurements
 8. Review the final analysis
 
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+S` / `Cmd+S` | Save the current project |
+| `Ctrl+Z` / `Cmd+Z` | Undo last segmentation change (Step 3) |
+| `Ctrl+Y` / `Cmd+Shift+Z` | Redo last undone change (Step 3) |
+
 ## How to work effectively
 
 - Work through the steps in order. Most later stages depend on files produced earlier.
-- Save at the end of each step, especially after segmentation and geometry edits.
+- Save at the end of each step, especially after segmentation and geometry edits. Use `Ctrl+S` (Windows/Linux) or `Cmd+S` (Mac) at any point to save quickly without reaching for the toolbar.
 - Use a fast exploratory pass first, then return for a cleaner final pass once you know the scan quality and vault layout.
 - If a later result looks wrong, go back to the earliest upstream step that could have caused it. In most cases that means projection, segmentation, or ROI placement.
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { StepNavigation } from "@/components/workflow/step-navigation";
@@ -29,22 +29,8 @@ export default function WorkflowLayout({
   const { currentProject, saveProject } = useProjectStore();
   const { toast } = useToast();
 
-  // Redirect to home if no project is loaded
-  useEffect(() => {
-    if (!currentProject) {
-      router.push("/");
-    }
-  }, [currentProject, router]);
-
-  if (!currentProject) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
-      </div>
-    );
-  }
-
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
+    if (!currentProject) return;
     try {
       await saveProject();
       toast({
@@ -58,7 +44,33 @@ export default function WorkflowLayout({
         description: error instanceof Error ? error.message : "Could not save project.",
       });
     }
-  };
+  }, [saveProject, currentProject, toast]);
+
+  // Redirect to home if no project is loaded
+  useEffect(() => {
+    if (!currentProject) {
+      router.push("/");
+    }
+  }, [currentProject, router]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleSave]);
+
+  if (!currentProject) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider>
@@ -85,11 +97,12 @@ export default function WorkflowLayout({
           <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={handleSave}>
+                <Button variant="default" size="sm" onClick={handleSave} className="gap-1.5">
                   <Save className="w-4 h-4" />
+                  Save
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Save Project</TooltipContent>
+              <TooltipContent>Save Project (Ctrl+S)</TooltipContent>
             </Tooltip>
           </div>
         </header>
