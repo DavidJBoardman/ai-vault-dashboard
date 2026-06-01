@@ -595,10 +595,12 @@ export const useProjectStore = create<ProjectStore>()(
         const { currentProject } = get();
         if (!currentProject) return false;
         if (step === 1) return true;
-        
-        // Check if previous step is completed
-        const prevStep = currentProject.steps[step - 1];
-        return prevStep?.completed || false;
+
+        // Step 5 (reprojection) only needs the segmentation masks from step 3,
+        // not the 2D-geometry analysis in step 4. Gate it on step 3 so it
+        // unlocks in parallel with step 4. All other steps stay linear.
+        const prerequisite = step === 5 ? 3 : step - 1;
+        return currentProject.steps[prerequisite]?.completed || false;
       },
 
       setE57Path: (path: string) => {

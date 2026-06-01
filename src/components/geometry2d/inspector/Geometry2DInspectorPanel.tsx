@@ -22,6 +22,7 @@ interface Geometry2DInspectorPanelProps {
   activeSection: Geometry2DWorkflowSection;
   isAnalysing: boolean;
   hasSegmentations: boolean;
+  bossSegmentationCount: number;
   onAnalyse: () => void;
   intradosLines: IntradosLine[];
   showIntrados: boolean;
@@ -68,12 +69,14 @@ interface Geometry2DInspectorPanelProps {
   onRunBayPlan: () => void;
   onExportBayPlanDxf: () => void;
   onSaveBayPlanManualEdges: (edges: Geometry2DBayPlanEdge[]) => void;
+  onBayPlanDraftEdgesChange?: (edges: Geometry2DBayPlanEdge[]) => void;
   onSelectBayPlanEdge: (edgeKey: string | null) => void;
   reconstructView?: "controls" | "manualEdit";
   reconstructionView: "measured" | "ideal";
   onChangeReconstructionView: (next: "measured" | "ideal") => void;
   showIdealisedOverlay: boolean;
   onChangeShowIdealisedOverlay: (next: boolean) => void;
+  bayPlanRoiBayMetres?: { width: number; height: number } | null;
 }
 
 export function Geometry2DInspectorPanel({
@@ -81,6 +84,7 @@ export function Geometry2DInspectorPanel({
   activeSection,
   isAnalysing,
   hasSegmentations,
+  bossSegmentationCount,
   onAnalyse,
   vaultRatio,
   vaultRatioSuggestions,
@@ -124,12 +128,14 @@ export function Geometry2DInspectorPanel({
   onRunBayPlan,
   onExportBayPlanDxf,
   onSaveBayPlanManualEdges,
+  onBayPlanDraftEdgesChange,
   onSelectBayPlanEdge,
   reconstructView = "controls",
   reconstructionView,
   onChangeReconstructionView,
   showIdealisedOverlay,
   onChangeShowIdealisedOverlay,
+  bayPlanRoiBayMetres = null,
 }: Geometry2DInspectorPanelProps) {
   return (
     <div className={`${containerClassName || "lg:col-span-3"} space-y-4`}>
@@ -137,6 +143,7 @@ export function Geometry2DInspectorPanel({
         <RoiBayProportionPanel
           isAnalysing={isAnalysing}
           hasSegmentations={hasSegmentations}
+          bossSegmentationCount={bossSegmentationCount}
           onAnalyse={onAnalyse}
           vaultRatio={vaultRatio}
           vaultRatioSuggestions={vaultRatioSuggestions}
@@ -190,12 +197,14 @@ export function Geometry2DInspectorPanel({
           onRun={onRunBayPlan}
           onExportDxf={onExportBayPlanDxf}
           onSaveManualEdges={onSaveBayPlanManualEdges}
+          onDraftEdgesChange={onBayPlanDraftEdgesChange}
           onSelectEdge={onSelectBayPlanEdge}
           view={reconstructView}
           reconstructionView={reconstructionView}
           onChangeReconstructionView={onChangeReconstructionView}
           showIdealisedOverlay={showIdealisedOverlay}
           onChangeShowIdealisedOverlay={onChangeShowIdealisedOverlay}
+          roiBaySizeMetres={bayPlanRoiBayMetres}
         />
       )}
     </div>

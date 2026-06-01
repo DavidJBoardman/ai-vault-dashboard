@@ -148,7 +148,10 @@ export default function Step1UploadPage() {
       const response = await uploadE57(file);
       
       if (response.success && response.data) {
-        setE57Path(fileLabel);
+        // Prefer the absolute path the backend resolved/stored. A dropped File
+        // only exposes its basename in Electron >=32, which step 5 cannot
+        // reload from disk; the server-side path always can.
+        setE57Path(response.data.filePath ?? fileLabel);
         setPointCloudStats({
           pointCount: response.data.pointCount,
           boundingBox: response.data.boundingBox,

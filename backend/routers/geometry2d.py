@@ -537,6 +537,7 @@ class BayPlanRunResult(BaseModel):
     outputImagePath: Optional[str] = None
     debugImagePath: Optional[str] = None
     ranAt: str
+    metresPerPixel: Optional[float] = None
     nodeCount: int
     edgeCount: int
     candidateEdgeCount: int = 0

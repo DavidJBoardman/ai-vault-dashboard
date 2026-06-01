@@ -370,6 +370,8 @@ export interface Geometry2DBayPlanRunResult {
   outputImagePath?: string;
   debugImagePath?: string;
   ranAt: string;
+  /** Real-world metres per projection pixel; null when projection metadata is unavailable. */
+  metresPerPixel?: number | null;
   nodeCount: number;
   edgeCount: number;
   candidateEdgeCount: number;

@@ -154,13 +154,16 @@ def prepare_bosses_for_geometry2d(
         items = _extract_instance_centroids_from_index(seg_dir, min_area=min_area)
         detection_mode = "segmentation_instances"
         if not items:
-            if not mask_path.exists():
-                raise FileNotFoundError(f"Boss group mask not found: {mask_path}")
-            items = [
-                {"cx": cx, "cy": cy, "area": area, "label": ""}
-                for cx, cy, area in _extract_centroids(mask_path, min_area=min_area)
-            ]
-            detection_mode = "auto_components"
+            if mask_path.exists():
+                items = [
+                    {"cx": cx, "cy": cy, "area": area, "label": ""}
+                    for cx, cy, area in _extract_centroids(mask_path, min_area=min_area)
+                ]
+                detection_mode = "auto_components"
+            else:
+                # No boss segmentations at step 3 — write an empty report so step 4A
+                # can still prepare ROI / bay proportion and 4B can use manual nodes.
+                detection_mode = "none"
 
     bosses: List[Dict[str, Any]] = []
     boss_ids: List[int] = []
@@ -186,12 +189,16 @@ def prepare_bosses_for_geometry2d(
         )
         boss_ids.append(idx)
 
+    boss_mask_path: Optional[str] = None
+    if mask_path.exists():
+        boss_mask_path = str(mask_path.resolve())
+
     payload: Dict[str, Any] = {
         "source": "services.geometry2d.prepare_bosses",
         "created_at": datetime.now().isoformat(),
         "images": {
             "image_path": roi_payload.get("image_path"),
-            "boss_mask_path": str(mask_path.resolve()),
+            "boss_mask_path": boss_mask_path,
         },
         "roi": roi_params,
         "boss_ids": boss_ids,

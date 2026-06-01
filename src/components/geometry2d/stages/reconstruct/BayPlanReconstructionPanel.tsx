@@ -21,8 +21,14 @@ import {
   Geometry2DBayPlanRunParams,
   Geometry2DBayPlanRunResult,
 } from "@/lib/api";
-import { computeResidualSummary, getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
-import { ChevronDown, ChevronUp, CircleHelp, Download, Network, Plus, RefreshCw, RotateCcw, Settings2, Trash2 } from "lucide-react";
+import { getCompactNodeLabel } from "@/components/geometry2d/projectionCanvasUtils";
+import {
+  buildBayPlanPhysicalScale,
+  formatMetres,
+  ribLengthMetres,
+  type BayPlanPhysicalScale,
+} from "@/lib/geometry2d/bayPlanScale";
+import { ChevronDown, ChevronUp, CircleHelp, Download, Network, Plus, RefreshCw, RotateCcw, Redo2, Ruler, Settings2, Trash2, Undo2 } from "lucide-react";
 
 const RECONSTRUCTION_PARAM_FALLBACKS = {
   reconstructionMode: "current" as const,
@@ -53,6 +59,8 @@ interface BayPlanReconstructionPanelProps {
   onRun: () => void;
   onExportDxf: () => void;
   onSaveManualEdges: (edges: Geometry2DBayPlanEdge[]) => void;
+  /** Keeps the canvas preview in sync with the draft rib list before Save ribs. */
+  onDraftEdgesChange?: (edges: Geometry2DBayPlanEdge[]) => void;
   onSelectEdge: (edgeKey: string | null) => void;
   // Which slice of this panel to render. "controls" = the bay-plan setup card,
   // "manualEdit" = the rib edit table card. Splitting them lets step 4D show
@@ -64,6 +72,8 @@ interface BayPlanReconstructionPanelProps {
   onChangeReconstructionView: (next: "measured" | "ideal") => void;
   showIdealisedOverlay: boolean;
   onChangeShowIdealisedOverlay: (next: boolean) => void;
+  /** Saved ROI width/height converted to metres (matches DXF bay frame). */
+  roiBaySizeMetres?: { width: number; height: number } | null;
 }
 
 function asNumber(value: unknown, fallback: number): number {
@@ -174,6 +184,51 @@ function ToggleField({ label, tooltip, checked, onCheckedChange }: ToggleFieldPr
   );
 }
 
+function PhysicalScaleReadout({
+  scale,
+  roiBaySizeMetres,
+  compact = false,
+}: {
+  scale: BayPlanPhysicalScale;
+  roiBaySizeMetres?: { width: number; height: number } | null;
+  compact?: boolean;
+}) {
+  const frame =
+    roiBaySizeMetres ??
+    scale.nodeSpanMetres;
+  const frameLabel = roiBaySizeMetres ? "ROI bay frame" : "Boss span (approx.)";
+
+  return (
+    <div
+      className={`rounded-md border border-sky-500/35 bg-sky-500/8 ${
+        compact ? "px-2.5 py-2 space-y-1 text-xs" : "px-3 py-3 space-y-2"
+      }`}
+    >
+      <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-sky-200/80">
+        <Ruler className="h-3 w-3 shrink-0" />
+        Physical scale
+      </p>
+      <p className={compact ? "leading-relaxed text-foreground" : "leading-snug text-foreground"}>
+        <span className={compact ? "font-semibold" : "text-lg font-semibold tabular-nums"}>
+          {scale.metresPerPixel.toFixed(4)} m
+        </span>
+        <span className={compact ? "text-muted-foreground" : "text-sm text-muted-foreground"}>
+          {" "}
+          per pixel · DXF export uses metres
+        </span>
+      </p>
+      {frame ? (
+        <p className={compact ? "text-muted-foreground leading-relaxed" : "text-sm leading-relaxed text-muted-foreground"}>
+          {frameLabel}:{" "}
+          <span className={compact ? "font-medium text-foreground" : "text-base font-semibold text-foreground tabular-nums"}>
+            {formatMetres(frame.width)} m × {formatMetres(frame.height)} m
+          </span>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function BayPlanReconstructionPanel({
   result,
   lastRunAt,
@@ -188,12 +243,14 @@ export function BayPlanReconstructionPanel({
   onRun,
   onExportDxf,
   onSaveManualEdges,
+  onDraftEdgesChange,
   onSelectEdge,
   view = "controls",
   reconstructionView,
   onChangeReconstructionView,
   showIdealisedOverlay,
   onChangeShowIdealisedOverlay,
+  roiBaySizeMetres = null,
 }: BayPlanReconstructionPanelProps) {
   const showControls = view === "controls";
   const showManualEdit = view === "manualEdit";
@@ -201,6 +258,12 @@ export function BayPlanReconstructionPanel({
     const ideal = result?.nodesIdeal || [];
     return ideal.some((n) => n.u !== null && n.v !== null);
   }, [result?.nodesIdeal]);
+
+  const physicalScale = useMemo(
+    () => buildBayPlanPhysicalScale(result?.metresPerPixel, result?.nodes || []),
+    [result?.metresPerPixel, result?.nodes]
+  );
+  const measuredNodes = result?.nodes || [];
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   // Default expanded — the parent step gates this card behind a dedicated
   // "Manual edit" tab now, so collapsing it again from inside is redundant.
@@ -208,9 +271,21 @@ export function BayPlanReconstructionPanel({
   const [manualEdges, setManualEdges] = useState<Geometry2DBayPlanEdge[]>([]);
   const [manualEdgeStart, setManualEdgeStart] = useState<string>("");
   const [manualEdgeEnd, setManualEdgeEnd] = useState<string>("");
+  // The original reconstruction edges, captured once per run so "Reset edits"
+  // can restore them even after a delete has been saved. `ranAt` is rewritten
+  // only by a fresh reconstruction run (manual-edge saves preserve it), so it
+  // is a reliable key for "this is still the same reconstruction".
+  const [baselineEdges, setBaselineEdges] = useState<Geometry2DBayPlanEdge[]>([]);
+  const baselineRanAtRef = useRef<string | null>(null);
+  // Local undo/redo stack over the draft edges (mirrors the template-points
+  // history). Reset to a single entry whenever a new result loads.
+  const [editHistory, setEditHistory] = useState<{ stack: Geometry2DBayPlanEdge[][]; index: number }>({
+    stack: [],
+    index: -1,
+  });
   const [edgeSearchQuery, setEdgeSearchQuery] = useState("");
-  const [edgeSort, setEdgeSort] = useState<{ column: "from" | "to" | "type"; direction: "asc" | "desc" }>({
-    column: "from",
+  const [edgeSort, setEdgeSort] = useState<{ column: "rib" | "type"; direction: "asc" | "desc" }>({
+    column: "rib",
     direction: "asc",
   });
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
@@ -255,9 +330,22 @@ export function BayPlanReconstructionPanel({
       return left.b - right.b;
     });
     setManualEdges(nextEdges);
+    // Only re-capture the reset baseline when the reconstruction itself changed
+    // (new run). Manual-edge saves keep the same `ranAt`, so the original edges
+    // survive and remain recoverable via "Reset edits".
+    const ranAt = result?.ranAt ?? null;
+    if (baselineRanAtRef.current !== ranAt) {
+      baselineRanAtRef.current = ranAt;
+      setBaselineEdges(nextEdges);
+    }
+    setEditHistory({ stack: [nextEdges], index: 0 });
     setManualEdgeStart("");
     setManualEdgeEnd("");
   }, [result]);
+
+  useEffect(() => {
+    onDraftEdgesChange?.(manualEdges);
+  }, [manualEdges, onDraftEdgesChange]);
 
   useEffect(() => {
     if (selectedEdgeKey && !manualEdges.some((edge) => edgeKey(edge) === selectedEdgeKey)) {
@@ -271,6 +359,17 @@ export function BayPlanReconstructionPanel({
     const draftSignature = manualEdges.map(edgeKey).sort().join("|");
     return savedSignature !== draftSignature;
   }, [manualEdges, result?.edges]);
+
+  // Reset is available whenever the draft differs from the original
+  // reconstruction — including after a deletion has been saved.
+  const canResetToBaseline = useMemo(() => {
+    const baselineSignature = baselineEdges.map(edgeKey).sort().join("|");
+    const draftSignature = manualEdges.map(edgeKey).sort().join("|");
+    return baselineSignature !== draftSignature;
+  }, [baselineEdges, manualEdges]);
+
+  const canUndo = editHistory.index > 0;
+  const canRedo = editHistory.index < editHistory.stack.length - 1;
 
   const displayedManualEdges = useMemo(() => {
     const savedKeys = new Set(((result?.edges || []).map(edgeKey)));
@@ -330,31 +429,37 @@ export function BayPlanReconstructionPanel({
       const rightType = getEdgeTypeLabel(right);
 
       const compare =
-        edgeSort.column === "from"
-          ? edgeLabelCollator.compare(leftFrom, rightFrom)
-          : edgeSort.column === "to"
-            ? edgeLabelCollator.compare(leftTo, rightTo)
-            : edgeLabelCollator.compare(leftType, rightType);
+        edgeSort.column === "type"
+          ? edgeLabelCollator.compare(leftType, rightType)
+          : edgeLabelCollator.compare(leftFrom, rightFrom) ||
+            edgeLabelCollator.compare(leftTo, rightTo);
 
       if (compare !== 0) {
         return edgeSort.direction === "asc" ? compare : -compare;
       }
 
       const fallback =
-        edgeLabelCollator.compare(leftFrom, rightFrom) ||
-        edgeLabelCollator.compare(leftTo, rightTo);
+        edgeSort.column === "type"
+          ? edgeLabelCollator.compare(leftFrom, rightFrom)
+          : edgeLabelCollator.compare(leftType, rightType);
       return edgeSort.direction === "asc" ? fallback : -fallback;
     });
   }, [availableNodeIds, displayedManualEdges, edgeLabelCollator, edgeSearchQuery, edgeSort, nodeLabelByIndex, selectedEdgeKey]);
 
-  const selectedManualEdgeLabel = useMemo(() => {
+  const selectedManualEdgeSummary = useMemo(() => {
     if (!selectedEdgeKey) return null;
     const selectedEdge = manualEdges.find((edge) => edgeKey(edge) === selectedEdgeKey);
     if (!selectedEdge) return null;
     const startLabel = nodeLabelByIndex.get(selectedEdge.a) || String(selectedEdge.a);
     const endLabel = nodeLabelByIndex.get(selectedEdge.b) || String(selectedEdge.b);
-    return `${startLabel} -> ${endLabel}`;
-  }, [manualEdges, nodeLabelByIndex, selectedEdgeKey]);
+    const label = `${startLabel} → ${endLabel}`;
+    const lengthM =
+      physicalScale && ribLengthMetres(measuredNodes, selectedEdge, physicalScale.metresPerPixel);
+    return {
+      label,
+      lengthLabel: lengthM !== null ? `${formatMetres(lengthM)} m` : null,
+    };
+  }, [manualEdges, measuredNodes, nodeLabelByIndex, physicalScale, selectedEdgeKey]);
 
   useEffect(() => {
     if (!selectedEdgeKey) return;
@@ -369,10 +474,6 @@ export function BayPlanReconstructionPanel({
   const reconstructionStatusLabel = isRunning ? "Running" : result ? "Result ready" : "Awaiting run";
   const formattedLastRunAt = lastRunAt ? new Date(lastRunAt).toLocaleString("en-GB") : null;
   const resultReconstructionMode = result?.params?.reconstructionMode === "delaunay" ? "delaunay" : "current";
-  const residualSummary = useMemo(
-    () => (result?.usedBosses ? computeResidualSummary(result.usedBosses) : null),
-    [result?.usedBosses]
-  );
   const overallScoreLabel =
     typeof result?.overallScore === "number" && Number.isFinite(result.overallScore)
       ? result.overallScore.toFixed(3)
@@ -423,12 +524,39 @@ export function BayPlanReconstructionPanel({
     });
   };
 
-  const resetManualRibEdits = () => {
-    const nextEdges = (result?.edges || []).map(normaliseEdge).sort((left, right) => {
+  const sortEdges = (edges: Geometry2DBayPlanEdge[]) =>
+    [...edges].sort((left, right) => {
       if (left.a !== right.a) return left.a - right.a;
       return left.b - right.b;
     });
-    setManualEdges(nextEdges);
+
+  // Apply a new draft edge set and record it on the undo stack, discarding any
+  // entries ahead of the current index (the usual redo-tail truncation).
+  const applyManualEdges = (next: Geometry2DBayPlanEdge[]) => {
+    setManualEdges(next);
+    setEditHistory((history) => {
+      const base = history.stack.slice(0, history.index + 1);
+      base.push(next);
+      return { stack: base, index: base.length - 1 };
+    });
+  };
+
+  const handleUndoManualEdges = () => {
+    if (editHistory.index <= 0) return;
+    const nextIndex = editHistory.index - 1;
+    setManualEdges(editHistory.stack[nextIndex]);
+    setEditHistory((history) => ({ ...history, index: nextIndex }));
+  };
+
+  const handleRedoManualEdges = () => {
+    if (editHistory.index >= editHistory.stack.length - 1) return;
+    const nextIndex = editHistory.index + 1;
+    setManualEdges(editHistory.stack[nextIndex]);
+    setEditHistory((history) => ({ ...history, index: nextIndex }));
+  };
+
+  const resetManualRibEdits = () => {
+    applyManualEdges(sortEdges(baselineEdges.map(normaliseEdge)));
     setManualEdgeStart("");
     setManualEdgeEnd("");
   };
@@ -439,18 +567,13 @@ export function BayPlanReconstructionPanel({
     if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) return;
     const nextEdge = normaliseEdge({ a, b, isConstraint: false, isManual: true });
     const nextKey = edgeKey(nextEdge);
-    setManualEdges((prev) => {
-      if (prev.some((edge) => edgeKey(edge) === nextKey)) return prev;
-      return [...prev, nextEdge].sort((left, right) => {
-        if (left.a !== right.a) return left.a - right.a;
-        return left.b - right.b;
-      });
-    });
+    if (manualEdges.some((edge) => edgeKey(edge) === nextKey)) return;
+    applyManualEdges(sortEdges([...manualEdges, nextEdge]));
     setManualEdgeStart("");
     setManualEdgeEnd("");
   };
 
-  const toggleEdgeSort = (column: "from" | "to" | "type") => {
+  const toggleEdgeSort = (column: "rib" | "type") => {
     setEdgeSort((current) => ({
       column,
       direction: current.column === column && current.direction === "asc" ? "desc" : "asc",
@@ -462,7 +585,7 @@ export function BayPlanReconstructionPanel({
     if (selectedEdgeKey === targetKey) {
       onSelectEdge(null);
     }
-    setManualEdges((prev) => prev.filter((edge) => edgeKey(edge) !== targetKey));
+    applyManualEdges(manualEdges.filter((edge) => edgeKey(edge) !== targetKey));
   };
 
   return (
@@ -523,15 +646,28 @@ export function BayPlanReconstructionPanel({
           </Label>
 
           {result ? (
-            <div className="rounded-md border border-border/70 px-3 py-3">
-              <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
-                <div>
-                  <span className="block text-foreground text-lg font-semibold leading-none">{result.nodeCount}</span>
-                  <span>Nodes</span>
-                </div>
-                <div>
-                  <span className="block text-foreground text-lg font-semibold leading-none">{result.edgeCount}</span>
-                  <span>Ribs</span>
+            <div className="space-y-3">
+              {physicalScale ? (
+                <PhysicalScaleReadout scale={physicalScale} roiBaySizeMetres={roiBaySizeMetres} />
+              ) : (
+                <p className="rounded-md border border-dashed border-amber-500/35 bg-amber-500/5 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+                  Physical scale unavailable for this projection — rib lengths and DXF export use pixel coordinates.
+                </p>
+              )}
+              <div className="rounded-md border border-border/70 px-3 py-2.5">
+                <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
+                  <div>
+                    <span className="block text-foreground text-base font-semibold leading-none tabular-nums">
+                      {result.nodeCount}
+                    </span>
+                    <span>Nodes</span>
+                  </div>
+                  <div>
+                    <span className="block text-foreground text-base font-semibold leading-none tabular-nums">
+                      {result.edgeCount}
+                    </span>
+                    <span>Ribs</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -542,46 +678,35 @@ export function BayPlanReconstructionPanel({
           )}
 
           {result && resultReconstructionMode === "current" ? (
-            <div className="rounded-md border border-border/70 bg-muted/10 px-3 py-2.5">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Score</p>
-                <p className="mt-1 text-sm font-semibold leading-none">{overallScoreLabel}</p>
+            <div className="rounded-md border border-border/60 bg-muted/5 px-3 py-2.5 space-y-2.5">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Reconstruction quality</p>
+                <p className="text-base font-medium leading-none tabular-nums text-foreground/90">{overallScoreLabel}</p>
               </div>
-              {edgeEvidenceLabel && boundaryCoverageLabel && degreeSatisfactionLabel ? (
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  Evidence {edgeEvidenceLabel} · Boundary {boundaryCoverageLabel} · Degree {degreeSatisfactionLabel}
-                </p>
-              ) : null}
-              {residualSummary ? (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Residual: mean {residualSummary.meanPercent.toFixed(2)}% · max {residualSummary.maxPercent.toFixed(2)}% ({residualSummary.sampleCount} matched)
-                </p>
-              ) : null}
-
-              <div className="mt-3 space-y-2 border-t border-border/60 pt-3 text-xs">
-                <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
-                  <span className="text-muted-foreground">Edge evidence</span>
-                  <span className="font-medium">{edgeEvidenceLabel ?? "0.00"}</span>
+              <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                <div className="rounded bg-background/40 px-2 py-1.5">
+                  <p className="text-muted-foreground">Edge evidence</p>
+                  <p className="mt-0.5 font-medium tabular-nums text-foreground/85">{edgeEvidenceLabel ?? "0.00"}</p>
                 </div>
-                <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
-                  <span className="text-muted-foreground">Boundary coverage</span>
-                  <span className="font-medium">
+                <div className="rounded bg-background/40 px-2 py-1.5">
+                  <p className="text-muted-foreground">Boundary</p>
+                  <p className="mt-0.5 font-medium tabular-nums text-foreground/85">
                     {boundaryCoverageLabel ?? "0.00"}
                     {selectedBoundaryEdgeCount !== null && mandatoryBoundaryEdgeCount !== null
                       ? ` (${selectedBoundaryEdgeCount}/${mandatoryBoundaryEdgeCount})`
                       : ""}
-                  </span>
+                  </p>
                 </div>
-                <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
-                  <span className="text-muted-foreground">Degree satisfaction</span>
-                  <span className="font-medium">{degreeSatisfactionLabel ?? "0.00"}</span>
+                <div className="rounded bg-background/40 px-2 py-1.5">
+                  <p className="text-muted-foreground">Degree</p>
+                  <p className="mt-0.5 font-medium tabular-nums text-foreground/85">{degreeSatisfactionLabel ?? "0.00"}</p>
                 </div>
-                <div className="flex items-center justify-between gap-3 rounded-md bg-background/50 px-3 py-2">
-                  <span className="text-muted-foreground">Mutual support</span>
-                  <span className="font-medium">
+                <div className="rounded bg-background/40 px-2 py-1.5">
+                  <p className="text-muted-foreground">Mutual support</p>
+                  <p className="mt-0.5 font-medium tabular-nums text-foreground/85">
                     {mutualSupportLabel ?? "0.00"}
                     {selectedNonBoundaryEdgeCount !== null ? ` (${selectedNonBoundaryEdgeCount} ribs)` : ""}
-                  </span>
+                  </p>
                 </div>
               </div>
             </div>
@@ -784,7 +909,9 @@ export function BayPlanReconstructionPanel({
               {isExportingDxf ? "Preparing..." : "Download DXF"}
             </Button>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              DXF uses projection pixel coordinates, not real-world scale.
+              {physicalScale
+                ? "DXF coordinates are in metres using the physical scale shown above."
+                : "Real-world scale unavailable — DXF falls back to pixel coordinates."}
             </p>
           </div>
         </CardContent>
@@ -804,8 +931,8 @@ export function BayPlanReconstructionPanel({
                   </Badge>
                 ) : null}
               </div>
-              <CardDescription className="text-xs">
-                Adjust reconstructed ribs node by node only where the automatic result is unconvincing.
+              <CardDescription className="text-xs leading-relaxed">
+                Edits update the canvas preview immediately. Save ribs when you want them written to the project and DXF export.
               </CardDescription>
             </div>
             <Button
@@ -827,6 +954,9 @@ export function BayPlanReconstructionPanel({
               </p>
             ) : (
               <>
+                {physicalScale ? (
+                  <PhysicalScaleReadout scale={physicalScale} roiBaySizeMetres={roiBaySizeMetres} compact />
+                ) : null}
                 <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
                   <Label className="grid gap-1.5 text-xs">
                     <span className="text-muted-foreground">From node</span>
@@ -880,9 +1010,14 @@ export function BayPlanReconstructionPanel({
                       Reconstructed ribs
                     </p>
                     <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-                      {selectedManualEdgeLabel ? (
-                        <Badge variant="secondary" className="bg-amber-500/15 text-amber-100">
-                          Selected {selectedManualEdgeLabel}
+                      {selectedManualEdgeSummary ? (
+                        <Badge variant="secondary" className="max-w-full bg-amber-500/15 text-amber-100">
+                          <span className="truncate">
+                            {selectedManualEdgeSummary.label}
+                            {selectedManualEdgeSummary.lengthLabel
+                              ? ` · ${selectedManualEdgeSummary.lengthLabel}`
+                              : ""}
+                          </span>
                         </Badge>
                       ) : null}
                       <span className="text-muted-foreground">{manualEdges.length} total</span>
@@ -895,33 +1030,32 @@ export function BayPlanReconstructionPanel({
                       placeholder="Search by node label"
                       className="h-8 flex-1 text-xs sm:min-w-[180px]"
                     />
-                    <span className="text-[11px] text-muted-foreground">Click a row or rib to link both views.</span>
                   </div>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Select a row or canvas rib to link views. Undo and redo apply to the preview
+                    {physicalScale ? "; hover a rib for length in metres." : "."}
+                  </p>
 
                   {filteredManualEdges.length > 0 ? (
                     <div className="max-h-[clamp(16rem,34vh,24rem)] overflow-auto rounded-md border border-border/70 bg-background/50">
-                      <table className="w-full table-fixed text-xs">
-                        <thead className="sticky top-0 bg-background/95 backdrop-blur">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 z-[1] bg-background/95 backdrop-blur">
                           <tr className="border-b border-border/70 text-left text-muted-foreground">
-                            <th className="w-[28%] px-3 py-2 font-medium">
-                              <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleEdgeSort("from")}>
-                                From
-                                {edgeSort.column === "from" ? (edgeSort.direction === "asc" ? "↑" : "↓") : "↕"}
+                            <th className="px-3 py-2 font-medium">
+                              <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleEdgeSort("rib")}>
+                                Rib
+                                {edgeSort.column === "rib" ? (edgeSort.direction === "asc" ? "↑" : "↓") : "↕"}
                               </button>
                             </th>
-                            <th className="w-[28%] px-3 py-2 font-medium">
-                              <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleEdgeSort("to")}>
-                                To
-                                {edgeSort.column === "to" ? (edgeSort.direction === "asc" ? "↑" : "↓") : "↕"}
-                              </button>
-                            </th>
-                            <th className="w-[24%] px-3 py-2 font-medium">
+                            <th className="w-24 px-3 py-2 font-medium">
                               <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleEdgeSort("type")}>
                                 Type
                                 {edgeSort.column === "type" ? (edgeSort.direction === "asc" ? "↑" : "↓") : "↕"}
                               </button>
                             </th>
-                            <th className="w-[20%] px-3 py-2 text-right font-medium">Remove</th>
+                            <th className="w-12 px-2 py-2 text-right font-medium">
+                              <span className="sr-only">Remove</span>
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -938,7 +1072,7 @@ export function BayPlanReconstructionPanel({
                                   if (node) rowRefs.current.set(currentEdgeKey, node);
                                   else rowRefs.current.delete(currentEdgeKey);
                                 }}
-                                className={`cursor-pointer border-b border-l-2 border-border/50 align-top last:border-b-0 ${
+                                className={`cursor-pointer border-b border-l-2 border-border/50 align-middle last:border-b-0 ${
                                   isSelected
                                     ? "border-l-amber-300 bg-amber-500/18 ring-1 ring-inset ring-amber-300/70"
                                     : "border-l-transparent hover:bg-muted/20"
@@ -946,10 +1080,11 @@ export function BayPlanReconstructionPanel({
                                 onClick={() => onSelectEdge(isSelected ? null : currentEdgeKey)}
                               >
                                 <td className="px-3 py-2.5">
-                                  <div className="font-medium text-foreground">{startLabel}</div>
-                                </td>
-                                <td className="px-3 py-2.5">
-                                  <div className="font-medium text-foreground">{endLabel}</div>
+                                  <div className="font-medium text-foreground tabular-nums">
+                                    {startLabel}
+                                    <span className="mx-1.5 text-muted-foreground">→</span>
+                                    {endLabel}
+                                  </div>
                                 </td>
                                 <td className="px-3 py-2.5">
                                   <Badge
@@ -960,11 +1095,12 @@ export function BayPlanReconstructionPanel({
                                           ? "outline"
                                           : "secondary"
                                     }
+                                    className="capitalize"
                                   >
                                     {typeLabel}
                                   </Badge>
                                 </td>
-                                <td className="px-3 py-2.5 text-right">
+                                <td className="px-2 py-2.5 text-right">
                                   <Button
                                     type="button"
                                     variant="ghost"
@@ -999,8 +1135,33 @@ export function BayPlanReconstructionPanel({
                     variant="ghost"
                     size="sm"
                     className="h-8 px-3 text-xs"
+                    onClick={handleUndoManualEdges}
+                    disabled={!canUndo}
+                    title="Undo the last rib edit on the canvas preview"
+                  >
+                    <Undo2 className="mr-1 h-3.5 w-3.5" />
+                    Undo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    onClick={handleRedoManualEdges}
+                    disabled={!canRedo}
+                    title="Redo the last undone rib edit on the canvas preview"
+                  >
+                    <Redo2 className="mr-1 h-3.5 w-3.5" />
+                    Redo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-3 text-xs"
                     onClick={resetManualRibEdits}
-                    disabled={!hasManualRibChanges}
+                    disabled={!canResetToBaseline}
+                    title="Restore the original reconstructed ribs"
                   >
                     <RotateCcw className="mr-1 h-3.5 w-3.5" />
                     Reset edits
@@ -1012,7 +1173,7 @@ export function BayPlanReconstructionPanel({
                     onClick={() => onSaveManualEdges(manualEdges)}
                     disabled={!hasManualRibChanges || isSavingManualEdges}
                   >
-                    {isSavingManualEdges ? "Saving..." : "Save ribs"}
+                    {isSavingManualEdges ? "Saving..." : "Save ribs to project"}
                   </Button>
                 </div>
               </>

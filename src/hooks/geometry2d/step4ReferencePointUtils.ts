@@ -95,6 +95,15 @@ function indexFromLetter(letter: string): number | null {
   return null;
 }
 
+// ROI corners use A–D in step 3; boss stones start at E. Manual adds must not
+// reuse those corner letters even when only the suffix is shown on the canvas.
+const CORNER_LETTER_RESERVE_COUNT = 4;
+
+function trailingLabelLetter(label: string): string | null {
+  const match = label.trim().match(/\s+([A-Za-z]{1,3})$/);
+  return match ? match[1] : null;
+}
+
 // Continue the sequence from the highest letter currently in use rather than
 // filling gaps left by deleted points - labels stay monotonic and don't reuse
 // a tag a user may remember from earlier in the session.
@@ -104,12 +113,11 @@ function indexFromLetter(letter: string): number | null {
 // needs that many reference points; if it ever does, the rendered letter
 // wraps back to "A" - the row's `#N` remains the unambiguous identifier.
 export function pickNextBossLetter(points: Geometry2DTemplateBossPoint[]): string {
-  let highest = -1;
+  let highest = CORNER_LETTER_RESERVE_COUNT - 1;
   points.forEach((point) => {
-    if (getPointType(point) !== "boss") return;
-    const match = String(point.label || "").trim().match(/\s+([A-Za-z]{1,3})$/);
-    if (!match) return;
-    const idx = indexFromLetter(match[1]);
+    const suffix = trailingLabelLetter(String(point.label || ""));
+    if (!suffix) return;
+    const idx = indexFromLetter(suffix);
     if (idx !== null && idx > highest) highest = idx;
   });
   return letterFromIndex(highest + 1);

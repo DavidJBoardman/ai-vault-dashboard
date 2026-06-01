@@ -32,6 +32,7 @@ from services.geometry2d.utils.bay_candidate_io import (
     write_state,
 )
 from services.geometry2d.utils.bay_candidate_render import render_candidate_debug
+from services.geometry2d.utils.scale import compute_metres_per_pixel
 
 
 def _node_to_payload(node: Node) -> Dict[str, Any]:
@@ -66,6 +67,42 @@ def _node_to_ideal_payload(node: Node) -> Dict[str, Any]:
         "x": int(node.ideal_xy[0]),
         "y": int(node.ideal_xy[1]),
     }
+
+
+def _candidate_edge_keys(candidate_edges: object) -> set[tuple[int, int]]:
+    keys: set[tuple[int, int]] = set()
+    if not isinstance(candidate_edges, list):
+        return keys
+    for candidate in candidate_edges:
+        if not isinstance(candidate, dict):
+            continue
+        try:
+            keys.add(tuple(sorted((int(candidate["a"]), int(candidate["b"])))))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return keys
+
+
+def resolve_saved_edge_is_manual(
+    key: tuple[int, int],
+    raw_edge: Dict[str, Any],
+    existing_edge_map: Dict[tuple[int, int], Dict[str, Any]],
+    candidate_keys: set[tuple[int, int]],
+) -> bool:
+    """Classify an edge on manual save.
+
+  Re-added ribs that were deleted from the persisted result must not be
+  treated as manual just because they are absent from `existing_edge_map`.
+  The client sends `isManual` from the reset baseline; reconstruction
+  candidates are the fallback when that flag is omitted.
+    """
+    if key in existing_edge_map:
+        return bool(existing_edge_map[key].get("isManual", False))
+    if "isManual" in raw_edge:
+        return bool(raw_edge["isManual"])
+    if key in candidate_keys:
+        return False
+    return True
 
 
 DEFAULT_CANDIDATE_PARAMS: Dict[str, Any] = {
@@ -186,6 +223,9 @@ class BayPlanCandidateService:
         boss_rows = [row for row in reference_rows if str(row.get("pointType", "boss")) == "boss"]
         corner_rows = [row for row in reference_rows if str(row.get("pointType", "boss")) == "corner"]
         nodes = collect_boss_nodes(roi=roi, boss_rows=reference_rows)
+        # Real-world scale for metric DXF export (None when projection metadata
+        # is unavailable, in which case downstream falls back to pixel units).
+        metres_per_pixel = compute_metres_per_pixel(project_dir)
         with_match = sum(
             1 for row in boss_rows
             if str(row.get("source", "raw")) in ("ideal", "partial")
@@ -275,6 +315,7 @@ class BayPlanCandidateService:
                 "outputImagePath": None,
                 "debugImagePath": None,
                 "ranAt": datetime.now().isoformat(),
+                "metresPerPixel": metres_per_pixel,
                 "nodeCount": int(delaunay.get("nodeCount", len(delaunay.get("nodes", [])))),
                 "edgeCount": int(delaunay.get("edgeCount", len(delaunay.get("edges", [])))),
                 "candidateEdgeCount": 0,
@@ -394,6 +435,7 @@ class BayPlanCandidateService:
             "outputImagePath": None,
             "debugImagePath": str(target_path),
             "ranAt": datetime.now().isoformat(),
+            "metresPerPixel": metres_per_pixel,
             "nodeCount": len(nodes),
             "edgeCount": len(selected_edges),
             "candidateEdgeCount": len(candidate_edges),
@@ -484,6 +526,8 @@ class BayPlanCandidateService:
                 key = tuple(sorted((a, b)))
                 existing_edge_map[key] = edge
 
+        candidate_keys = _candidate_edge_keys(payload.get("candidateEdges"))
+
         selected_keys: set[tuple[int, int]] = set()
         next_edges: List[Dict[str, Any]] = []
         for raw_edge in edges:
@@ -508,7 +552,9 @@ class BayPlanCandidateService:
                     "a": key[0],
                     "b": key[1],
                     "isConstraint": bool(existing.get("isConstraint", False)),
-                    "isManual": bool(existing.get("isManual", False)) or key not in existing_edge_map,
+                    "isManual": resolve_saved_edge_is_manual(
+                        key, raw_edge, existing_edge_map, candidate_keys
+                    ),
                     "constraintFamily": existing.get("constraintFamily"),
                 }
             )
@@ -539,6 +585,8 @@ class BayPlanCandidateService:
         payload["edgeCount"] = len(next_edges)
         payload["constraintEdgeCount"] = int(sum(1 for edge in next_edges if bool(edge.get("isConstraint", False))))
         payload["optimisationDiagnostics"] = diagnostics
+        if payload.get("metresPerPixel") is None:
+            payload["metresPerPixel"] = compute_metres_per_pixel(project_dir)
 
         params = payload.get("params")
         if not isinstance(params, dict):

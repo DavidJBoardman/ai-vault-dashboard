@@ -248,10 +248,17 @@ export default function Step4Geometry2DPage() {
                               type="button"
                               size="sm"
                               variant={stageToolTab === tab ? "default" : "outline"}
-                              className="h-8"
+                              className="h-8 gap-1.5"
                               onClick={() => setStageToolTab(tab)}
                             >
                               {labelFor(tab)}
+                              {tab === "manualEdit" && controller.hasUnsavedManualRibEdits ? (
+                                <span
+                                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400"
+                                  title="Unsaved rib edits"
+                                  aria-hidden
+                                />
+                              ) : null}
                             </Button>
                           ))}
                         </div>
@@ -260,6 +267,31 @@ export default function Step4Geometry2DPage() {
                   </CardContent>
                 </Card>
               )}
+
+              {isReconstructStage &&
+              controller.hasUnsavedManualRibEdits &&
+              stageToolTab !== "manualEdit" ? (
+                <Card className="border-amber-500/35 bg-amber-500/10">
+                  <CardContent className="flex flex-col gap-2.5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="flex items-start gap-2 text-xs leading-relaxed text-amber-100/95">
+                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        Manual rib edits are visible on the preview but not saved to the project yet. Open
+                        Manual edit and use Save ribs to project when you are ready.
+                      </span>
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 shrink-0 border-amber-400/40"
+                      onClick={() => setStageToolTab("manualEdit")}
+                    >
+                      Manual edit
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : null}
 
               {stageToolTab === "controls" && isRoiStage ? (
                 <RoiControls
@@ -308,6 +340,7 @@ export default function Step4Geometry2DPage() {
                   activeSection={controller.activeSection}
                   isAnalysing={controller.isAnalysing}
                   hasSegmentations={controller.hasSegmentations}
+                  bossSegmentationCount={controller.bossSegmentationCount}
                   onAnalyse={controller.handleAnalyse}
                   intradosLines={controller.intradosLines}
                   showIntrados={controller.showIntrados}
@@ -354,11 +387,13 @@ export default function Step4Geometry2DPage() {
                   onRunBayPlan={controller.handleRunReconstruction}
                   onExportBayPlanDxf={controller.handleExportBayPlanDxf}
                   onSaveBayPlanManualEdges={controller.handleSaveManualReconstructionEdges}
+                  onBayPlanDraftEdgesChange={controller.handleReconstructDraftEdgesChange}
                   onSelectBayPlanEdge={handleSelectReconstructionEdge}
                   reconstructionView={controller.reconstructionView}
                   onChangeReconstructionView={controller.setReconstructionView}
                   showIdealisedOverlay={controller.showIdealisedOverlay}
                   onChangeShowIdealisedOverlay={controller.setShowIdealisedOverlay}
+                  bayPlanRoiBayMetres={controller.bayPlanRoiBayMetres}
                 />
               ) : isRoiStage ? (
                 <RoiEvidenceLayersCard
@@ -558,7 +593,9 @@ export default function Step4Geometry2DPage() {
                   }
                   showReconstructionOverlay={controller.activeSection === "reconstruct" ? controller.reconstructLayers.showReconstructedRibs : false}
                   showReconstructionNodes={controller.activeSection === "reconstruct" ? controller.reconstructLayers.showNodes : false}
-                  reconstructionResult={controller.activeSection === "reconstruct" ? controller.reconstructResult : null}
+                  reconstructionResult={
+                    controller.activeSection === "reconstruct" ? controller.reconstructResultForCanvas : null
+                  }
                   reconstructionView={controller.reconstructionView}
                   showIdealisedOverlay={controller.showIdealisedOverlay}
                   reconstructionPreviewBosses={controller.activeSection === "reconstruct" ? controller.reconstructPreviewBosses : []}

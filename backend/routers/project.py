@@ -10,7 +10,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.app_paths import get_data_root
+from services.app_paths import get_data_root, resolve_e57_path
 from services.projection import get_projection_service
 
 router = APIRouter()
@@ -1446,11 +1446,12 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
         with open(project_path, "r") as f:
             project_data = json.load(f)
         
-        # Get the original E57 path
-        e57_path = project_data.get("e57Path")
-        if not e57_path or not Path(e57_path).exists():
-            return {"success": False, "error": f"E57 file not found: {e57_path}"}
-        
+        # Get the original E57 path (resolve legacy basename-only values too)
+        stored_e57_path = project_data.get("e57Path")
+        e57_path = resolve_e57_path(stored_e57_path)
+        if not e57_path:
+            return {"success": False, "error": f"E57 file not found: {stored_e57_path}"}
+
         print(f"Loading original E57: {e57_path}")
         
         # Load projection metadata
@@ -1779,11 +1780,12 @@ async def trace_intrados(request: IntradosTraceRequest):
         with open(project_path, "r") as f:
             project_data = json.load(f)
         
-        # Get the original E57 path
-        e57_path = project_data.get("e57Path")
-        if not e57_path or not Path(e57_path).exists():
-            return {"success": False, "error": f"E57 file not found: {e57_path}"}
-        
+        # Get the original E57 path (resolve legacy basename-only values too)
+        stored_e57_path = project_data.get("e57Path")
+        e57_path = resolve_e57_path(stored_e57_path)
+        if not e57_path:
+            return {"success": False, "error": f"E57 file not found: {stored_e57_path}"}
+
         print(f"Tracing intrados lines for project: {request.projectId}")
         print(f"  E57: {e57_path}")
         

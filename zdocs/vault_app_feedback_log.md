@@ -12,7 +12,7 @@
 | Step 1 · Upload | 0 | 0 | 0 | 0 | **0** |
 | Step 2 · Projection | 0 | 0 | 1 | 0 | **1** |
 | Step 3 · Segmentation | 2 | 5 | 0 | 1 | **8** |
-| Step 4 · 2D Geometry | 2 | 2 | 1 | 2 | **7** |
+| Step 4 · 2D Geometry | 4 | 2 | 1 | 2 | **9** |
 | Step 5 · Reprojection | 0 | 0 | 0 | 0 | **0** |
 | Step 6 · Traces | 0 | 0 | 0 | 0 | **0** |
 | Step 7 · Measurements | 0 | 0 | 0 | 0 | **0** |
@@ -238,6 +238,32 @@ No issues logged.
 | **Priority** | 🟡 Medium |
 | **Issue** | The 'no match' notification currently appears away from the preview area, so users don't immediately associate the message with what they're looking at. |
 | **Recommendation** | Move the 'no match' notification directly under the preview panel so feedback sits next to the visual it refers to. Keep styling consistent with other inline warnings (e.g. amber banner with icon). |
+
+</details>
+
+<details>
+<summary><strong>- [x] GEO-04 · Step 4D reconstruction and DXF export are not to real-world scale</strong></summary>
+
+| Field | Detail |
+|---|---|
+| **Category** | 2D Geometry |
+| **Type** | 🐛 Bug |
+| **Priority** | 🔴 High |
+| **Issue** | The Step 4D bay-plan reconstruction and the exported DXF used raw projection **pixel** coordinates, so the drawing carried no metric meaning in CAD. |
+| **Resolution** | Backend now derives metres-per-pixel from the projection metadata (`max(range_x, range_y) / (resolution × 0.9)`, mirroring the projection renderer) and includes `metresPerPixel` in the reconstruction result. The DXF export scales node coordinates to **metres** and sets `$INSUNITS = 6`; the reconstruction panel shows the active scale (and falls back to pixel coordinates with a clear note when projection metadata is unavailable). New util `backend/services/geometry2d/utils/scale.py` with unit tests. |
+
+</details>
+
+<details>
+<summary><strong>- [x] BUG-02 · Manual rib deletion in Step 4D could not be reverted</strong></summary>
+
+| Field | Detail |
+|---|---|
+| **Category** | 2D Geometry |
+| **Type** | 🐛 Bug |
+| **Priority** | 🔴 High |
+| **Issue** | In the Manual edit tab, deleting a rib was irreversible. There was no undo/redo, and 'Reset edits' only restored the last *saved* state — so once a deletion was saved, the original rib could only be recovered by re-running the whole reconstruction. |
+| **Resolution** | Added an undo/redo stack over the draft rib edits and made 'Reset edits' restore the original reconstruction, keyed on the run's `ranAt` so it survives manual-edge saves. Deletes are now reversible both before saving (Undo) and after saving (Reset edits). |
 
 </details>
 

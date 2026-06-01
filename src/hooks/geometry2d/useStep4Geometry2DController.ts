@@ -45,6 +45,7 @@ import {
 } from "@/components/geometry2d/types";
 import { toast } from "@/components/ui/use-toast";
 import { buildBayPlanDxf, downloadBayPlanDxf } from "@/lib/geometry2d/bayPlanDxf";
+import { ribEdgeListSignature } from "@/lib/geometry2d/bayPlanScale";
 import {
   buildGeometry2DProjectionSnapshot,
   resolveGeometry2DProjection,
@@ -360,6 +361,30 @@ export function useStep4Geometry2DController() {
   const [isRunningReconstruction, setIsRunningReconstruction] = useState(false);
   const [isSavingReconstructionManualEdges, setIsSavingReconstructionManualEdges] = useState(false);
   const [isExportingBayPlanDxf, setIsExportingBayPlanDxf] = useState(false);
+  /** Live manual-rib draft from step 4D; drives canvas preview before Save ribs. */
+  const [reconstructDraftEdges, setReconstructDraftEdges] = useState<Geometry2DReconstructEdge[] | null>(null);
+
+  const handleReconstructDraftEdgesChange = useCallback((edges: Geometry2DReconstructEdge[]) => {
+    setReconstructDraftEdges(edges);
+  }, []);
+
+  const reconstructResultForCanvas = useMemo(() => {
+    if (!reconstructResult) return null;
+    if (!reconstructDraftEdges) return reconstructResult;
+    const savedSignature = ribEdgeListSignature(reconstructResult.edges || []);
+    const draftSignature = ribEdgeListSignature(reconstructDraftEdges);
+    if (savedSignature === draftSignature) return reconstructResult;
+    return {
+      ...reconstructResult,
+      edges: reconstructDraftEdges,
+      edgeCount: reconstructDraftEdges.length,
+    };
+  }, [reconstructDraftEdges, reconstructResult]);
+
+  const hasUnsavedManualRibEdits = useMemo(() => {
+    if (!reconstructResult || !reconstructDraftEdges) return false;
+    return ribEdgeListSignature(reconstructResult.edges || []) !== ribEdgeListSignature(reconstructDraftEdges);
+  }, [reconstructDraftEdges, reconstructResult]);
 
   const [roi, setRoi] = useState<ROIState>(() => {
     const project = useProjectStore.getState().currentProject;
@@ -463,14 +488,27 @@ export function useStep4Geometry2DController() {
 
   const segmentations = useMemo(() => currentProject?.segmentations || [], [currentProject?.segmentations]);
 
-  const groupedSegmentations = useMemo(() => {
-    // Mirror the step-3 base-label logic so classes here match the categories
-    // step-3 uses (e.g. "corner A" / "corner B" → "corner", "rib #1" → "rib").
-    const getClassLabel = (label: string): string =>
+  const getSegmentationClassLabel = useCallback((label: string): string => {
+    return (
       label
         .replace(/\s+[A-Za-z][a-z]?$/, "")
         .replace(/\s*#?\d+$/, "")
-        .trim() || label;
+        .trim() || label
+    );
+  }, []);
+
+  const bossSegmentationCount = useMemo(
+    () =>
+      segmentations.filter(
+        (seg) => getSegmentationClassLabel(seg.label).toLowerCase() === "boss stone"
+      ).length,
+    [getSegmentationClassLabel, segmentations]
+  );
+
+  const groupedSegmentations = useMemo(() => {
+    // Mirror the step-3 base-label logic so classes here match the categories
+    // step-3 uses (e.g. "corner A" / "corner B" → "corner", "rib #1" → "rib").
+    const getClassLabel = getSegmentationClassLabel;
     const groups: Record<string, Segmentation[]> = {};
     segmentations.forEach(seg => {
       const baseLabel = getClassLabel(seg.label);
@@ -480,7 +518,7 @@ export function useStep4Geometry2DController() {
       groups[baseLabel].push(seg);
     });
     return groups;
-  }, [segmentations]);
+  }, [getSegmentationClassLabel, segmentations]);
 
   const groupVisibility = useMemo(() => {
     const visibility: Record<string, GroupVisibilityInfo> = {};
@@ -1471,7 +1509,12 @@ export function useStep4Geometry2DController() {
       if (!response.success || !response.data) {
         throw new Error(response.error || "Pattern reconstruction failed.");
       }
-      setReconstructResult(response.data);
+      const nextResult = {
+        ...response.data,
+        metresPerPixel:
+          response.data.metresPerPixel ?? reconstructResult?.metresPerPixel ?? null,
+      };
+      setReconstructResult(nextResult);
       const nextPreviewBosses = response.data.usedBosses || [];
       setReconstructPreviewBosses(nextPreviewBosses);
       setReconstructLastRunAt(response.data.ranAt);
@@ -1483,7 +1526,7 @@ export function useStep4Geometry2DController() {
       setReconstructLayers(nextLayers);
       updateStep4Geometry2D({
         reconstruct: {
-          result: response.data,
+          result: nextResult,
           previewBosses: nextPreviewBosses,
           showOverlay: nextLayers.showReconstructedRibs,
           lastRunAt: response.data.ranAt,
@@ -1500,7 +1543,14 @@ export function useStep4Geometry2DController() {
     } finally {
       setIsRunningReconstruction(false);
     }
-  }, [currentProject?.id, reconstructDefaults, reconstructParams, reconstructStatePath, updateStep4Geometry2D]);
+  }, [
+    currentProject?.id,
+    reconstructDefaults,
+    reconstructParams,
+    reconstructResult?.metresPerPixel,
+    reconstructStatePath,
+    updateStep4Geometry2D,
+  ]);
 
   const handleSaveManualReconstructionEdges = useCallback(async (edges: Geometry2DReconstructEdge[]) => {
     if (!currentProject?.id) return;
@@ -1511,7 +1561,12 @@ export function useStep4Geometry2DController() {
         throw new Error(response.error || "Failed to save reconstructed ribs.");
       }
 
-      setReconstructResult(response.data);
+      const nextResult = {
+        ...response.data,
+        metresPerPixel:
+          response.data.metresPerPixel ?? reconstructResult?.metresPerPixel ?? null,
+      };
+      setReconstructResult(nextResult);
       const nextPreviewBosses = response.data.usedBosses || [];
       setReconstructPreviewBosses(nextPreviewBosses);
       setReconstructParams((response.data.params || {}) as Geometry2DBayPlanRunParams);
@@ -1519,7 +1574,7 @@ export function useStep4Geometry2DController() {
       updateStep4Geometry2D({
         reconstruct: {
           ...(getLatestStep4Geometry2D().geometry2d.reconstruct || {}),
-          result: response.data,
+          result: nextResult,
           previewBosses: nextPreviewBosses,
           showOverlay: reconstructLayers.showReconstructedRibs,
           lastRunAt: reconstructLastRunAt,
@@ -1560,6 +1615,7 @@ export function useStep4Geometry2DController() {
         nodes: reconstructResult.nodes,
         nodesIdeal: reconstructResult.nodesIdeal,
         edges: reconstructResult.edges,
+        metresPerPixel: reconstructResult.metresPerPixel,
       });
       const saved = await downloadBayPlanDxf(text, `bay_plan_${new Date().toISOString().slice(0, 10)}.dxf`);
       if (!saved) return;
@@ -2059,11 +2115,16 @@ export function useStep4Geometry2DController() {
 
       await loadTemplateState();
 
+      const correctionNote = prepResponse.data.correctionApplied
+        ? "ROI auto-corrected."
+        : "ROI auto-correction disabled.";
+      const bossNote =
+        prepResponse.data.bossCount === 0
+          ? " No boss centres detected — place reference points manually in step 4B, or segment bosses in step 3."
+          : "";
       toast({
         title: "Bay Proportion Analysis is ready",
-        description: `${
-          prepResponse.data.correctionApplied ? " ROI auto-corrected." : "ROI auto-correction disabled."
-        }`,
+        description: `${correctionNote}${bossNote}`,
       });
     } catch (error) {
       console.error("Failed to prepare Geometry2D inputs:", error);
@@ -2139,6 +2200,25 @@ export function useStep4Geometry2DController() {
     });
   };
 
+  const bayPlanRoiBayMetres = useMemo(() => {
+    const metresPerPixel = reconstructResult?.metresPerPixel;
+    const resolution = selectedProjection?.settings?.resolution;
+    if (
+      typeof metresPerPixel !== "number" ||
+      !Number.isFinite(metresPerPixel) ||
+      metresPerPixel <= 0 ||
+      typeof resolution !== "number" ||
+      resolution <= 0
+    ) {
+      return null;
+    }
+    if (!roi.width || !roi.height) return null;
+    return {
+      width: roi.width * resolution * metresPerPixel,
+      height: roi.height * resolution * metresPerPixel,
+    };
+  }, [reconstructResult?.metresPerPixel, roi.height, roi.width, selectedProjection?.settings?.resolution]);
+
   return {
     currentProject,
     selectedProjection,
@@ -2202,6 +2282,9 @@ export function useStep4Geometry2DController() {
     isRunningTemplateMatching,
     isLoadingTemplateMatchCsv,
     reconstructResult,
+    reconstructResultForCanvas,
+    hasUnsavedManualRibEdits,
+    handleReconstructDraftEdgesChange,
     reconstructionView,
     setReconstructionView,
     showIdealisedOverlay,
@@ -2220,6 +2303,7 @@ export function useStep4Geometry2DController() {
     isRunningReconstruction,
     isSavingReconstructionManualEdges,
     isExportingBayPlanDxf,
+    bayPlanRoiBayMetres,
 
     intradosLines,
     showIntrados,
@@ -2289,5 +2373,6 @@ export function useStep4Geometry2DController() {
 
     hasProjection: !!selectedProjection,
     hasSegmentations: segmentations.length > 0,
+    bossSegmentationCount,
   };
 }

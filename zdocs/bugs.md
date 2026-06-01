@@ -11,7 +11,7 @@ Cut-Typology fidelity to Tracing the Past (Hill)
 
 Cut-Typology UX (Step 4C interface)
 [Done] Simplify the Step 4C panel so tuning advanced parameters → rerun matching is a one-click flow. Current state: advanced parameters, run button, overlay toggles, reading selector and match table are spread out. Goal: a single tuning surface where the user nudges tolerance / starcut range / family toggles and sees the recomputed reading immediately, without scrolling between sections.
-[] Add grid hover on the canvas: hovering a template cell or cut line should highlight the contributing bosses (and vice versa — hovering a boss should highlight the cut line / cell it sits on). Bridges the table evidence and the visual evidence.
+[Done] Add grid hover on the canvas: hovering a template cell or cut line should highlight the contributing bosses (and vice versa — hovering a boss should highlight the cut line / cell it sits on). Bridges the table evidence and the visual evidence.
 [Done] Better organise the cut-typology overlay list: collapse by family (starcut / circlecut inner / circlecut outer), default-open the recommended reading's family, show n alongside each entry, and surface the per-variant matched count inline so the user doesn't have to open the modal table.
 [Done] Add Sticky Overview to step 4D as well.
 

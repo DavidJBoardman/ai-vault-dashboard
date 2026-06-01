@@ -18,6 +18,9 @@ export interface E57Info {
   };
   hasColor: boolean;
   hasIntensity: boolean;
+  // Absolute path the backend stored the file at. Persist this as e57Path so
+  // step 5 reprojection can reload the cloud (a dropped File only gives a name).
+  filePath?: string;
 }
 
 export async function uploadE57(file: string | File): Promise<ApiResponse<E57Info>> {

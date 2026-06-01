@@ -25,6 +25,10 @@ class E57Info(BaseModel):
     boundingBox: BoundingBox
     hasColor: bool
     hasIntensity: bool
+    # Absolute path of the file the backend resolved/stored. The renderer must
+    # persist this as the project's e57Path so reprojection (step 5) can reload
+    # the cloud — a dropped File only exposes its basename in Electron >=32.
+    filePath: Optional[str] = None
 
 
 class E57UploadResponse(BaseModel):
@@ -102,7 +106,7 @@ async def upload_e57(request: Request):
         
         processor = get_processor()
         info = await processor.load_file(str(file_path))
-        
+
         return E57UploadResponse(
             success=True,
             data=E57Info(
@@ -113,6 +117,7 @@ async def upload_e57(request: Request):
                 ),
                 hasColor=info["has_color"],
                 hasIntensity=info["has_intensity"],
+                filePath=str(file_path),
             ),
         )
     except HTTPException:

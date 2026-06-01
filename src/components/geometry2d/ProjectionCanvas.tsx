@@ -24,6 +24,7 @@ import {
   getNodePointTag,
   getReconstructionBossStyle,
 } from "@/components/geometry2d/projectionCanvasUtils";
+import { formatMetres, ribLengthMetres } from "@/lib/geometry2d/bayPlanScale";
 
 type BossHoverInfoMode = "none" | "nodes" | "matching";
 
@@ -187,6 +188,8 @@ export function ProjectionCanvas({
     isConstraint: boolean;
     isManual: boolean;
     kind: "selected" | "candidate";
+    lengthMetres: number | null;
+    lengthPx: number | null;
   } | null>(null);
   const previewFrameRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -770,6 +773,20 @@ export function ProjectionCanvas({
         const edge = nearestEdge.edge;
         const key = `${Math.min(edge.a, edge.b)}-${Math.max(edge.a, edge.b)}`;
         const candidate = reconstructionCandidateEdgeMap.get(key);
+        const startNode = reconstructionMeasuredNodes[edge.a];
+        const endNode = reconstructionMeasuredNodes[edge.b];
+        const lengthPx =
+          startNode && endNode
+            ? Math.hypot(endNode.x - startNode.x, endNode.y - startNode.y)
+            : null;
+        const mpp = reconstructionResult?.metresPerPixel;
+        const lengthMetres =
+          lengthPx !== null &&
+          typeof mpp === "number" &&
+          Number.isFinite(mpp) &&
+          mpp > 0
+            ? ribLengthMetres(reconstructionMeasuredNodes, edge, mpp)
+            : null;
         setHoveredReconstructionEdge({
           a: edge.a,
           b: edge.b,
@@ -786,6 +803,8 @@ export function ProjectionCanvas({
           isConstraint: edge.isConstraint === true || edge.isBoundaryForced === true || candidate?.isBoundaryForced === true,
           isManual: edge.isManual === true,
           kind: "selected",
+          lengthMetres,
+          lengthPx,
         });
       } else {
         setHoveredReconstructionEdge(null);
@@ -2523,15 +2542,23 @@ export function ProjectionCanvas({
                       8,
                       Math.min(
                         hoveredReconstructionEdge.y + 12,
-                        hoveredReconstructionEdge.hostHeight - 124 - 8
+                        hoveredReconstructionEdge.hostHeight - 148 - 8
                       )
                     ),
                   }}
                 >
                   <p className="mb-1 font-semibold">
-                    {hoveredReconstructionEdge.kind === "candidate" ? "Candidate" : "Selected"} edge {hoveredReconstructionEdge.aLabel}-{hoveredReconstructionEdge.bLabel}
+                    {hoveredReconstructionEdge.kind === "candidate" ? "Candidate" : "Selected"} rib {hoveredReconstructionEdge.aLabel}–{hoveredReconstructionEdge.bLabel}
                   </p>
                   <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-1">
+                    <p className="text-muted-foreground">Length</p>
+                    <p className="font-mono text-foreground">
+                      {hoveredReconstructionEdge.lengthMetres !== null
+                        ? `${formatMetres(hoveredReconstructionEdge.lengthMetres)} m`
+                        : hoveredReconstructionEdge.lengthPx !== null
+                          ? `${Math.round(hoveredReconstructionEdge.lengthPx)} px`
+                          : "—"}
+                    </p>
                     <p className="text-muted-foreground">Overlap</p>
                     <p className="font-mono text-foreground">
                       {hoveredReconstructionEdge.overlapScore !== null ? hoveredReconstructionEdge.overlapScore.toFixed(4) : "-"}

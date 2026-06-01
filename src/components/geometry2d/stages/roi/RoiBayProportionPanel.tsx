@@ -1,13 +1,23 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Activity, Play, RefreshCw } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Activity, AlertTriangle, Play, RefreshCw } from "lucide-react";
 
 interface RoiBayProportionPanelProps {
   isAnalysing: boolean;
   hasSegmentations: boolean;
+  bossSegmentationCount: number;
   onAnalyse: () => void;
   vaultRatio?: number;
   vaultRatioSuggestions?: Array<{ label: string; err: number }>;
@@ -50,6 +60,7 @@ function interpretBestRatio(bestSuggestion: { label: string; err: number } | und
 export function RoiBayProportionPanel({
   isAnalysing,
   hasSegmentations,
+  bossSegmentationCount,
   onAnalyse,
   vaultRatio,
   vaultRatioSuggestions = [],
@@ -59,6 +70,16 @@ export function RoiBayProportionPanel({
   onAutoCorrectRoiChange,
   correctionApplied,
 }: RoiBayProportionPanelProps) {
+  const [noBossesDialogOpen, setNoBossesDialogOpen] = useState(false);
+
+  const handleRunClick = () => {
+    if (bossSegmentationCount === 0) {
+      setNoBossesDialogOpen(true);
+      return;
+    }
+    onAnalyse();
+  };
+
   const sortedSuggestions = [...vaultRatioSuggestions].sort((a, b) => a.err - b.err);
   const bestSuggestion = sortedSuggestions[0];
   const quality = bestSuggestion ? ratioQuality(bestSuggestion.err) : null;
@@ -101,7 +122,7 @@ export function RoiBayProportionPanel({
             </span>
           </div>
 
-          <Button onClick={onAnalyse} disabled={isAnalysing || !hasSegmentations} className="w-full gap-2">
+          <Button onClick={handleRunClick} disabled={isAnalysing || !hasSegmentations} className="w-full gap-2">
             {isAnalysing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             Run Proportion Analysis
           </Button>
@@ -109,7 +130,41 @@ export function RoiBayProportionPanel({
           {!hasSegmentations && (
             <p className="text-xs text-muted-foreground text-center">Run segmentation first to enable analysis.</p>
           )}
+
+          {hasSegmentations && bossSegmentationCount === 0 && (
+            <p className="text-xs text-amber-200/90 text-center leading-5">
+              No boss stones segmented in step 3. You can still run bay proportion using the ROI; add boss reference points manually in step 4B.
+            </p>
+          )}
         </div>
+
+        <Dialog open={noBossesDialogOpen} onOpenChange={setNoBossesDialogOpen}>
+          <DialogContent className="max-w-md border-border/60 bg-background/95 backdrop-blur-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+                No boss stones segmented
+              </DialogTitle>
+              <DialogDescription className="text-sm leading-6">
+                Step 3 has no boss stone masks. Bay proportion can still be computed from the saved ROI, but auto-correct and template matching will not use detected bosses until you segment them or place points manually in step 4B.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" onClick={() => setNoBossesDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setNoBossesDialogOpen(false);
+                  onAnalyse();
+                }}
+              >
+                Continue anyway
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {vaultRatio !== undefined && (
           <div className="rounded-md border border-border p-3.5 space-y-3">
@@ -161,6 +216,18 @@ export function RoiBayProportionPanel({
                   ))}
                 </div>
               </details>
+            )}
+
+            {bossCount === 0 && (
+              <p className="rounded-md border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100/90">
+                No boss centres detected. Continue to step 4B to place reference points manually, or return to step 3 to segment boss stones.
+              </p>
+            )}
+
+            {typeof bossCount === "number" && bossCount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {bossCount} boss {bossCount === 1 ? "centre" : "centres"} from segmentation.
+              </p>
             )}
 
             {analysedAt && (
