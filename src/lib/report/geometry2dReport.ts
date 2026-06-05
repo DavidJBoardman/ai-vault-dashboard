@@ -99,9 +99,14 @@ export interface ReportData {
   };
   roi: RoiBox | null;
   imageSize: ImageSize;
+  // Real-world metres per projection pixel; null when projection metadata is
+  // unavailable (e.g. Step 4D reconstruction not run, or scan not calibrated).
+  metresPerPixel: number | null;
   inputs: {
     resolution: number;
     roiPx: { width: number; height: number; rotation: number } | null;
+    // Physical ROI extent in metres, derived from roiPx × metresPerPixel.
+    roiMetres: { width: number; height: number } | null;
     bossCount: number;
     pointCount: number;
     matchingThreshold: string | null;
@@ -173,6 +178,7 @@ interface ReconstructPersisted {
     nodes?: PersistedReconstructNode[];
     nodesIdeal?: PersistedReconstructIdealNode[];
     edges?: PersistedReconstructEdge[];
+    metresPerPixel?: number | null;
   };
 }
 
@@ -255,8 +261,20 @@ function pointToPixel(p: PersistedNodePoint, roi: RoiBox | null, resolution: num
 
 function ensureDataUrl(value: string | undefined): string | null {
   if (!value) return null;
-  if (value.startsWith("data:")) return value;
-  // Treat as raw base64 PNG/JPEG; default to PNG.
+  // Projection images are persisted as fetchable backend URLs (see Step 2's
+  // getProjectionImageUrl), not raw base64. Pass those through untouched —
+  // wrapping them as `data:image/png;base64,<url>` produces a broken href and
+  // was the reason the bay-plan background never rendered.
+  if (
+    value.startsWith("data:") ||
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("blob:") ||
+    value.startsWith("/")
+  ) {
+    return value;
+  }
+  // Treat anything else as raw base64 PNG/JPEG; default to PNG.
   return `data:image/png;base64,${value}`;
 }
 
