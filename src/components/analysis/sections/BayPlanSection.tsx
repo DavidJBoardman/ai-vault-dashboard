@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Eye, EyeOff } from "lucide-react";
 import type { ReportData } from "@/lib/report/geometry2dReport";
 import { BayPlanSvg } from "@/components/analysis/BayPlanSvg";
+import { formatMetres } from "@/lib/geometry2d/bayPlanScale";
 
 interface Props {
   data: ReportData;
@@ -14,7 +15,8 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
   { data },
   ref
 ) {
-  const { referencePoints, projectionImageDataUrl, roi, imageSize, reconstruct } = data;
+  const { referencePoints, projectionImageDataUrl, roi, imageSize, reconstruct, inputs } = data;
+  const roiMetres = inputs.roiMetres;
   const [showBackground, setShowBackground] = useState(true);
   const [showIdealised, setShowIdealised] = useState(false);
 
@@ -83,6 +85,12 @@ export const BayPlanSection = forwardRef<SVGSVGElement, Props>(function BayPlanS
           <figcaption className="text-center text-xs text-muted-foreground">
             Bay plan · {reconstruct.nodes.length || referencePoints.length} nodes ·{" "}
             {reconstruct.edges.length} ribs
+            {roiMetres && (
+              <>
+                {" · ROI "}
+                {formatMetres(roiMetres.width)} × {formatMetres(roiMetres.height)} m
+              </>
+            )}
           </figcaption>
         </figure>
       )}

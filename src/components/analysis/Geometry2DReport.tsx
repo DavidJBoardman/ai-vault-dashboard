@@ -6,6 +6,9 @@ import { Download, Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import { useProjectStore } from "@/lib/store";
 import { getCutTypologyCsv } from "@/lib/api/geometry2d";
+import { getProjectionImage } from "@/lib/api";
+import { resolveGeometry2DProjection } from "@/lib/geometry2d/projectionSelection";
+import { toImageSrc } from "@/lib/utils";
 import {
   buildBundleZip,
   selectReportData,
@@ -41,6 +44,10 @@ export function Geometry2DReport() {
   const [cutTypology, setCutTypology] = useState<CutTypologyData | null>(null);
   const [cutTypologyFetchedAt, setCutTypologyFetchedAt] = useState<string | null>(null);
   const [busy, setBusy] = useState<"none" | "bundle">("none");
+  // Projection background fetched as a base64 data URL. A self-contained data
+  // URL renders on-screen and also survives the SVG-to-PNG rasterisation used by
+  // the bundle export (backend URLs are blocked when an SVG loads as an image).
+  const [projectionImageDataUrl, setProjectionImageDataUrl] = useState<string | null>(null);
   const bayPlanSvgRef = useRef<SVGSVGElement>(null);
 
   const matchingLastRunAt = (project?.steps?.[4]?.data as
@@ -87,9 +94,29 @@ export function Geometry2DReport() {
     };
   }, [project?.id, project?.steps]);
 
+  useEffect(() => {
+    const projection = resolveGeometry2DProjection({ project, preferStep4Projection: true });
+    if (!projection?.id) {
+      setProjectionImageDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const base64 = await getProjectionImage(projection.id, "colour");
+        if (!cancelled) setProjectionImageDataUrl(base64 ? toImageSrc(base64) : null);
+      } catch {
+        if (!cancelled) setProjectionImageDataUrl(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project]);
+
   const data = useMemo<ReportData | null>(
-    () => selectReportData(project, cutTypology),
-    [project, cutTypology]
+    () => selectReportData(project, cutTypology, { projectionImageDataUrl }),
+    [project, cutTypology, projectionImageDataUrl]
   );
 
   if (!data) {

@@ -280,7 +280,8 @@ function ensureDataUrl(value: string | undefined): string | null {
 
 export function selectReportData(
   project: Project | null,
-  cutTypology?: CutTypologyData | null
+  cutTypology?: CutTypologyData | null,
+  options?: { projectionImageDataUrl?: string | null }
 ): ReportData | null {
   if (!project) return null;
 
@@ -334,7 +335,12 @@ export function selectReportData(
     : [...rawMatchColumns, "uv_error"];
   const cutTypologySummary = summariseCutTypologyRows(matchRows);
 
+  // Prefer a caller-supplied self-contained data URL (fetched as base64) when
+  // available — it renders on-screen AND survives SVG-to-PNG rasterisation for
+  // the bundle export, whereas a backend URL is blocked when the SVG is loaded
+  // as an image. Fall back to the persisted projection URL otherwise.
   const projectionImageDataUrl =
+    options?.projectionImageDataUrl ??
     ensureDataUrl(selectedProjection?.images?.colour) ??
     ensureDataUrl(selectedProjection?.previewImage) ??
     null;
@@ -388,11 +394,25 @@ export function selectReportData(
       ? String(matchingThresholdRaw)
       : null;
 
+  // Real-world scale from the Step 4D bay-plan reconstruction. roi.width/height
+  // are already in projection pixels (normaliseRoi scaled unit ROIs up), so the
+  // physical extent is simply pixels × metres-per-pixel.
+  const rawMetresPerPixel = geom.reconstruct?.result?.metresPerPixel;
+  const metresPerPixel =
+    typeof rawMetresPerPixel === "number" && Number.isFinite(rawMetresPerPixel) && rawMetresPerPixel > 0
+      ? rawMetresPerPixel
+      : null;
+  const roiMetres =
+    metresPerPixel && roi
+      ? { width: roi.width * metresPerPixel, height: roi.height * metresPerPixel }
+      : null;
+
   const inputs = {
     resolution,
     roiPx: roi
       ? { width: roi.width, height: roi.height, rotation: roi.rotation }
       : null,
+    roiMetres,
     bossCount: cutTypologySummary.bossesTotal,
     pointCount: referencePoints.length,
     matchingThreshold,
@@ -426,6 +446,7 @@ export function selectReportData(
     },
     roi,
     imageSize: { width: resolution, height: resolution },
+    metresPerPixel,
     inputs,
   };
 }

@@ -48,13 +48,17 @@ function renderBayPlan(data: ReportData, bayPlanFilename: string | null): string
   <p class="vr-muted">No reconstructed plan available.</p>
 </section>`;
   }
+  const roiMetres = data.inputs.roiMetres;
+  const roiCaption = roiMetres
+    ? ` · ROI ${fmt(roiMetres.width, 2)} × ${fmt(roiMetres.height, 2)} m`
+    : "";
   return `
 <section class="vr-section">
   <h2>Bay plan</h2>
   <p class="vr-muted">Reconstructed ribs over the projection, oriented to the saved ROI.</p>
   <figure class="vr-figure">
     <img src="${escape(bayPlanFilename)}" alt="Bay plan preview" />
-    <figcaption>${nodeCount} nodes · ${edgeCount} ribs</figcaption>
+    <figcaption>${nodeCount} nodes · ${edgeCount} ribs${roiCaption}</figcaption>
   </figure>
 </section>`;
 }
