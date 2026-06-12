@@ -16,7 +16,7 @@ Vault Analyser forms part of the wider project **Virtual Vaults: Using AI to pro
     <img src="images/logo-uol.png" alt="University of Liverpool logo" class="logo-uol">
   </a>
   <a href="https://www.virtualengineeringcentre.com/" target="_blank" rel="noopener noreferrer">
-    <img src="images/logo-vec.png" alt="Virtual Engineering Centre logo" class="logo-vec">
+    <img src="images/logo-vec-dark.png" alt="Virtual Engineering Centre logo" class="logo-vec">
   </a>
 </div>
 
