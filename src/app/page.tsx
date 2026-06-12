@@ -443,12 +443,12 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="border-t border-border/40 py-6">
         <div className="container mx-auto px-6 flex flex-col items-center gap-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center divide-x divide-black/10 rounded-2xl bg-white px-4 py-5 shadow-sm">
             <a
               href="https://www.ukri.org/"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-14 w-40 items-center justify-center rounded-md bg-white px-3 opacity-80 hover:opacity-100 transition-opacity"
+              className="flex h-12 w-44 items-center justify-center px-6 opacity-90 hover:opacity-100 transition-opacity"
             >
               <img
                 src="/logo-ukri.png"
@@ -460,7 +460,7 @@ export default function HomePage() {
               href="https://www.liverpool.ac.uk/"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-14 w-40 items-center justify-center rounded-md bg-white px-3 opacity-80 hover:opacity-100 transition-opacity"
+              className="flex h-12 w-44 items-center justify-center px-6 opacity-90 hover:opacity-100 transition-opacity"
             >
               <img
                 src="/logo-uol.png"
@@ -472,12 +472,12 @@ export default function HomePage() {
               href="https://www.virtualengineeringcentre.com/"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-14 w-40 items-center justify-center rounded-md bg-white px-3 opacity-80 hover:opacity-100 transition-opacity"
+              className="flex h-12 w-44 items-center justify-center px-6 opacity-90 hover:opacity-100 transition-opacity"
             >
               <img
                 src="/logo-vec-dark.png"
                 alt="Virtual Engineering Centre"
-                className="max-h-9 max-w-full object-contain"
+                className="max-h-10 max-w-full object-contain"
               />
             </a>
           </div>
