@@ -475,7 +475,7 @@ export default function HomePage() {
               className="flex h-14 w-40 items-center justify-center rounded-md bg-white px-3 opacity-80 hover:opacity-100 transition-opacity"
             >
               <img
-                src="/logo-vec.png"
+                src="/logo-vec-dark.png"
                 alt="Virtual Engineering Centre"
                 className="max-h-9 max-w-full object-contain"
               />
