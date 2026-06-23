@@ -31,13 +31,29 @@ export default function Step5ReprojectionPage() {
   const router = useRouter();
   const { currentProject, setReprojectionSelections, completeStep } = useProjectStore();
   
+  // Restore preview settings from saved step data so the auto-load reuses
+  // the same cache key as the last visit (avoiding recomputation).
+  const savedPreview = currentProject?.stepData?.[5] as {
+    selectedGroups?: string[];
+    showUnmaskedPoints?: boolean;
+    pointCount?: number;
+    impostLineZ?: number;
+    showImpostLine?: boolean;
+  } | undefined;
+
   // Selected mask groups (by groupId)
-  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
-  const [showUnmaskedPoints, setShowUnmaskedPoints] = useState(true);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>(
+    () => (savedPreview?.selectedGroups as string[] | undefined) ?? []
+  );
+  const [showUnmaskedPoints, setShowUnmaskedPoints] = useState(
+    () => savedPreview?.showUnmaskedPoints ?? true
+  );
   const [isReprojecting, setIsReprojecting] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
   const [pointCloudData, setPointCloudData] = useState<ReprojectionPoint[] | null>(null);
-  const [pointCount, setPointCount] = useState(500000);
+  const [pointCount, setPointCount] = useState(
+    () => savedPreview?.pointCount ?? 500000
+  );
   const [error, setError] = useState<string | null>(null);
   const [previewStats, setPreviewStats] = useState<{
     total: number;
@@ -61,18 +77,17 @@ export default function Step5ReprojectionPage() {
   // Intrados bridge option
   const [bridgeBossStones, setBridgeBossStones] = useState(false);
 
-  // Exclusion controls state
-  const savedStepData = currentProject?.stepData?.[5] as { impostLineZ?: number; showImpostLine?: boolean } | undefined;
+  // Exclusion controls state (reuses savedPreview declared above)
   const [impostLineZ, setImpostLineZ] = useState<number | undefined>(
-    () => savedStepData?.impostLineZ
+    () => savedPreview?.impostLineZ
   );
   // Restore checkbox state explicitly — do NOT infer from impostLineZ value
   const [showImpostLine, setShowImpostLine] = useState(
-    () => savedStepData?.showImpostLine ?? false
+    () => savedPreview?.showImpostLine ?? false
   );
   // Track what impost line Z was used when intrados were last traced
   const [tracedImpostLineZ, setTracedImpostLineZ] = useState<number | null>(
-    () => (savedStepData?.showImpostLine ? (savedStepData?.impostLineZ ?? null) : null)
+    () => (savedPreview?.showImpostLine ? (savedPreview?.impostLineZ ?? null) : null)
   );
   const [showMismatchDialog, setShowMismatchDialog] = useState(false);
   const [mismatchType, setMismatchType] = useState<"changed" | "removed" | "added">("changed");
@@ -111,10 +126,13 @@ export default function Step5ReprojectionPage() {
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [autoLoadTriggered, setAutoLoadTriggered] = useState(false);
   
-  // Initialize selected groups to all available
+  // Initialize selected groups to all available (only when not restored from step data)
   useEffect(() => {
-    if (availableGroups.length > 0 && selectedGroups.length === 0 && !initialLoadDone) {
-      setSelectedGroups(availableGroups.map(g => g.groupId));
+    if (availableGroups.length > 0 && !initialLoadDone) {
+      if (selectedGroups.length === 0) {
+        // No saved groups — default to all groups
+        setSelectedGroups(availableGroups.map(g => g.groupId));
+      }
       setInitialLoadDone(true);
     }
   }, [availableGroups, selectedGroups.length, initialLoadDone]);
@@ -294,10 +312,15 @@ export default function Step5ReprojectionPage() {
         setError(null);
         
         try {
-          // Use all groups for initial auto-load
+          // Use saved groups (or all groups if none saved) so the request
+          // parameters match the last cached preview and we get a cache hit.
+          const autoGroupIds = selectedGroups.length > 0 &&
+            selectedGroups.length < availableGroups.length
+            ? selectedGroups
+            : undefined; // undefined = all groups
           const response = await getReprojectionPreview(
             currentProject.id,
-            undefined, // All groups
+            autoGroupIds,
             pointCount,
             showUnmaskedPoints
           );
@@ -414,6 +437,7 @@ export default function Step5ReprojectionPage() {
     completeStep(5, {
       selectedGroups,
       showUnmaskedPoints,
+      pointCount,
       showImpostLine,
       impostLineZ: showImpostLine ? impostLineZ : undefined,
     });
@@ -428,6 +452,7 @@ export default function Step5ReprojectionPage() {
     completeStep(5, {
       selectedGroups,
       showUnmaskedPoints,
+      pointCount,
       showImpostLine: true,
       impostLineZ: revertedZ,
     });
@@ -444,6 +469,7 @@ export default function Step5ReprojectionPage() {
     completeStep(5, {
       selectedGroups,
       showUnmaskedPoints,
+      pointCount,
       showImpostLine: true,
       impostLineZ: restoredZ,
     });
@@ -1066,6 +1092,7 @@ export default function Step5ReprojectionPage() {
                   completeStep(5, {
                     selectedGroups,
                     showUnmaskedPoints,
+                    pointCount,
                     showImpostLine: false,
                     impostLineZ: undefined,
                   });

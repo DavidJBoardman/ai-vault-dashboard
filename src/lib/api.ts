@@ -931,10 +931,17 @@ export interface IntradosLine {
   ribBId?: string;
 }
 
+export interface IntradosTraceParams {
+  floorPlaneZ?: number;
+  exclusionBox?: ExclusionBox;
+  bridgeBossStones?: boolean;
+}
+
 export interface IntradosTraceResponse {
   lines: IntradosLine[];
   totalLines: number;
   totalRibs: number;
+  traceParams?: IntradosTraceParams;
 }
 
 export interface ExclusionBox {
