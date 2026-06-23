@@ -840,7 +840,7 @@ async def load_project(project_id: str):
                     resolution=proj_ref.get("resolution", 2048),
                     sigma=proj_ref.get("sigma", 1.0),
                     kernel_size=proj_ref.get("kernelSize", 5),
-                    bottom_up=proj_ref.get("bottomUp", True),
+                    bottom_up=proj_ref.get("bottomUp", False),
                     metadata=proj_ref.get("metadata", {}),
                     paths={
                         "colour": projection_paths.get("colour", ""),
@@ -1495,8 +1495,8 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
         resolution = proj_metadata.get("resolution", 2048)
         bounds = proj_metadata.get("bounds", {})
         centroid = np.array(proj_metadata.get("centroid", [0, 0, 0]))
-        perspective = proj_metadata.get("perspective", "bottom")
-        bottom_up = proj_metadata.get("bottom_up", True)
+        perspective = proj_metadata.get("perspective", "top")
+        bottom_up = proj_metadata.get("bottom_up", False)
         
         # Get bounds (these are the projected bounds after perspective transform)
         min_x = bounds.get("min_x", -5)
@@ -2136,6 +2136,54 @@ async def get_intrados_lines(project_id: str):
 
     except Exception as e:
         print(f"Error getting intrados lines: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
+class SaveIntradosLinesRequest(BaseModel):
+    """Request to persist manually-edited intrados lines."""
+    lines: List[Dict[str, Any]]
+
+
+@router.post("/{project_id}/intrados-lines")
+async def save_intrados_lines(project_id: str, request: SaveIntradosLinesRequest):
+    """Persist a (possibly user-edited) set of intrados lines for a project.
+
+    Called when the user trims a line's endpoints in the UI.  Overwrites
+    ``segmentations/intrados_lines.json`` with the supplied lines while
+    preserving any existing ``traceParams`` metadata.
+    """
+    try:
+        project_dir = get_project_dir(project_id)
+        intrados_path = project_dir / "segmentations" / "intrados_lines.json"
+
+        # Preserve traceParams from the previous save if present
+        existing_trace_params = None
+        if intrados_path.exists():
+            try:
+                with open(intrados_path, "r") as f:
+                    existing = json.load(f)
+                existing_trace_params = existing.get("traceParams")
+            except Exception:
+                pass
+
+        payload: Dict[str, Any] = {
+            "lines": request.lines,
+            "totalLines": len(request.lines),
+            "totalRibs": len(request.lines),
+        }
+        if existing_trace_params is not None:
+            payload["traceParams"] = existing_trace_params
+
+        with open(intrados_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+        print(f"[OK] Saved {len(request.lines)} user-edited intrados lines for {project_id}")
+        return {"success": True, "totalLines": len(request.lines)}
+
+    except Exception as e:
+        print(f"Error saving intrados lines: {e}")
         import traceback
         traceback.print_exc()
         return {"success": False, "error": str(e)}

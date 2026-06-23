@@ -30,7 +30,7 @@ def project_to_2d_gaussian_fast(
     points: np.ndarray,
     colours: Optional[np.ndarray],
     resolution: int = 2048,
-    bottom_up: bool = True,
+    bottom_up: bool = False,
     sigma: float = 1.0,
     kernel_size: int = 5,
     perspective: str = "top"

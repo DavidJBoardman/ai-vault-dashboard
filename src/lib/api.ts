@@ -995,6 +995,16 @@ export async function getIntradosLines(
   });
 }
 
+export async function saveIntradosLines(
+  projectId: string,
+  lines: IntradosLine[]
+): Promise<ApiResponse<{ totalLines: number }>> {
+  return apiRequest(`/api/project/${projectId}/intrados-lines`, {
+    method: "POST",
+    body: JSON.stringify({ lines }),
+  });
+}
+
 // =====================================================
 // Boss Stone / Keystone Marker Functions
 // =====================================================
