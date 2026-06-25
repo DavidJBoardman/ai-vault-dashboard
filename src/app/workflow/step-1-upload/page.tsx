@@ -29,7 +29,8 @@ import {
   Server,
   ServerOff,
   RefreshCw,
-  Eye
+  Eye,
+  Spline
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -46,10 +47,13 @@ const POINT_COUNT_PRESETS = [
 export default function Step1UploadPage() {
   const router = useRouter();
   const { 
+    currentProject,
     setE57Path, 
     setPointCloudStats, 
     completeStep,
+    setWorkflowMode,
   } = useProjectStore();
+  const isTracesOnlyMode = currentProject?.workflowMode === "traces-only";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   
   const [isDragging, setIsDragging] = useState(false);
@@ -270,8 +274,15 @@ export default function Step1UploadPage() {
   };
   
   const handleContinue = () => {
+    setWorkflowMode("full");
     completeStep(1, { hasPointCloud: true });
     router.push("/workflow/step-2-projection");
+  };
+
+  const handleSkipToTraces = () => {
+    setWorkflowMode("traces-only");
+    completeStep(1, { hasPointCloud: true });
+    router.push("/workflow/step-6-traces");
   };
 
   const formatBoundingBox = () => {
@@ -301,6 +312,23 @@ export default function Step1UploadPage() {
         title="Upload E57 Scan"
         description="Import your 3D point cloud scan to begin the analysis workflow"
       />
+
+      {/* Traces-only mode: E57 not required */}
+      {isTracesOnlyMode && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20">
+          <Spline className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-primary">Traces-only mode</p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              E57 upload is not required. Your project is ready — proceed to step 6 to import your Rhino traces.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => router.push("/workflow/step-6-traces")} className="gap-2 flex-shrink-0">
+            <Spline className="w-3.5 h-3.5" />
+            Go to Traces
+          </Button>
+        </div>
+      )}
       
       {/* Backend Status Indicator */}
       <div className={cn(
@@ -591,7 +619,15 @@ export default function Step1UploadPage() {
       )}
       
       <StepActions>
-        <div />
+        <Button
+          variant="outline"
+          onClick={handleSkipToTraces}
+          disabled={!pointCloudData}
+          className="gap-2"
+        >
+          <Spline className="w-4 h-4" />
+          I have my own traces
+        </Button>
         <Button 
           onClick={handleContinue} 
           disabled={!pointCloudData}

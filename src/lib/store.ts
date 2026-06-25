@@ -136,6 +136,9 @@ export interface Project {
     predictedMethod: string;
     calculations: Record<string, number>;
   } | null;
+
+  // Workflow mode
+  workflowMode: "full" | "traces-only";
 }
 
 export interface RecentProject {
@@ -210,6 +213,7 @@ interface ProjectStore {
   setCurrentStep: (step: number) => void;
   completeStep: (step: number, data?: any) => void;
   canAccessStep: (step: number) => boolean;
+  setWorkflowMode: (mode: "full" | "traces-only") => void;
   
   // Step-specific updates
   setE57Path: (path: string) => void;
@@ -246,6 +250,7 @@ const initialProject = (): Project => ({
   measurements: [],
   hypotheses: [],
   chordMethodResult: null,
+  workflowMode: "full",
 });
 
 export const useProjectStore = create<ProjectStore>()(
@@ -596,11 +601,29 @@ export const useProjectStore = create<ProjectStore>()(
         if (!currentProject) return false;
         if (step === 1) return true;
 
+        // In traces-only mode, skip steps 2–5; step 6+ follows its own chain
+        if (currentProject.workflowMode === "traces-only") {
+          if (step >= 2 && step <= 5) return false;
+          if (step === 6) return currentProject.steps[1]?.completed || false;
+          if (step >= 7) {
+            const prevStep = currentProject.steps[step - 1];
+            return prevStep?.completed || false;
+          }
+        }
+
         // Step 5 (reprojection) only needs the segmentation masks from step 3,
         // not the 2D-geometry analysis in step 4. Gate it on step 3 so it
         // unlocks in parallel with step 4. All other steps stay linear.
         const prerequisite = step === 5 ? 3 : step - 1;
         return currentProject.steps[prerequisite]?.completed || false;
+      },
+
+      setWorkflowMode: (mode: "full" | "traces-only") => {
+        set((state) => ({
+          currentProject: state.currentProject
+            ? { ...state.currentProject, workflowMode: mode }
+            : null,
+        }));
       },
 
       setE57Path: (path: string) => {

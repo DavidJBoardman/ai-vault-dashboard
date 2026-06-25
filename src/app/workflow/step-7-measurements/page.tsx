@@ -911,6 +911,21 @@ export default function Step7MeasurementsPage() {
     loadData();
   }, [currentProject?.id]);
 
+  // When data finishes loading and there are no boss stones, auto-number ribs sequentially
+  useEffect(() => {
+    if (previewLoading) return;
+    if (bossStoneMarkers.length > 0) return;
+    if (intradosLines.length === 0) return;
+    if (Object.keys(measurementConfig.ribNameById).length > 0) return;
+
+    const autoNames: Record<string, string> = {};
+    intradosLines.forEach((line, index) => {
+      autoNames[line.id] = `Rib ${index + 1}`;
+    });
+    setMeasurementConfig(prev => ({ ...prev, ribNameById: autoNames }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewLoading, intradosLines.length, bossStoneMarkers.length]);
+
   useEffect(() => {
     if (intradosLines.length === 0) {
       setSelectedRib(null);
@@ -3124,9 +3139,9 @@ export default function Step7MeasurementsPage() {
                             <p className="text-sm text-muted-foreground">Loading preview...</p>
                           </div>
                         </div>
-                      ) : pointCloudData ? (
+                      ) : (pointCloudData || traceLines.length > 0) ? (
                         <PointCloudViewer
-                          points={pointCloudData}
+                          points={pointCloudData ?? []}
                           className="h-full rounded-lg overflow-hidden"
                           colorMode="height"
                           showGrid={true}
@@ -3900,9 +3915,9 @@ export default function Step7MeasurementsPage() {
                             <p className="text-sm text-muted-foreground">Loading preview...</p>
                           </div>
                         </div>
-                      ) : pointCloudData ? (
+                      ) : (pointCloudData || traceLines.length > 0) ? (
                         <PointCloudViewer
-                          points={pointCloudData}
+                          points={pointCloudData ?? []}
                           className="h-full rounded-lg overflow-hidden"
                           colorMode="height"
                           showGrid={true}

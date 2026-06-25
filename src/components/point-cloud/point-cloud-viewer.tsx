@@ -803,6 +803,35 @@ export function PointCloudViewer({
   // Calculate center for camera target
   const { center, cameraDistance, gridPos, minZ, bossStoneRadius } = useMemo(() => {
     if (points.length === 0) {
+      // Try to compute bounds from lines when no point cloud is loaded
+      const allLinePoints = lines?.flatMap(l => l.points) ?? [];
+      if (allLinePoints.length > 0) {
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        let lMinZ = Infinity, lMaxZ = -Infinity;
+        for (const p of allLinePoints) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+          if (p.z < lMinZ) lMinZ = p.z;
+          if (p.z > lMaxZ) lMaxZ = p.z;
+        }
+        const lCenter = {
+          x: (minX + maxX) / 2,
+          y: (lMinZ + lMaxZ) / 2,
+          z: (minY + maxY) / 2,
+        };
+        const maxRange = Math.max(maxX - minX, maxY - minY, lMaxZ - lMinZ);
+        const diagonal = Math.sqrt((maxX - minX) ** 2 + (maxY - minY) ** 2 + (lMaxZ - lMinZ) ** 2);
+        return {
+          center: lCenter,
+          cameraDistance: Math.max(maxRange * 1.5, 1),
+          gridPos: { x: lCenter.x, y: lMinZ - 0.1, z: lCenter.z },
+          minZ: lMinZ,
+          bossStoneRadius: Math.max(diagonal / 60, 0.05),
+        };
+      }
       return { 
         center: { x: 0, y: 0, z: 0 }, 
         cameraDistance: 10,
@@ -851,7 +880,7 @@ export function PointCloudViewer({
     setResetKey(k => k + 1);
   }, []);
 
-  if (points.length === 0) {
+  if (points.length === 0 && (!lines || lines.length === 0)) {
     return (
       <div className={`bg-muted/30 rounded-lg flex items-center justify-center ${className}`}>
         <p className="text-muted-foreground">No point cloud data</p>

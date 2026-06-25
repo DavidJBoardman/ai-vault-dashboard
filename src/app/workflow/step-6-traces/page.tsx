@@ -42,9 +42,13 @@ import { MANUAL_TRACE_COLOR, normalizeImportedCurves } from "@/lib/traces";
 export default function Step6TracesPage() {
   const router = useRouter();
   const { currentProject, addTrace3D, completeStep } = useProjectStore();
-  
+  const isTracesOnlyMode = currentProject?.workflowMode === "traces-only";
+
   // Trace source selection
-  const [traceSource, setTraceSource] = useState<"auto" | "manual">("auto");
+  const [traceSource, setTraceSource] = useState<"auto" | "manual">(isTracesOnlyMode ? "manual" : "auto");
+
+  // Final selection
+  const [selectedTraceType, setSelectedTraceType] = useState<"auto" | "manual" | "both">(isTracesOnlyMode ? "manual" : "auto");
   
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
@@ -73,8 +77,6 @@ export default function Step6TracesPage() {
   const [exportedFile, setExportedFile] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<IntradosExportFormat>("3dm");
   
-  // Final selection
-  const [selectedTraceType, setSelectedTraceType] = useState<"auto" | "manual" | "both">("auto");
   const [isConfirmed, setIsConfirmed] = useState(false);
   
   // Load 3D preview on mount
@@ -182,6 +184,14 @@ export default function Step6TracesPage() {
     return lines;
   }, [autoIntradosLines, manualLinesForViewer, showAutoLines, showManualLines, selectedTraceType]);
   
+  // If manual traces are loaded but no auto traces exist, ensure manual is selected
+  // (guards against Zustand hydration timing where isTracesOnlyMode is false at mount)
+  useEffect(() => {
+    if (manualTraces.length > 0 && autoIntradosLines.length === 0) {
+      setSelectedTraceType("manual");
+    }
+  }, [manualTraces.length, autoIntradosLines.length]);
+
   // Handle uploading a 3DM file
   const handleUpload3dm = async () => {
     if (!currentProject?.id) return;
@@ -301,7 +311,10 @@ export default function Step6TracesPage() {
     <div className="space-y-6">
       <StepHeader 
         title="3D Geometry Traces"
-        description="Export auto-detected traces or import manual traces from Rhino"
+        description={isTracesOnlyMode
+          ? "Import your hand-drawn traces from Rhino to use for measurements"
+          : "Export auto-detected traces or import manual traces from Rhino"
+        }
       />
       
       <div className="grid lg:grid-cols-3 gap-6">
@@ -317,9 +330,9 @@ export default function Step6TracesPage() {
                       <p className="text-sm text-muted-foreground">Loading 3D preview...</p>
                     </div>
                   </div>
-                ) : pointCloudData ? (
+                ) : (pointCloudData || visibleLines.length > 0) ? (
                   <PointCloudViewer
-                    points={pointCloudData}
+                    points={pointCloudData ?? []}
                     className="h-[500px] rounded-lg overflow-hidden"
                     colorMode="height"
                     showGrid={true}
@@ -328,8 +341,16 @@ export default function Step6TracesPage() {
                     lineWidth={lineWidth}
                   />
                 ) : (
-                  <div className="h-[500px] rounded-lg bg-muted flex items-center justify-center">
-                    <p className="text-sm text-muted-foreground">No point cloud data available</p>
+                  <div className="h-[500px] rounded-lg bg-muted/50 border-2 border-dashed border-border flex flex-col items-center justify-center gap-3">
+                    <div className="p-4 rounded-full bg-muted">
+                      <FileBox className="w-8 h-8 text-muted-foreground" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-foreground">No traces loaded</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Upload a .3dm file to preview your traces here
+                      </p>
+                    </div>
                   </div>
                 )}
                 
@@ -374,7 +395,7 @@ export default function Step6TracesPage() {
           )}
           
           {/* Auto-Detected Traces */}
-          <Card>
+          <Card className={isTracesOnlyMode ? "opacity-50" : ""}>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base font-display flex items-center gap-2">
@@ -390,7 +411,11 @@ export default function Step6TracesPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {autoIntradosLines.length > 0 ? (
+              {isTracesOnlyMode ? (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  Not available — projection &amp; reprojection steps were skipped.
+                </p>
+              ) : autoIntradosLines.length > 0 ? (
                 <>
                   <div className="flex items-center justify-between">
                     <Label className="text-sm flex items-center gap-2">
@@ -590,9 +615,13 @@ export default function Step6TracesPage() {
       </div>
       
       <StepActions>
-        <Button variant="outline" onClick={() => router.push("/workflow/step-5-reprojection")} className="gap-2">
+        <Button
+          variant="outline"
+          onClick={() => router.push(isTracesOnlyMode ? "/workflow/step-1-upload" : "/workflow/step-5-reprojection")}
+          className="gap-2"
+        >
           <ChevronLeft className="w-4 h-4" />
-          Back to Reprojection
+          {isTracesOnlyMode ? "Back to Upload" : "Back to Reprojection"}
         </Button>
         <Button 
           onClick={handleContinue}
