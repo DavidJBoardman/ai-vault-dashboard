@@ -1077,6 +1077,22 @@ export function useStep4Geometry2DController() {
     pushTemplatePointHistory(next);
   };
 
+  const handleTemplatePointRename = (pointId: number, letter: string) => {
+    const prev = templatePointsRef.current;
+    const point = prev.find((p) => p.id === pointId);
+    if (!point) return;
+    const upperLetter = letter.toUpperCase();
+    const newLabel =
+      point.pointType === "corner" ? upperLetter : `boss stone ${upperLetter}`;
+    const next = prev.map((p) =>
+      p.id !== pointId ? p : { ...p, label: newLabel }
+    );
+    setSelectedTemplatePointId(pointId);
+    setTemplatePoints(next);
+    persistNodesPatch({ points: next });
+    pushTemplatePointHistory(next);
+  };
+
   const handleTemplatePointMove = (pointId: number, x: number, y: number) => {
     setTemplatePoints((prev) =>
       prev.map((point) =>
@@ -2338,6 +2354,7 @@ export function useStep4Geometry2DController() {
     handleExportCSV,
 
     handleTemplatePointChange,
+    handleTemplatePointRename,
     handleTemplatePointMove,
     handleTemplatePointMoveEnd,
     handleSelectTemplatePoint,
