@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Geometry2DNodePoint } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ export type NodePointFilter = "all" | "inside" | "outside";
 interface NodePreparationCardProps {
   titlePrefix?: string;
   points: Geometry2DNodePoint[];
+  allPoints: Geometry2DNodePoint[];
   projectionResolution: number;
   totalPointsCount: number;
   selectedPointId?: number;
@@ -30,6 +31,7 @@ interface NodePreparationCardProps {
   onIncludeRoiCornerPointsChange: (checked: boolean) => void;
   onSelectPoint: (pointId: number) => void;
   onPointChange: (pointId: number, patch: { x?: number; y?: number }) => void;
+  onPointRename: (pointId: number, newLetter: string) => void;
   onAddPoint: () => void;
   onRemovePoint: (pointId: number) => void;
   onSavePoints: () => void;
@@ -40,6 +42,7 @@ interface NodePreparationCardProps {
 export function NodePreparationCard({
   titlePrefix,
   points,
+  allPoints,
   projectionResolution,
   totalPointsCount,
   selectedPointId,
@@ -52,6 +55,7 @@ export function NodePreparationCard({
   onIncludeRoiCornerPointsChange,
   onSelectPoint,
   onPointChange,
+  onPointRename,
   onAddPoint,
   onRemovePoint,
   onSavePoints,
@@ -59,7 +63,47 @@ export function NodePreparationCard({
   onGoToRoi,
 }: NodePreparationCardProps) {
   const [draftInputs, setDraftInputs] = useState<Record<string, string>>({});
+  const [draftNames, setDraftNames] = useState<Record<number, string>>({});
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+  const BOSS_LETTER_RE = /^[ABCDEFGHJKLMNPQRSTUVWXY]{1,3}$/;
+
+  const getEffectiveName = (point: Geometry2DNodePoint): string =>
+    draftNames[point.id] !== undefined
+      ? draftNames[point.id]
+      : getNodePointTag(point);
+
+  const duplicatePointIds = useMemo<Set<number>>(() => {
+    const seen = new Map<string, number>();
+    const dupes = new Set<number>();
+    allPoints.forEach((p) => {
+      const name = (
+        draftNames[p.id] !== undefined ? draftNames[p.id] : getNodePointTag(p)
+      ).toUpperCase();
+      if (!name) return;
+      if (seen.has(name)) {
+        dupes.add(p.id);
+        dupes.add(seen.get(name)!);
+      } else {
+        seen.set(name, p.id);
+      }
+    });
+    return dupes;
+  }, [allPoints, draftNames]);
+
+  const commitDraftName = (point: Geometry2DNodePoint) => {
+    const draft = draftNames[point.id];
+    if (draft === undefined) return;
+    const letter = draft.trim().toUpperCase();
+    if (letter && BOSS_LETTER_RE.test(letter)) {
+      onPointRename(point.id, letter);
+    }
+    setDraftNames((prev) => {
+      const out = { ...prev };
+      delete out[point.id];
+      return out;
+    });
+  };
   const rowRefs = useRef(new Map<number, HTMLDivElement>());
 
   const formatCoord = (point: Geometry2DNodePoint, axis: "x" | "y") => {
@@ -182,8 +226,11 @@ export function NodePreparationCard({
 
         <ScrollArea ref={scrollAreaRef} className="h-[22.5rem] rounded-md border border-border">
           <div className="p-1.5 space-y-1.5">
-            <div className="sticky top-0 z-10 bg-background/95 backdrop-blur grid grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5.1rem_1.75rem] gap-1.5 px-1.5 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <div>Point</div>
+            <div className="sticky top-0 z-10 bg-background/95 backdrop-blur grid grid-cols-[4rem_minmax(0,1fr)_minmax(0,1fr)_5.1rem_1.75rem] gap-1.5 px-1.5 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <div>
+                <div>#</div>
+                <div>Name</div>
+              </div>
               <div className="whitespace-nowrap">X px</div>
               <div className="whitespace-nowrap">Y px</div>
               <div className="text-center whitespace-nowrap">Source / ROI</div>
@@ -196,29 +243,44 @@ export function NodePreparationCard({
                   if (node) rowRefs.current.set(point.id, node);
                   else rowRefs.current.delete(point.id);
                 }}
-                className={`grid grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5.1rem_1.75rem] gap-1.5 items-center rounded border px-1.5 py-1.5 cursor-pointer ${
-                  selectedPointId === point.id
-                    ? "border-primary/70 bg-primary/10"
-                    : "border-border/70"
+                className={`grid grid-cols-[4rem_minmax(0,1fr)_minmax(0,1fr)_5.1rem_1.75rem] gap-1.5 items-center rounded border px-1.5 py-1.5 cursor-pointer ${
+                  duplicatePointIds.has(point.id)
+                    ? "border-red-500/60 bg-red-500/5"
+                    : selectedPointId === point.id
+                      ? "border-primary/70 bg-primary/10"
+                      : "border-border/70"
                 }`}
                 onClick={() => onSelectPoint(point.id)}
               >
                 <div className="space-y-0.5">
                   <div className="text-xs font-medium text-muted-foreground">#{point.id}</div>
-                  {(() => {
-                    const isCorner = point.pointType === "corner";
-                    const tag = getNodePointTag(point);
-                    if (!tag || tag === String(point.id)) return null;
-                    return (
-                      <div
-                        className={`text-sm font-semibold uppercase tracking-wide ${
-                          isCorner ? "text-cyan-300" : "text-amber-300"
-                        }`}
-                      >
-                        {tag}
-                      </div>
-                    );
-                  })()}
+                  <Input
+                    type="text"
+                    className={`h-6 w-full px-1 text-xs font-mono uppercase ${
+                      duplicatePointIds.has(point.id) ? "border-red-500/60" : ""
+                    }`}
+                    maxLength={3}
+                    value={getEffectiveName(point)}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      if (/^[ABCDEFGHJKLMNPQRSTUVWXY]{0,3}$/.test(val)) {
+                        setDraftNames((prev) => ({ ...prev, [point.id]: val }));
+                      }
+                    }}
+                    onFocus={() => onSelectPoint(point.id)}
+                    onBlur={() => commitDraftName(point)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+                      if (e.key === "Escape") {
+                        setDraftNames((prev) => {
+                          const out = { ...prev };
+                          delete out[point.id];
+                          return out;
+                        });
+                        (e.currentTarget as HTMLInputElement).blur();
+                      }
+                    }}
+                  />
                 </div>
                 <Input
                   type="text"
@@ -304,9 +366,14 @@ export function NodePreparationCard({
           </div>
         </ScrollArea>
 
+        {duplicatePointIds.size > 0 && (
+          <p className="text-xs text-red-400">
+            Duplicate names — fix highlighted rows before saving
+          </p>
+        )}
         <Button
           onClick={onSavePoints}
-          disabled={isLoadingState || isSavingPoints || !hasUnsavedChanges}
+          disabled={isLoadingState || isSavingPoints || !hasUnsavedChanges || duplicatePointIds.size > 0}
           className="w-full gap-2"
         >
           {isSavingPoints ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
