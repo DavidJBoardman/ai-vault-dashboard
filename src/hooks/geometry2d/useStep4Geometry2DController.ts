@@ -333,6 +333,7 @@ export function useStep4Geometry2DController() {
   const [templateMatchCsvColumns, setTemplateMatchCsvColumns] = useState<string[]>([]);
   const [templateMatchCsvRows, setTemplateMatchCsvRows] = useState<Array<Record<string, string>>>([]);
   const [templateLastRunAt, setTemplateLastRunAt] = useState<string | undefined>(undefined);
+  const [labelsStaleWarning, setLabelsStaleWarning] = useState(false);
   const [templatePointFilter, setTemplatePointFilter] = useState<TemplatePointFilter>("all");
   const [selectedTemplatePointId, setSelectedTemplatePointId] = useState<number | undefined>(undefined);
   const [templateSavedPointsSignature, setTemplateSavedPointsSignature] = useState<string>(pointSignature([]));
@@ -994,6 +995,7 @@ export function useStep4Geometry2DController() {
     setTemplateMatchCsvColumns([]);
     setTemplateMatchCsvRows([]);
     setTemplateLastRunAt(undefined);
+    setLabelsStaleWarning(false);
     setTemplatePointFilter("all");
     setSelectedTemplatePointId(resetPoints[0]?.id);
     setTemplateSavedPointsSignature(pointSignature(resetPoints));
@@ -1092,6 +1094,8 @@ export function useStep4Geometry2DController() {
     persistNodesPatch({ points: next });
     pushTemplatePointHistory(next);
   };
+
+  const dismissLabelsStaleWarning = () => setLabelsStaleWarning(false);
 
   const handleTemplatePointMove = (pointId: number, x: number, y: number) => {
     setTemplatePoints((prev) =>
@@ -1308,6 +1312,10 @@ export function useStep4Geometry2DController() {
   const handleSaveTemplatePoints = async () => {
     if (!currentProject?.id) return false;
 
+    const prevLabelMap = new Map(
+      templatePoints.map((p) => [p.id, p.label])
+    );
+
     setIsSavingTemplatePoints(true);
     try {
       const response = await saveNodes({
@@ -1336,6 +1344,14 @@ export function useStep4Geometry2DController() {
       setTemplateSavedPointsSignature(pointSignature(nextPoints));
       resetTemplatePointHistory(nextPoints);
       persistNodesPatch({ points: nextPoints });
+      const anyLabelChanged = nextPoints.some(
+        (p) => prevLabelMap.get(p.id) !== p.label
+      );
+      if (anyLabelChanged && (templateLastRunAt || reconstructLastRunAt)) {
+        setLabelsStaleWarning(true);
+      } else if (!anyLabelChanged) {
+        setLabelsStaleWarning(false);
+      }
       toast({
         title: "Ready nodes updated",
         description: `${nextPoints.length} nodes saved and ready for cut-typology and bay plan reconstruction.`,
@@ -1709,6 +1725,7 @@ export function useStep4Geometry2DController() {
       setTemplateBestVariantLabel(nextBestVariantLabel);
       setTemplateOutputDir(payload.outputDir);
       setTemplateMatchCsvPath(payload.matchCsvPath);
+      setLabelsStaleWarning(false);
       setTemplateLastRunAt(payload.ranAt);
 
       const nextPerBoss = payload.perBoss || [];
@@ -2371,6 +2388,8 @@ export function useStep4Geometry2DController() {
     handleSelectReading,
     templatePerBoss,
     handleSaveTemplatePoints,
+    labelsStaleWarning,
+    dismissLabelsStaleWarning,
     handleResetTemplatePoints,
     handleRunTemplateMatching,
     handleLoadTemplateMatchCsv,
