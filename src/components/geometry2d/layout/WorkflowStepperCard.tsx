@@ -13,6 +13,7 @@ export interface WorkflowStepperItem {
   title: string;
   status: "completed" | "current" | "available" | "locked";
   lockedReason?: string;
+  stale?: boolean;
 }
 
 interface WorkflowStepperCardProps {
@@ -59,6 +60,7 @@ export function WorkflowStepperCard({
             const isCompleted = section.status === "completed";
             const isLocked = section.status === "locked";
             const isAvailable = section.status === "available";
+            const showStale = !!section.stale && (isCompleted || isCurrent);
 
             return (
               <div key={section.id} className="relative">
@@ -66,7 +68,13 @@ export function WorkflowStepperCard({
                   variant="outline"
                   onClick={() => onSectionChange(section.id)}
                   disabled={isLocked}
-                  title={isLocked ? section.lockedReason : section.title}
+                  title={
+                    isLocked
+                      ? section.lockedReason
+                      : showStale
+                        ? `${section.title} — update needed (an earlier step changed)`
+                        : section.title
+                  }
                   className={cn(
                     "group h-12 w-full justify-start rounded-lg border px-3 text-left transition-all",
                     isCurrent && "border-amber-400/80 bg-amber-500 text-amber-950 hover:bg-amber-500/95 hover:text-amber-950",
@@ -95,10 +103,11 @@ export function WorkflowStepperCard({
                     <div
                       className={cn(
                         "h-2 w-2 shrink-0 rounded-full",
-                        isCurrent && "bg-amber-900/70",
-                        isCompleted && !isCurrent && "bg-emerald-400",
-                        isAvailable && "bg-amber-400/70",
-                        isLocked && "bg-border/70"
+                        showStale && "bg-amber-400",
+                        !showStale && isCurrent && "bg-amber-900/70",
+                        !showStale && isCompleted && !isCurrent && "bg-emerald-400",
+                        !showStale && isAvailable && "bg-amber-400/70",
+                        !showStale && isLocked && "bg-border/70"
                       )}
                       aria-hidden="true"
                     />
@@ -108,6 +117,11 @@ export function WorkflowStepperCard({
                 {section.lockedReason && isLocked && (
                   <p className="px-1 pt-1 text-[10px] text-muted-foreground/75">
                     {section.lockedReason}
+                  </p>
+                )}
+                {showStale && (
+                  <p className="px-1 pt-1 text-[10px] font-medium text-amber-400/90">
+                    Update needed
                   </p>
                 )}
               </div>
