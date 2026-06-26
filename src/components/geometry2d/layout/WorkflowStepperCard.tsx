@@ -24,6 +24,7 @@ interface WorkflowStepperCardProps {
   resetDisabled?: boolean;
   allComplete?: boolean;
   onContinue?: () => void;
+  onDismissStale?: (id: Geometry2DWorkflowSection) => void;
 }
 
 export function WorkflowStepperCard({
@@ -34,6 +35,7 @@ export function WorkflowStepperCard({
   resetDisabled = false,
   allComplete = false,
   onContinue,
+  onDismissStale,
 }: WorkflowStepperCardProps) {
 
   return (
@@ -120,8 +122,18 @@ export function WorkflowStepperCard({
                   </p>
                 )}
                 {showStale && (
-                  <p className="px-1 pt-1 text-[10px] font-medium text-amber-400/90">
-                    Update needed
+                  <p className="flex items-center gap-1.5 px-1 pt-1 text-[10px] font-medium text-amber-400/90">
+                    <span>Update needed</span>
+                    {onDismissStale && (
+                      <button
+                        type="button"
+                        className="rounded text-amber-300/80 underline underline-offset-2 hover:text-amber-200"
+                        onClick={() => onDismissStale(section.id)}
+                        title="Dismiss — mark this step as up to date without re-running it"
+                      >
+                        Dismiss
+                      </button>
+                    )}
                   </p>
                 )}
               </div>

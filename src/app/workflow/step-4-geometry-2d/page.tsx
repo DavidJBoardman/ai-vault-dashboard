@@ -81,7 +81,6 @@ export default function Step4Geometry2DPage() {
               ? "available"
               : "locked",
         lockedReason: "Complete and save A first",
-        stale: controller.nodesStale,
       },
       {
         id: "matching" as const,
@@ -118,7 +117,6 @@ export default function Step4Geometry2DPage() {
       hasMatchingResult,
       hasReconstructionResult,
       hasSavedNodes,
-      controller.nodesStale,
       controller.matchingStale,
       controller.reconstructStale,
     ]
@@ -230,11 +228,15 @@ export default function Step4Geometry2DPage() {
               hasSavedNodes &&
               hasMatchingResult &&
               hasReconstructionResult &&
-              !controller.nodesStale &&
               !controller.matchingStale &&
               !controller.reconstructStale
             }
             onContinue={handleContinue}
+            onDismissStale={(id) => {
+              if (id === "matching" || id === "reconstruct") {
+                controller.acknowledgeStale(id);
+              }
+            }}
           />
 
           <div className="grid lg:grid-cols-12 gap-6 items-start">
