@@ -81,6 +81,7 @@ export default function Step4Geometry2DPage() {
               ? "available"
               : "locked",
         lockedReason: "Complete and save A first",
+        stale: controller.nodesStale,
       },
       {
         id: "matching" as const,
@@ -94,6 +95,7 @@ export default function Step4Geometry2DPage() {
               ? "available"
               : "locked",
         lockedReason: "Save nodes in B first",
+        stale: controller.matchingStale,
       },
       {
         id: "reconstruct" as const,
@@ -107,6 +109,7 @@ export default function Step4Geometry2DPage() {
               ? "available"
               : "locked",
         lockedReason: "Run cut-typology in C first",
+        stale: controller.reconstructStale,
       },
     ],
     [
@@ -115,6 +118,9 @@ export default function Step4Geometry2DPage() {
       hasMatchingResult,
       hasReconstructionResult,
       hasSavedNodes,
+      controller.nodesStale,
+      controller.matchingStale,
+      controller.reconstructStale,
     ]
   );
 
@@ -219,7 +225,15 @@ export default function Step4Geometry2DPage() {
             sections={workflowSections}
             onReset={handleResetStep4}
             resetDisabled={isStep4Busy}
-            allComplete={controller.hasSavedRoi && hasSavedNodes && hasMatchingResult && hasReconstructionResult}
+            allComplete={
+              controller.hasSavedRoi &&
+              hasSavedNodes &&
+              hasMatchingResult &&
+              hasReconstructionResult &&
+              !controller.nodesStale &&
+              !controller.matchingStale &&
+              !controller.reconstructStale
+            }
             onContinue={handleContinue}
           />
 
