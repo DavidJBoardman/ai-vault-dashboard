@@ -79,7 +79,6 @@ interface Step4NodesState {
   points?: Geometry2DTemplateBossPoint[];
   detectedPoints?: Geometry2DTemplateBossPoint[];
   lastStateLoadedAt?: string;
-  labelsStaleWarning?: boolean;
 }
 
 interface Step4MatchingState {
@@ -334,7 +333,6 @@ export function useStep4Geometry2DController() {
   const [templateMatchCsvColumns, setTemplateMatchCsvColumns] = useState<string[]>([]);
   const [templateMatchCsvRows, setTemplateMatchCsvRows] = useState<Array<Record<string, string>>>([]);
   const [templateLastRunAt, setTemplateLastRunAt] = useState<string | undefined>(undefined);
-  const [labelsStaleWarning, setLabelsStaleWarning] = useState(false);
   const [templatePointFilter, setTemplatePointFilter] = useState<TemplatePointFilter>("all");
   const [selectedTemplatePointId, setSelectedTemplatePointId] = useState<number | undefined>(undefined);
   const [templateSavedPointsSignature, setTemplateSavedPointsSignature] = useState<string>(pointSignature([]));
@@ -460,17 +458,6 @@ export function useStep4Geometry2DController() {
     });
   }, [getLatestStep4Geometry2D, updateStep4Geometry2D]);
 
-  // Persist the stale-labels nudge alongside the points slice so it survives
-  // navigating away from Step 4B and back (the warning is purely advisory).
-  const updateLabelsStaleWarning = useCallback(
-    (next: boolean) => {
-      setLabelsStaleWarning(next);
-      persistNodesPatch({ labelsStaleWarning: next });
-    },
-    [persistNodesPatch]
-  );
-
-  const dismissLabelsStaleWarning = () => updateLabelsStaleWarning(false);
 
   const persistMatchingPatch = useCallback((patch: Partial<Step4MatchingState>) => {
     const geometry2d = getLatestStep4Geometry2D().geometry2d;
@@ -1008,7 +995,6 @@ export function useStep4Geometry2DController() {
     setTemplateMatchCsvColumns([]);
     setTemplateMatchCsvRows([]);
     setTemplateLastRunAt(undefined);
-    updateLabelsStaleWarning(false);
     setTemplatePointFilter("all");
     setSelectedTemplatePointId(resetPoints[0]?.id);
     setTemplateSavedPointsSignature(pointSignature(resetPoints));
@@ -1323,10 +1309,6 @@ export function useStep4Geometry2DController() {
   const handleSaveTemplatePoints = async () => {
     if (!currentProject?.id) return false;
 
-    const prevLabelMap = new Map(
-      templatePoints.map((p) => [p.id, p.label])
-    );
-
     setIsSavingTemplatePoints(true);
     try {
       const response = await saveNodes({
@@ -1355,14 +1337,6 @@ export function useStep4Geometry2DController() {
       setTemplateSavedPointsSignature(pointSignature(nextPoints));
       resetTemplatePointHistory(nextPoints);
       persistNodesPatch({ points: nextPoints });
-      const anyLabelChanged = nextPoints.some(
-        (p) => prevLabelMap.get(p.id) !== p.label
-      );
-      if (anyLabelChanged && (templateLastRunAt || reconstructLastRunAt)) {
-        updateLabelsStaleWarning(true);
-      } else if (!anyLabelChanged) {
-        updateLabelsStaleWarning(false);
-      }
       toast({
         title: "Ready nodes updated",
         description: `${nextPoints.length} nodes saved and ready for cut-typology and bay plan reconstruction.`,
@@ -1736,7 +1710,6 @@ export function useStep4Geometry2DController() {
       setTemplateBestVariantLabel(nextBestVariantLabel);
       setTemplateOutputDir(payload.outputDir);
       setTemplateMatchCsvPath(payload.matchCsvPath);
-      updateLabelsStaleWarning(false);
       setTemplateLastRunAt(payload.ranAt);
 
       const nextPerBoss = payload.perBoss || [];
@@ -1969,7 +1942,6 @@ export function useStep4Geometry2DController() {
           pointSignature(prev) === pointSignature(nextDetectedPoints) ? prev : nextDetectedPoints
         );
       }
-      setLabelsStaleWarning(nodeData?.labelsStaleWarning ?? false);
       if (matchingData?.params) {
         setTemplateParams(sanitizeTemplateParams(matchingData.params));
       }
@@ -2400,8 +2372,6 @@ export function useStep4Geometry2DController() {
     handleSelectReading,
     templatePerBoss,
     handleSaveTemplatePoints,
-    labelsStaleWarning,
-    dismissLabelsStaleWarning,
     handleResetTemplatePoints,
     handleRunTemplateMatching,
     handleLoadTemplateMatchCsv,

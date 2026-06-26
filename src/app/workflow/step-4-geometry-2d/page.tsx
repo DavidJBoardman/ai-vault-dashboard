@@ -223,28 +223,6 @@ export default function Step4Geometry2DPage() {
             onContinue={handleContinue}
           />
 
-          {controller.labelsStaleWarning && (
-            <Card className="border-amber-500/35 bg-amber-500/10">
-              <CardContent className="flex flex-col gap-2.5 p-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="flex items-start gap-2 text-xs leading-relaxed text-amber-100/95">
-                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    Reference point names changed. Re-run Cut-Typology (4C) and Bay Plan (4D) to update exported results with the new names.
-                  </span>
-                </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-8 shrink-0 border-amber-400/40"
-                  onClick={controller.dismissLabelsStaleWarning}
-                >
-                  Dismiss
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
           <div className="grid lg:grid-cols-12 gap-6 items-start">
             <div className="lg:col-span-5 space-y-4">
               {(isRoiStage || isNodesStage || isMatchingStage || isReconstructStage) && (
