@@ -62,6 +62,7 @@ Remove Analysis page - David
 [x] Cut-Typology hoverover the reference point, the user cares more about the xcut, ycut, how could we highlight that without overwhelming the context. currently, it shows too many content
 
 [x] Cut-Typology move the unmatched notification, to the bottom of PReview?
+[] Enable rename the ribs at Step 4
 
 # Wiktoria
 
