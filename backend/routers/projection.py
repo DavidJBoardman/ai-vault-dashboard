@@ -19,7 +19,7 @@ class ProjectionRequest(BaseModel):
     resolution: int = 2048
     sigma: float = 1.0
     kernelSize: int = 5
-    bottomUp: bool = True
+    bottomUp: bool = False
     scale: float = 1.0
 
 

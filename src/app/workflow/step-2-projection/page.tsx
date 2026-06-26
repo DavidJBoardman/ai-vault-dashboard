@@ -46,8 +46,8 @@ const PROJECTION_IMAGE_OPTIONS: Array<{
 ];
 
 const PERSPECTIVE_OPTIONS: { value: Perspective; label: string; icon: React.ReactNode; description: string }[] = [
-  { value: "bottom", label: "Bottom Up", icon: <ArrowUp className="w-4 h-4" />, description: "Looking up from below" },
-  { value: "top", label: "Top Down", icon: <ArrowDown className="w-4 h-4" />, description: "Looking down at the vault" },
+  { value: "top", label: "Top Down", icon: <ArrowDown className="w-4 h-4" />, description: "Looking down at the vault from above" },
+  { value: "bottom", label: "Bottom Up", icon: <ArrowUp className="w-4 h-4" />, description: "Looking up at the vault from below" },
   { value: "north", label: "North", icon: <Compass className="w-4 h-4" />, description: "View from north side" },
   { value: "south", label: "South", icon: <Compass className="w-4 h-4 rotate-180" />, description: "View from south side" },
   { value: "east", label: "East", icon: <Compass className="w-4 h-4 rotate-90" />, description: "View from east side" },
@@ -328,11 +328,11 @@ export default function Step2ProjectionPage() {
   const { currentProject, addProjection, updateProjection, removeProjection, completeStep, saveProject } = useProjectStore();
 
   // Projection settings
-  const [perspective, setPerspective] = useState<Perspective>("bottom");
+  const [perspective, setPerspective] = useState<Perspective>("top");
   const [resolution, setResolution] = useState(2048);
   const [sigma, setSigma] = useState(1.0);
   const [kernelSize, setKernelSize] = useState(5);
-  const [bottomUp, setBottomUp] = useState(true);
+  const [topDown, setTopDown] = useState(true);
   const [scale, setScale] = useState(1.0);
 
   // UI state
@@ -409,7 +409,7 @@ export default function Step2ProjectionPage() {
         resolution,
         sigma,
         kernelSize,
-        bottomUp,
+        bottomUp: !topDown,
         scale,
       });
 
@@ -417,7 +417,7 @@ export default function Step2ProjectionPage() {
         const colourPreview = await getProjectionImageUrl(response.data.id, "colour");
         addProjection({
           id: response.data.id,
-          settings: { perspective, resolution, sigma, kernelSize, bottomUp, scale },
+          settings: { perspective, resolution, sigma, kernelSize, bottomUp: !topDown, scale },
           images: { colour: colourPreview || undefined },
           previewImage: colourPreview || undefined,
           metadata: response.data.metadata,
@@ -432,7 +432,7 @@ export default function Step2ProjectionPage() {
     } finally {
       setIsGenerating(false);
     }
-  }, [perspective, resolution, sigma, kernelSize, bottomUp, scale, addProjection]);
+  }, [perspective, resolution, sigma, kernelSize, topDown, scale, addProjection]);
 
   // Auto-generate on first visit if no projections exist yet
   useEffect(() => {
@@ -563,7 +563,7 @@ export default function Step2ProjectionPage() {
                 <span>{option.label}</span>
               </Button>
             ))}
-            {!showMorePerspectives && perspective !== "bottom" && (() => {
+            {!showMorePerspectives && perspective !== "top" && (() => {
               const selected = PERSPECTIVE_OPTIONS.find(o => o.value === perspective);
               return selected ? (
                 <Button
@@ -652,11 +652,11 @@ export default function Step2ProjectionPage() {
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <Label>Bottom-up View</Label>
-                  <p className="text-xs text-muted-foreground">Looking up at the vault</p>
+                  <Label>Top-down View</Label>
+                  <p className="text-xs text-muted-foreground">Looking down at the vault from above</p>
                 </div>
-                <Button variant={bottomUp ? "default" : "outline"} size="sm" onClick={() => setBottomUp(!bottomUp)}>
-                  {bottomUp ? "On" : "Off"}
+                <Button variant={topDown ? "default" : "outline"} size="sm" onClick={() => setTopDown(!topDown)}>
+                  {topDown ? "On" : "Off"}
                 </Button>
               </div>
               <div className="space-y-3">
@@ -707,7 +707,7 @@ export default function Step2ProjectionPage() {
         <div className="h-[500px] rounded-lg bg-muted/30 flex items-center justify-center">
           <div className="text-center space-y-3">
             <Loader2 className="w-10 h-10 animate-spin mx-auto text-primary" />
-            <p className="text-sm font-medium">Generating bottom-up projection…</p>
+            <p className="text-sm font-medium">Generating top-down projection…</p>
             <p className="text-xs text-muted-foreground">This usually takes 15–30 seconds</p>
           </div>
         </div>

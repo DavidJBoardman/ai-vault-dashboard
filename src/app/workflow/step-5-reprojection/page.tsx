@@ -11,8 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { useProjectStore } from "@/lib/store";
-import { getReprojectionPreview, ReprojectionPoint, getIntradosLines, IntradosLine, traceIntradosLines } from "@/lib/api";
-import { 
+import { getReprojectionPreview, ReprojectionPoint, getIntradosLines, saveIntradosLines, IntradosLine, traceIntradosLines } from "@/lib/api";
+import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -22,7 +22,9 @@ import {
   Info,
   Loader2,
   Spline,
-  AlertTriangle
+  AlertTriangle,
+  Scissors,
+  Check,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -31,13 +33,29 @@ export default function Step5ReprojectionPage() {
   const router = useRouter();
   const { currentProject, setReprojectionSelections, completeStep } = useProjectStore();
   
+  // Restore preview settings from saved step data so the auto-load reuses
+  // the same cache key as the last visit (avoiding recomputation).
+  const savedPreview = currentProject?.stepData?.[5] as {
+    selectedGroups?: string[];
+    showUnmaskedPoints?: boolean;
+    pointCount?: number;
+    impostLineZ?: number;
+    showImpostLine?: boolean;
+  } | undefined;
+
   // Selected mask groups (by groupId)
-  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
-  const [showUnmaskedPoints, setShowUnmaskedPoints] = useState(true);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>(
+    () => (savedPreview?.selectedGroups as string[] | undefined) ?? []
+  );
+  const [showUnmaskedPoints, setShowUnmaskedPoints] = useState(
+    () => savedPreview?.showUnmaskedPoints ?? true
+  );
   const [isReprojecting, setIsReprojecting] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
   const [pointCloudData, setPointCloudData] = useState<ReprojectionPoint[] | null>(null);
-  const [pointCount, setPointCount] = useState(500000);
+  const [pointCount, setPointCount] = useState(
+    () => savedPreview?.pointCount ?? 500000
+  );
   const [error, setError] = useState<string | null>(null);
   const [previewStats, setPreviewStats] = useState<{
     total: number;
@@ -54,6 +72,11 @@ export default function Step5ReprojectionPage() {
   const [intradosLineWidth, setIntradosLineWidth] = useState(0.03); // Default tube radius
   const [isTracingIntrados, setIsTracingIntrados] = useState(false);
   const [intradosError, setIntradosError] = useState<string | null>(null);
+
+  // Line endpoint trimming
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
+  const [lineTrimState, setLineTrimState] = useState<Record<string, { startTrim: number; endTrim: number }>>({});
+  const [isSavingTrim, setIsSavingTrim] = useState(false);
   
   // Preview settings collapsed state
   const [showPreviewSettings, setShowPreviewSettings] = useState(false);
@@ -61,18 +84,17 @@ export default function Step5ReprojectionPage() {
   // Intrados bridge option
   const [bridgeBossStones, setBridgeBossStones] = useState(false);
 
-  // Exclusion controls state
-  const savedStepData = currentProject?.stepData?.[5] as { impostLineZ?: number; showImpostLine?: boolean } | undefined;
+  // Exclusion controls state (reuses savedPreview declared above)
   const [impostLineZ, setImpostLineZ] = useState<number | undefined>(
-    () => savedStepData?.impostLineZ
+    () => savedPreview?.impostLineZ
   );
   // Restore checkbox state explicitly — do NOT infer from impostLineZ value
   const [showImpostLine, setShowImpostLine] = useState(
-    () => savedStepData?.showImpostLine ?? false
+    () => savedPreview?.showImpostLine ?? false
   );
   // Track what impost line Z was used when intrados were last traced
   const [tracedImpostLineZ, setTracedImpostLineZ] = useState<number | null>(
-    () => (savedStepData?.showImpostLine ? (savedStepData?.impostLineZ ?? null) : null)
+    () => (savedPreview?.showImpostLine ? (savedPreview?.impostLineZ ?? null) : null)
   );
   const [showMismatchDialog, setShowMismatchDialog] = useState(false);
   const [mismatchType, setMismatchType] = useState<"changed" | "removed" | "added">("changed");
@@ -111,10 +133,13 @@ export default function Step5ReprojectionPage() {
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [autoLoadTriggered, setAutoLoadTriggered] = useState(false);
   
-  // Initialize selected groups to all available
+  // Initialize selected groups to all available (only when not restored from step data)
   useEffect(() => {
-    if (availableGroups.length > 0 && selectedGroups.length === 0 && !initialLoadDone) {
-      setSelectedGroups(availableGroups.map(g => g.groupId));
+    if (availableGroups.length > 0 && !initialLoadDone) {
+      if (selectedGroups.length === 0) {
+        // No saved groups — default to all groups
+        setSelectedGroups(availableGroups.map(g => g.groupId));
+      }
       setInitialLoadDone(true);
     }
   }, [availableGroups, selectedGroups.length, initialLoadDone]);
@@ -159,21 +184,25 @@ export default function Step5ReprojectionPage() {
     };
   }, [currentProject?.projections]);
   
-  // Convert intrados lines to format for PointCloudViewer
+  // Convert intrados lines to format for PointCloudViewer, applying trim state
   const lines3D = useMemo(() => {
     if (!intradosLines.length) return [];
-    
-    return intradosLines.map(line => ({
-      id: line.id,
-      label: line.label,
-      color: line.color,
-      points: line.points3d.map(pt => ({
-        x: pt[0],
-        y: pt[1],
-        z: pt[2],
-      })),
-    }));
-  }, [intradosLines]);
+
+    return intradosLines.map(line => {
+      const trim = lineTrimState[line.id];
+      const allPts = line.points3d;
+      const n = allPts.length;
+      const startIdx = trim ? Math.round(trim.startTrim * (n - 1)) : 0;
+      const endIdx = trim ? Math.round(trim.endTrim * (n - 1)) : n - 1;
+      const pts = allPts.slice(startIdx, endIdx + 1);
+      return {
+        id: line.id,
+        label: line.label,
+        color: line.id === selectedLineId ? '#FFD700' : line.color,
+        points: pts.map(pt => ({ x: pt[0], y: pt[1], z: pt[2] })),
+      };
+    });
+  }, [intradosLines, lineTrimState, selectedLineId]);
   
   // Toggle a group selection
   const toggleGroup = (groupId: string) => {
@@ -229,6 +258,63 @@ export default function Step5ReprojectionPage() {
     }
   };
   
+  // Toggle line selection for trimming
+  const handleLineClick = useCallback((ribId: string) => {
+    setSelectedLineId(prev => {
+      if (prev === ribId) return null; // deselect on second click
+      // Initialise trim state with full range if not set
+      setLineTrimState(ts => {
+        if (!ts[ribId]) {
+          return { ...ts, [ribId]: { startTrim: 0, endTrim: 1 } };
+        }
+        return ts;
+      });
+      return ribId;
+    });
+  }, []);
+
+  // Permanently apply the active trim to the line, save to disk
+  const handleApplyTrim = useCallback(async () => {
+    if (!selectedLineId || !currentProject?.id) return;
+    const trim = lineTrimState[selectedLineId];
+    if (!trim) return;
+
+    const line = intradosLines.find(l => l.id === selectedLineId);
+    if (!line) return;
+
+    const n = line.points3d.length;
+    const startIdx = Math.round(trim.startTrim * (n - 1));
+    const endIdx = Math.round(trim.endTrim * (n - 1));
+
+    const trimmedLine: IntradosLine = {
+      ...line,
+      points3d: line.points3d.slice(startIdx, endIdx + 1),
+    };
+
+    const updatedLines = intradosLines.map(l =>
+      l.id === selectedLineId ? trimmedLine : l
+    );
+
+    setIsSavingTrim(true);
+    try {
+      const res = await saveIntradosLines(currentProject.id, updatedLines);
+      if (res.success) {
+        setIntradosLines(updatedLines);
+        // Clear the transient trim state for this line — it's now baked in
+        setLineTrimState(ts => {
+          const next = { ...ts };
+          delete next[selectedLineId];
+          return next;
+        });
+        setSelectedLineId(null);
+      } else {
+        console.error("Failed to save trimmed lines:", res.error);
+      }
+    } finally {
+      setIsSavingTrim(false);
+    }
+  }, [selectedLineId, lineTrimState, intradosLines, currentProject?.id]);
+
   // Initialize floor plane from point cloud bounds
   const initializeExclusionControls = useCallback(() => {
     if (!pointCloudData || pointCloudData.length === 0) return;
@@ -294,10 +380,15 @@ export default function Step5ReprojectionPage() {
         setError(null);
         
         try {
-          // Use all groups for initial auto-load
+          // Use saved groups (or all groups if none saved) so the request
+          // parameters match the last cached preview and we get a cache hit.
+          const autoGroupIds = selectedGroups.length > 0 &&
+            selectedGroups.length < availableGroups.length
+            ? selectedGroups
+            : undefined; // undefined = all groups
           const response = await getReprojectionPreview(
             currentProject.id,
-            undefined, // All groups
+            autoGroupIds,
             pointCount,
             showUnmaskedPoints
           );
@@ -414,6 +505,7 @@ export default function Step5ReprojectionPage() {
     completeStep(5, {
       selectedGroups,
       showUnmaskedPoints,
+      pointCount,
       showImpostLine,
       impostLineZ: showImpostLine ? impostLineZ : undefined,
     });
@@ -428,6 +520,7 @@ export default function Step5ReprojectionPage() {
     completeStep(5, {
       selectedGroups,
       showUnmaskedPoints,
+      pointCount,
       showImpostLine: true,
       impostLineZ: revertedZ,
     });
@@ -444,6 +537,7 @@ export default function Step5ReprojectionPage() {
     completeStep(5, {
       selectedGroups,
       showUnmaskedPoints,
+      pointCount,
       showImpostLine: true,
       impostLineZ: restoredZ,
     });
@@ -929,11 +1023,105 @@ export default function Step5ReprojectionPage() {
                     Generate 3D preview first to enable tracing
                   </p>
                 )}
+
+                {intradosLines.length > 0 && !selectedLineId && (
+                  <p className="text-xs text-muted-foreground text-center mt-1">
+                    Click a rib in the 3D view to trim its endpoints
+                  </p>
+                )}
               </CardContent>
             </Card>
-            
+
+            {/* Endpoint Trim Panel */}
+            {selectedLineId && (() => {
+              const line = intradosLines.find(l => l.id === selectedLineId);
+              if (!line) return null;
+              const trim = lineTrimState[selectedLineId] ?? { startTrim: 0, endTrim: 1 };
+              const n = line.points3d.length;
+              const startIdx = Math.round(trim.startTrim * (n - 1));
+              const endIdx = Math.round(trim.endTrim * (n - 1));
+              const remaining = Math.max(0, endIdx - startIdx + 1);
+              return (
+                <Card className="border-yellow-400/60 bg-yellow-50/5">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-display flex items-center gap-2">
+                      <Scissors className="w-4 h-4 text-yellow-500" />
+                      Trim Endpoints
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      {line.label} — {remaining} / {n} pts
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Trim start</Label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={trim.endTrim - 1 / Math.max(n - 1, 1)}
+                        step={1 / Math.max(n - 1, 1)}
+                        value={trim.startTrim}
+                        onChange={e => setLineTrimState(ts => ({
+                          ...ts,
+                          [selectedLineId]: { ...trim, startTrim: parseFloat(e.target.value) },
+                        }))}
+                        className="w-full accent-yellow-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Trim end</Label>
+                      <input
+                        type="range"
+                        min={trim.startTrim + 1 / Math.max(n - 1, 1)}
+                        max={1}
+                        step={1 / Math.max(n - 1, 1)}
+                        value={trim.endTrim}
+                        onChange={e => setLineTrimState(ts => ({
+                          ...ts,
+                          [selectedLineId]: { ...trim, endTrim: parseFloat(e.target.value) },
+                        }))}
+                        className="w-full accent-yellow-500"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => {
+                          setSelectedLineId(null);
+                          setLineTrimState(ts => {
+                            const next = { ...ts };
+                            delete next[selectedLineId];
+                            return next;
+                          });
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="flex-1"
+                        onClick={handleApplyTrim}
+                        disabled={isSavingTrim || remaining < 2}
+                      >
+                        {isSavingTrim ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Check className="w-4 h-4" />
+                            Apply
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
           </div>
-          
+
           {/* 3D Preview */}
           <div className="lg:col-span-2">
             <Card>
@@ -961,6 +1149,8 @@ export default function Step5ReprojectionPage() {
                     showFloorPlane={showImpostLine}
                     exclusionBox={exclusionBox}
                     showExclusionBox={showExclusionBox}
+                    ribPaths={lines3D.length > 0 ? lines3D.map(l => ({ id: l.id, points: l.points })) : undefined}
+                    onLineClick={lines3D.length > 0 ? handleLineClick : undefined}
                   />
                 ) : (
                   <div className="h-[500px] flex items-center justify-center bg-muted/30 rounded-lg">
@@ -1066,6 +1256,7 @@ export default function Step5ReprojectionPage() {
                   completeStep(5, {
                     selectedGroups,
                     showUnmaskedPoints,
+                    pointCount,
                     showImpostLine: false,
                     impostLineZ: undefined,
                   });

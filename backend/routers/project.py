@@ -840,7 +840,7 @@ async def load_project(project_id: str):
                     resolution=proj_ref.get("resolution", 2048),
                     sigma=proj_ref.get("sigma", 1.0),
                     kernel_size=proj_ref.get("kernelSize", 5),
-                    bottom_up=proj_ref.get("bottomUp", True),
+                    bottom_up=proj_ref.get("bottomUp", False),
                     metadata=proj_ref.get("metadata", {}),
                     paths={
                         "colour": projection_paths.get("colour", ""),
@@ -1414,6 +1414,14 @@ async def save_roi(request: SaveROIRequest):
         return {"success": False, "error": str(e)}
 
 
+def _preview_cache_key(group_ids: Optional[List[str]], max_points: int, show_unmasked: bool) -> str:
+    """Compute a short cache-key hash for a reprojection preview request."""
+    import hashlib
+    ids_str = ",".join(sorted(group_ids)) if group_ids is not None else "__all__"
+    raw = f"{ids_str}|{max_points}|{show_unmasked}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
 class ReprojectionPreviewRequest(BaseModel):
     """Request to generate reprojection preview."""
     projectId: str
@@ -1426,10 +1434,11 @@ class ReprojectionPreviewRequest(BaseModel):
 async def reproject_preview(request: ReprojectionPreviewRequest):
     """
     Apply segmentation masks to the original E57 point cloud.
-    
+
     This projects each original 3D point to 2D, checks which mask group it falls into,
     and colors it accordingly. This preserves the original point density.
     """
+    import gzip as _gzip
     import numpy as np
     from PIL import Image
     import io
@@ -1486,8 +1495,8 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
         resolution = proj_metadata.get("resolution", 2048)
         bounds = proj_metadata.get("bounds", {})
         centroid = np.array(proj_metadata.get("centroid", [0, 0, 0]))
-        perspective = proj_metadata.get("perspective", "bottom")
-        bottom_up = proj_metadata.get("bottom_up", True)
+        perspective = proj_metadata.get("perspective", "top")
+        bottom_up = proj_metadata.get("bottom_up", False)
         
         # Get bounds (these are the projected bounds after perspective transform)
         min_x = bounds.get("min_x", -5)
@@ -1564,7 +1573,26 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
         # If no groups selected and no unmasked points requested, we still need to show something
         if not group_masks and not request.showUnmaskedPoints:
             return {"success": False, "error": "No mask groups selected and unmasked points disabled"}
-        
+
+        # ── Disk cache check ─────────────────────────────────────────────────
+        # Cache key is derived from the request params so any change in groups/
+        # point-count/unmasked flag produces a different file.  The cache is
+        # invalidated when the segmentation index is newer than the cache file
+        # (i.e. masks were updated after the last preview was computed).
+        cache_key = _preview_cache_key(request.groupIds, request.maxPoints, request.showUnmaskedPoints)
+        cache_path = project_dir / "segmentations" / f"preview_{cache_key}.json.gz"
+        seg_index_mtime = seg_index_path.stat().st_mtime if seg_index_path.exists() else 0.0
+
+        if cache_path.exists():
+            cache_mtime = cache_path.stat().st_mtime
+            if cache_mtime >= seg_index_mtime:
+                print(f"  Preview cache hit: {cache_path.name}")
+                with _gzip.open(cache_path, "rt", encoding="utf-8") as _f:
+                    return json.loads(_f.read())
+            else:
+                print(f"  Preview cache stale (seg index newer), recomputing…")
+        # ─────────────────────────────────────────────────────────────────────
+
         # Load the original E57 point cloud
         processor = get_processor()
         
@@ -1645,72 +1673,84 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
         px_int = np.clip(px.astype(np.int32), 0, resolution - 1)
         py_int = np.clip(py.astype(np.int32), 0, resolution - 1)
         
-        # Check each point against masks and assign colors
-        result_points = []
-        masked_count = 0
-        unmasked_count = 0
-        group_counts = {gid: 0 for gid in group_masks.keys()}
-        
-        for i in range(len(points_subset)):
-            px_i = px_int[i]
-            py_i = py_int[i]
-            
-            # Check which group mask this point falls into
-            point_group = None
-            point_color = None
-            
-            for group_id, group_data in group_masks.items():
-                mask = group_data["mask"]
-                if py_i < mask.shape[0] and px_i < mask.shape[1]:
-                    if mask[py_i, px_i] > 127:
-                        point_group = group_id
-                        point_color = group_data["color"]
-                        group_counts[group_id] += 1
-                        break
-            
-            if point_group:
-                # Point is in a mask - use mask color
-                masked_count += 1
-                result_points.append({
-                    "x": float(points_subset[i, 0]),
-                    "y": float(points_subset[i, 1]),
-                    "z": float(points_subset[i, 2]),
-                    "r": point_color[0],
-                    "g": point_color[1],
-                    "b": point_color[2],
-                    "label": point_group,
-                })
-            elif request.showUnmaskedPoints:
-                # Point is not in any mask - use original color
-                unmasked_count += 1
-                if colors_subset is not None:
-                    c = colors_subset[i]
-                    # Handle both 0-1 and 0-255 color ranges
-                    if c.max() <= 1.0:
-                        r, g, b = int(c[0] * 255), int(c[1] * 255), int(c[2] * 255)
-                    else:
-                        r, g, b = int(c[0]), int(c[1]), int(c[2])
+        # ── Vectorised mask assignment ────────────────────────────────────────
+        # Avoids a Python loop over every point which is O(n × groups) and
+        # extremely slow for large point clouds (e.g. 500 k points × 3 groups
+        # = 1.5 M Python iterations).  NumPy fancy indexing does the same work
+        # in a few vectorised passes.
+        n = len(points_subset)
+        result_r = np.zeros(n, dtype=np.uint8)
+        result_g = np.zeros(n, dtype=np.uint8)
+        result_b = np.zeros(n, dtype=np.uint8)
+        result_labels = np.empty(n, dtype=object)
+        result_labels[:] = ""
+        point_masked = np.zeros(n, dtype=bool)
+        group_counts: Dict[str, int] = {gid: 0 for gid in group_masks.keys()}
+
+        for group_id, group_data in group_masks.items():
+            mask = group_data["mask"]
+            mh, mw = int(mask.shape[0]), int(mask.shape[1])
+            in_bounds = (px_int >= 0) & (px_int < mw) & (py_int >= 0) & (py_int < mh)
+            in_mask_all = np.zeros(n, dtype=bool)
+            in_mask_all[in_bounds] = mask[py_int[in_bounds], px_int[in_bounds]] > 127
+            # First matching group wins; don't overwrite already-assigned points
+            new_pts = in_mask_all & ~point_masked
+            cnt = int(new_pts.sum())
+            group_counts[group_id] = cnt
+            if cnt > 0:
+                r_val, g_val, b_val = group_data["color"]
+                result_r[new_pts] = r_val
+                result_g[new_pts] = g_val
+                result_b[new_pts] = b_val
+                result_labels[new_pts] = group_id
+                point_masked |= new_pts
+
+        masked_count = int(point_masked.sum())
+        unmasked_count = n - masked_count
+
+        # Assign colours for unmasked points
+        if request.showUnmaskedPoints and unmasked_count > 0:
+            unmasked = ~point_masked
+            if colors_subset is not None and colors_subset[unmasked].size > 0:
+                c = colors_subset[unmasked]
+                if c.max() <= 1.0:
+                    result_r[unmasked] = (c[:, 0] * 255).astype(np.uint8)
+                    result_g[unmasked] = (c[:, 1] * 255).astype(np.uint8)
+                    result_b[unmasked] = (c[:, 2] * 255).astype(np.uint8)
                 else:
-                    r, g, b = 180, 170, 150  # Stone color fallback
-                
-                result_points.append({
-                    "x": float(points_subset[i, 0]),
-                    "y": float(points_subset[i, 1]),
-                    "z": float(points_subset[i, 2]),
-                    "r": r,
-                    "g": g,
-                    "b": b,
-                    "label": "",
-                })
-        
+                    result_r[unmasked] = c[:, 0].astype(np.uint8)
+                    result_g[unmasked] = c[:, 1].astype(np.uint8)
+                    result_b[unmasked] = c[:, 2].astype(np.uint8)
+            else:
+                result_r[unmasked] = 180
+                result_g[unmasked] = 170
+                result_b[unmasked] = 150
+
+        # Decide which points to include in the response
+        include = point_masked if not request.showUnmaskedPoints else np.ones(n, dtype=bool)
+        pts_out = points_subset[include]
+        x_list = pts_out[:, 0].tolist()
+        y_list = pts_out[:, 1].tolist()
+        z_list = pts_out[:, 2].tolist()
+        r_list = result_r[include].tolist()
+        g_list = result_g[include].tolist()
+        b_list = result_b[include].tolist()
+        lbl_list = result_labels[include].tolist()
+
+        result_points = [
+            {"x": x, "y": y, "z": z, "r": r, "g": g, "b": b, "label": lbl}
+            for x, y, z, r, g, b, lbl in zip(x_list, y_list, z_list, r_list, g_list, b_list, lbl_list)
+        ]
+        # ─────────────────────────────────────────────────────────────────────
+
         print("[OK] Applied masks to E57 point cloud:")
-        print(f"  - Total points processed: {len(points_subset):,}")
+        print(f"  - Total points processed: {n:,}")
         print(f"  - Masked points: {masked_count:,}")
         print(f"  - Unmasked points: {unmasked_count:,}")
         for gid, count in group_counts.items():
             print(f"  - {gid}: {count:,} points")
-        
-        return {
+
+        result = {
             "success": True,
             "points": result_points,
             "total": len(result_points),
@@ -1721,6 +1761,17 @@ async def reproject_preview(request: ReprojectionPreviewRequest):
             "availableGroups": list(available_groups.keys()),
             "selectedGroups": [g["groupId"] for g in selected_groups],
         }
+
+        # ── Write disk cache ──────────────────────────────────────────────────
+        try:
+            with _gzip.open(cache_path, "wt", encoding="utf-8", compresslevel=1) as _f:
+                json.dump(result, _f)
+            print(f"  Preview cached: {cache_path.name}")
+        except Exception as _cache_err:
+            print(f"  Warning: could not write preview cache: {_cache_err}")
+        # ─────────────────────────────────────────────────────────────────────
+
+        return result
         
     except Exception as e:
         print(f"Error generating reprojection preview: {e}")
@@ -2009,6 +2060,13 @@ async def trace_intrados(request: IntradosTraceRequest):
             "numSlices": request.numSlices,
             "totalLines": len(lines),
             "totalRibs": len(rib_segmentations),
+            # Persist the exact parameters used so the frontend can detect
+            # whether cached lines are still valid for the current settings.
+            "traceParams": {
+                "floorPlaneZ": request.floorPlaneZ,
+                "exclusionBox": exclusion_box_dict,
+                "bridgeBossStones": request.bridgeBossStones,
+            },
         }
         with open(intrados_path, "w", encoding="utf-8") as f:
             json.dump(intrados_data, f, indent=2)
@@ -2072,11 +2130,60 @@ async def get_intrados_lines(project_id: str):
                 "lines": lines,
                 "totalLines": data.get("totalLines", len(lines)),
                 "totalRibs": data.get("totalRibs", 0),
+                "traceParams": data.get("traceParams"),
             }
         }
-        
+
     except Exception as e:
         print(f"Error getting intrados lines: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
+class SaveIntradosLinesRequest(BaseModel):
+    """Request to persist manually-edited intrados lines."""
+    lines: List[Dict[str, Any]]
+
+
+@router.post("/{project_id}/intrados-lines")
+async def save_intrados_lines(project_id: str, request: SaveIntradosLinesRequest):
+    """Persist a (possibly user-edited) set of intrados lines for a project.
+
+    Called when the user trims a line's endpoints in the UI.  Overwrites
+    ``segmentations/intrados_lines.json`` with the supplied lines while
+    preserving any existing ``traceParams`` metadata.
+    """
+    try:
+        project_dir = get_project_dir(project_id)
+        intrados_path = project_dir / "segmentations" / "intrados_lines.json"
+
+        # Preserve traceParams from the previous save if present
+        existing_trace_params = None
+        if intrados_path.exists():
+            try:
+                with open(intrados_path, "r") as f:
+                    existing = json.load(f)
+                existing_trace_params = existing.get("traceParams")
+            except Exception:
+                pass
+
+        payload: Dict[str, Any] = {
+            "lines": request.lines,
+            "totalLines": len(request.lines),
+            "totalRibs": len(request.lines),
+        }
+        if existing_trace_params is not None:
+            payload["traceParams"] = existing_trace_params
+
+        with open(intrados_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+        print(f"[OK] Saved {len(request.lines)} user-edited intrados lines for {project_id}")
+        return {"success": True, "totalLines": len(request.lines)}
+
+    except Exception as e:
+        print(f"Error saving intrados lines: {e}")
         import traceback
         traceback.print_exc()
         return {"success": False, "error": str(e)}

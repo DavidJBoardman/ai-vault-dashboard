@@ -11,6 +11,79 @@ from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 
 
+def _trim_endpoint_turns(
+    line: np.ndarray,
+    angle_threshold_deg: float = 40.0,
+    endpoint_fraction: float = 0.30,
+) -> np.ndarray:
+    """Remove sharp angular bends from both ends of a traced intrados line.
+
+    Boss-stone extrusions cause the last few traced points to deviate sharply
+    (often 60–90°) from the overall rib direction.  This function scans inward
+    from each end and cuts at the innermost sharp turn found within the first /
+    last ``endpoint_fraction`` of the line.
+
+    The threshold of 40° is intentionally conservative: a gently curving rib
+    still has very small inter-segment angles after the moving-average smoothing
+    in Step 5.
+
+    Args:
+        line:                Mx3 traced points (already smoothed).
+        angle_threshold_deg: Cut if the inter-segment angle at any endpoint
+                             point exceeds this value (degrees).
+        endpoint_fraction:   Only inspect this fraction of the line from each
+                             end (default 30%).
+
+    Returns:
+        Trimmed Mx3 array.  If the trimmed length would drop below 4 points
+        the original is returned unchanged.
+    """
+    n = len(line)
+    if n < 8:
+        return line
+
+    check_n = max(4, int(n * endpoint_fraction))
+    cos_threshold = float(np.cos(np.radians(angle_threshold_deg)))
+
+    # Segment direction vectors (unit)
+    diffs = np.diff(line, axis=0)                       # (n-1, 3)
+    seg_norms = np.linalg.norm(diffs, axis=1, keepdims=True)
+    seg_norms = np.where(seg_norms < 1e-10, 1.0, seg_norms)
+    dirs = diffs / seg_norms                            # (n-1, 3)
+
+    # cos[k] = cosine of bend angle at interior point k+1  (k = 0 … n-3)
+    cos_angles = np.einsum('ij,ij->i', dirs[:-1], dirs[1:])  # (n-2,)
+
+    # ── Trim from END ────────────────────────────────────────────────────────
+    # Scan interior points from n-2 inward; keep setting end_cut to the
+    # earliest (most inward) sharp turn found in the endpoint window.
+    end_cut = n
+    for pt in range(n - 2, n - 2 - check_n, -1):
+        k = pt - 1          # index into cos_angles
+        if k < 0 or k >= len(cos_angles):
+            continue
+        if cos_angles[k] < cos_threshold:
+            end_cut = pt    # cut here; include 0..pt-1 only
+
+    # ── Trim from START ──────────────────────────────────────────────────────
+    start_cut = 0
+    for pt in range(1, 1 + check_n):
+        k = pt - 1
+        if k < 0 or k >= len(cos_angles):
+            break
+        if cos_angles[k] < cos_threshold:
+            start_cut = pt + 1   # skip up to and including this sharp point
+
+    if end_cut - start_cut < 4:
+        return line         # guard against over-trimming
+
+    n_removed = start_cut + (n - end_cut)
+    if n_removed > 0:
+        print(f"    Endpoint trim: -{start_cut} start / -{n - end_cut} end "
+              f"({n_removed}/{n} pts removed)")
+    return line[start_cut:end_cut]
+
+
 def trace_intrados_line(
     points_3d: np.ndarray,
     num_slices: int = 50,
@@ -148,7 +221,14 @@ def trace_intrados_line(
         for i in range(2, len(z_vals) - 2):
             window = z_vals[i-2:i+3]
             intrados_line[i, 2] = np.median(window)
-    
+
+    # STEP 7: Remove sharp angular turns from the endpoints.
+    # Boss-stone extrusions sit adjacent to the rib end and contaminate the
+    # last (or first) few slices.  The traced line turns sharply at the
+    # rib/boss junction.  We scan inward from each end and cut at the first
+    # such turn so only the straight rib portion is kept.
+    intrados_line = _trim_endpoint_turns(intrados_line)
+
     return intrados_line
 
 
@@ -192,8 +272,8 @@ def trace_all_rib_intrados(
     """
     resolution = projection_metadata.get("resolution", 2048)
     bounds = projection_metadata.get("bounds", {})
-    perspective = projection_metadata.get("perspective", "bottom")
-    bottom_up = projection_metadata.get("bottom_up", True)
+    perspective = projection_metadata.get("perspective", "top")
+    bottom_up = projection_metadata.get("bottom_up", False)
     
     min_x = bounds.get("min_x", -5)
     max_x = bounds.get("max_x", 5)
@@ -380,8 +460,8 @@ def bridge_rib_intrados_through_boss_stones(
     # ── Projection setup (mirrors trace_all_rib_intrados) ──────────────────
     resolution = projection_metadata.get("resolution", 2048)
     bounds = projection_metadata.get("bounds", {})
-    perspective = projection_metadata.get("perspective", "bottom")
-    bottom_up = projection_metadata.get("bottom_up", True)
+    perspective = projection_metadata.get("perspective", "top")
+    bottom_up = projection_metadata.get("bottom_up", False)
     min_x = bounds.get("min_x", -5)
     max_x = bounds.get("max_x", 5)
     min_y = bounds.get("min_y", -5)

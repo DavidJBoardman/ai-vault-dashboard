@@ -66,7 +66,7 @@ class ProjectionService:
                         "resolution": metadata.get("resolution", 2048),
                         "sigma": metadata.get("sigma", 1.0),
                         "kernel_size": metadata.get("kernel_size", 5),
-                        "bottom_up": metadata.get("bottom_up", True),
+                        "bottom_up": metadata.get("bottom_up", False),
                         "paths": {
                             "colour": str(colour_path),
                             "depth_grayscale": str(self.data_dir / f"{projection_id}_depth_gray.png"),
@@ -111,7 +111,7 @@ class ProjectionService:
         resolution: int = 2048,
         sigma: float = 1.0,
         kernel_size: int = 5,
-        bottom_up: bool = True,
+        bottom_up: bool = False,
         scale: float = 1.0,
     ) -> Dict[str, Any]:
         """Create a 2D projection from the point cloud using Gaussian splatting."""
@@ -175,7 +175,7 @@ class ProjectionService:
 
             print(f"Creating Gaussian projection from {len(points):,} points...")
             print(f"  Perspective: {perspective}, Resolution: {resolution}")
-            print(f"  Sigma: {sigma}, Kernel: {kernel_size}, Bottom-up: {bottom_up}")
+            print(f"  Sigma: {sigma}, Kernel: {kernel_size}, Top-down: {not bottom_up}")
             
             # Center the point cloud
             centroid = np.mean(all_points, axis=0)
@@ -284,7 +284,7 @@ class ProjectionService:
             points=points,
             colours=colours,
             resolution=resolution,
-            bottom_up=True,
+            bottom_up=False,
             sigma=1.0,
             kernel_size=5,
             perspective="top",
@@ -375,7 +375,7 @@ class ProjectionService:
             "resolution": proj["resolution"],
             "sigma": proj.get("sigma", 1.0),
             "kernel_size": proj.get("kernel_size", 5),
-            "bottom_up": proj.get("bottom_up", True),
+            "bottom_up": proj.get("bottom_up", False),
             "metadata": proj.get("metadata", {}),
             "images": images,
         }

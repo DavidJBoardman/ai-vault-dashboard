@@ -931,10 +931,17 @@ export interface IntradosLine {
   ribBId?: string;
 }
 
+export interface IntradosTraceParams {
+  floorPlaneZ?: number;
+  exclusionBox?: ExclusionBox;
+  bridgeBossStones?: boolean;
+}
+
 export interface IntradosTraceResponse {
   lines: IntradosLine[];
   totalLines: number;
   totalRibs: number;
+  traceParams?: IntradosTraceParams;
 }
 
 export interface ExclusionBox {
@@ -985,6 +992,16 @@ export async function getIntradosLines(
 ): Promise<ApiResponse<IntradosTraceResponse>> {
   return apiRequest(`/api/project/${projectId}/intrados-lines`, {
     method: "GET",
+  });
+}
+
+export async function saveIntradosLines(
+  projectId: string,
+  lines: IntradosLine[]
+): Promise<ApiResponse<{ totalLines: number }>> {
+  return apiRequest(`/api/project/${projectId}/intrados-lines`, {
+    method: "POST",
+    body: JSON.stringify({ lines }),
   });
 }
 

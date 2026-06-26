@@ -20,6 +20,12 @@ Vault Analyser forms part of the wider project **Virtual Vaults: Using AI to pro
   </a>
 </div>
 
+## Demo
+
+<div class="video-wrapper">
+  <iframe width="560" height="315" src="https://www.youtube.com/embed/OD5QqUpHGxQ" title="Vault Analyser Demo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+</div>
+
 ## What you can do in the app
 
 - Load an `E57` scan and inspect it in 3D
