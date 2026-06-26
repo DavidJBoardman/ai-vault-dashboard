@@ -79,6 +79,7 @@ interface Step4NodesState {
   points?: Geometry2DTemplateBossPoint[];
   detectedPoints?: Geometry2DTemplateBossPoint[];
   lastStateLoadedAt?: string;
+  upstreamRoiSig?: string;
 }
 
 interface Step4MatchingState {
@@ -92,6 +93,7 @@ interface Step4MatchingState {
   lastRunAt?: string;
   selectedReading?: Geometry2DCutTypologyReading;
   perBoss?: Geometry2DTemplateBossResult[];
+  upstreamSig?: string;
 }
 
 interface Step4Geometry2DState {
@@ -138,6 +140,7 @@ interface Step4Geometry2DState {
     params?: Record<string, unknown>;
     defaults?: Record<string, unknown>;
     layers?: Geometry2DReconstructLayers;
+    upstreamSig?: string;
   };
   analysis?: GeometryResult | null;
   roiStats?: { insideCount: number; outsideCount: number };
@@ -186,6 +189,20 @@ function isSameRoi(a: ROIState | undefined, b: ROIState | undefined): boolean {
     a.height === b.height &&
     a.rotation === b.rotation
   );
+}
+
+function composeSignature(parts: Array<string | undefined>): string {
+  return parts.map((p) => p ?? "").join("|");
+}
+
+function roiStateSignature(roi: { x: number; y: number; width: number; height: number; rotation: number }): string {
+  const r = (n: number) => (Number.isFinite(n) ? n.toFixed(4) : "0");
+  return composeSignature([r(roi.x), r(roi.y), r(roi.width), r(roi.height), r(roi.rotation)]);
+}
+
+function joinWithAnd(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
 function roiParamsToState(params: Geometry2DRoiParams | undefined, resolution: number): ROIState | undefined {
@@ -352,6 +369,10 @@ export function useStep4Geometry2DController() {
   const [showIdealisedOverlay, setShowIdealisedOverlay] = useState<boolean>(false);
   const [reconstructPreviewBosses, setReconstructPreviewBosses] = useState<Geometry2DReconstructBossPoint[]>([]);
   const [reconstructLastRunAt, setReconstructLastRunAt] = useState<string | undefined>(undefined);
+  const [savedRoiSignature, setSavedRoiSignature] = useState<string | undefined>(undefined);
+  const [nodesUpstreamSig, setNodesUpstreamSig] = useState<string | undefined>(undefined);
+  const [matchingUpstreamSig, setMatchingUpstreamSig] = useState<string | undefined>(undefined);
+  const [reconstructUpstreamSig, setReconstructUpstreamSig] = useState<string | undefined>(undefined);
   const [reconstructStatePath, setReconstructStatePath] = useState<string | undefined>(undefined);
   const [reconstructResultPath, setReconstructResultPath] = useState<string | undefined>(undefined);
   const [reconstructParams, setReconstructParams] = useState<Geometry2DBayPlanRunParams>({});
@@ -470,6 +491,20 @@ export function useStep4Geometry2DController() {
     });
   }, [getLatestStep4Geometry2D, updateStep4Geometry2D]);
 
+  // Toast naming the downstream stages that now need re-running after an
+  // upstream stage's content changed. Stages with no prior result are skipped.
+  const announceDownstreamStale = (
+    changedStage: string,
+    downstream: Array<{ label: string; exists: boolean }>
+  ) => {
+    const names = downstream.filter((d) => d.exists).map((d) => d.label);
+    if (names.length === 0) return;
+    toast({
+      title: "Downstream steps need updating",
+      description: `${changedStage} changed — ${joinWithAnd(names)} ${names.length === 1 ? "needs" : "need"} re-running.`,
+    });
+  };
+
   const selectedProjection = useMemo(() => {
     return resolveGeometry2DProjection({
       project: currentProject,
@@ -584,6 +619,28 @@ export function useStep4Geometry2DController() {
     () => pointSignature(templatePoints) !== templateSavedPointsSignature,
     [templatePoints, templateSavedPointsSignature]
   );
+
+  const currentPointsSignature = useMemo(() => pointSignature(templatePoints), [templatePoints]);
+  const hasSavedNodesInternal = templatePoints.length > 0 && !hasTemplatePointChanges;
+
+  // A stage is stale only when its captured upstream signature differs from the
+  // current upstream content. A missing captured signature (legacy result) is
+  // treated as not stale, so we never nag on first load.
+  const nodesStale =
+    hasSavedNodesInternal &&
+    nodesUpstreamSig !== undefined &&
+    nodesUpstreamSig !== savedRoiSignature;
+
+  const matchingStale =
+    !!templateLastRunAt &&
+    matchingUpstreamSig !== undefined &&
+    matchingUpstreamSig !== composeSignature([savedRoiSignature, currentPointsSignature]);
+
+  const reconstructStale =
+    !!reconstructLastRunAt &&
+    reconstructUpstreamSig !== undefined &&
+    reconstructUpstreamSig !== composeSignature([savedRoiSignature, currentPointsSignature, templateLastRunAt]);
+
   const canUndoTemplatePoints = templatePointHistoryState.index > 0;
   const canRedoTemplatePoints =
     templatePointHistoryState.index >= 0 &&
@@ -995,6 +1052,10 @@ export function useStep4Geometry2DController() {
     setTemplateMatchCsvColumns([]);
     setTemplateMatchCsvRows([]);
     setTemplateLastRunAt(undefined);
+    setSavedRoiSignature(undefined);
+    setNodesUpstreamSig(undefined);
+    setMatchingUpstreamSig(undefined);
+    setReconstructUpstreamSig(undefined);
     setTemplatePointFilter("all");
     setSelectedTemplatePointId(resetPoints[0]?.id);
     setTemplateSavedPointsSignature(pointSignature(resetPoints));
@@ -1334,9 +1395,22 @@ export function useStep4Geometry2DController() {
         includeRoiCornerPoints
       );
       setTemplatePoints(nextPoints);
+      // `templateSavedPointsSignature` still holds the pre-save value here even
+      // though setTemplateSavedPointsSignature was just called (closure capture).
+      const prevPointsSig = templateSavedPointsSignature;
       setTemplateSavedPointsSignature(pointSignature(nextPoints));
       resetTemplatePointHistory(nextPoints);
       persistNodesPatch({ points: nextPoints });
+      const nextPointsSig = pointSignature(nextPoints);
+      const upstreamSig = savedRoiSignature;
+      setNodesUpstreamSig(upstreamSig);
+      persistNodesPatch({ upstreamRoiSig: upstreamSig });
+      if (prevPointsSig !== nextPointsSig) {
+        announceDownstreamStale("Reference Points", [
+          { label: "Cut-Typology", exists: !!templateLastRunAt },
+          { label: "Bay Plan", exists: !!reconstructLastRunAt },
+        ]);
+      }
       toast({
         title: "Ready nodes updated",
         description: `${nextPoints.length} nodes saved and ready for cut-typology and bay plan reconstruction.`,
@@ -1541,6 +1615,14 @@ export function useStep4Geometry2DController() {
         ...DEFAULT_RECONSTRUCT_LAYERS,
       };
       setReconstructLayers(nextLayers);
+      // Third component is 4C's run id (templateLastRunAt), so 4D stays fresh
+      // until cut-typology is re-run — NOT 4D's own ranAt.
+      const reconstructSig = composeSignature([
+        savedRoiSignature,
+        pointSignature(templatePointsRef.current),
+        templateLastRunAt,
+      ]);
+      setReconstructUpstreamSig(reconstructSig);
       updateStep4Geometry2D({
         reconstruct: {
           result: nextResult,
@@ -1552,6 +1634,7 @@ export function useStep4Geometry2DController() {
           params: response.data.params || {},
           defaults: reconstructDefaults,
           layers: nextLayers,
+          upstreamSig: reconstructSig,
         },
       });
     } catch (error) {
@@ -1566,6 +1649,8 @@ export function useStep4Geometry2DController() {
     reconstructParams,
     reconstructResult?.metresPerPixel,
     reconstructStatePath,
+    savedRoiSignature,
+    templateLastRunAt,
     updateStep4Geometry2D,
   ]);
 
@@ -1727,6 +1812,8 @@ export function useStep4Geometry2DController() {
       persistNodesPatch({
         points: nextPointsWithMatches,
       });
+      const matchingSig = composeSignature([savedRoiSignature, pointSignature(nextPointsWithMatches)]);
+      setMatchingUpstreamSig(matchingSig);
       persistMatchingPatch({
         params: payload.params,
         overlayVariants: variantsForOverlay,
@@ -1738,7 +1825,12 @@ export function useStep4Geometry2DController() {
         lastRunAt: payload.ranAt,
         perBoss: nextPerBoss,
         selectedReading: nextReading,
+        upstreamSig: matchingSig,
       });
+      // Re-running cut-typology invalidates any existing bay plan.
+      if (reconstructLastRunAt) {
+        announceDownstreamStale("Cut-Typology", [{ label: "Bay Plan", exists: true }]);
+      }
 
       // Align the on-disk CSV with the recommended reading before reloading,
       // otherwise the hover tooltip (driven by CSV rows) shows the auto picks
@@ -1833,6 +1925,17 @@ export function useStep4Geometry2DController() {
             outsideCount: saveResult.data.outsideCount,
           },
         });
+
+        const newRoiSig = roiStateSignature(roi);
+        const roiChanged = savedRoiSignature !== undefined && newRoiSig !== savedRoiSignature;
+        setSavedRoiSignature(newRoiSig);
+        if (roiChanged) {
+          announceDownstreamStale("ROI", [
+            { label: "Reference Points", exists: templatePoints.length > 0 && !hasTemplatePointChanges },
+            { label: "Cut-Typology", exists: !!templateLastRunAt },
+            { label: "Bay Plan", exists: !!reconstructLastRunAt },
+          ]);
+        }
       } else {
         toast({ title: "ROI save failed", description: saveResult.error || "Could not save ROI.", variant: "destructive" });
       }
@@ -1942,6 +2045,8 @@ export function useStep4Geometry2DController() {
           pointSignature(prev) === pointSignature(nextDetectedPoints) ? prev : nextDetectedPoints
         );
       }
+      setNodesUpstreamSig(nodeData?.upstreamRoiSig);
+      setMatchingUpstreamSig(matchingData?.upstreamSig);
       if (matchingData?.params) {
         setTemplateParams(sanitizeTemplateParams(matchingData.params));
       }
@@ -1971,6 +2076,7 @@ export function useStep4Geometry2DController() {
       setReconstructResult(reconstructData.result || null);
       setReconstructPreviewBosses(reconstructData.previewBosses || []);
       setReconstructLastRunAt(reconstructData.lastRunAt);
+      setReconstructUpstreamSig(reconstructData.upstreamSig);
       setReconstructStatePath(reconstructData.statePath);
       setReconstructResultPath(reconstructData.resultPath);
       setReconstructParams((reconstructData.params || {}) as Geometry2DBayPlanRunParams);
@@ -1999,6 +2105,20 @@ export function useStep4Geometry2DController() {
       };
       setRoi((prev) => (isSameRoi(prev, nextRoi) ? prev : nextRoi));
     }
+    // Restore the saved-ROI signature from the explicitly-saved step-4 ROI only
+    // (not the step-3 fallback) — downstream stages exist only after Save ROI.
+    const savedRoi = geometry2dData?.roi as ROIState | undefined;
+    setSavedRoiSignature(
+      savedRoi && savedRoi.x !== undefined
+        ? roiStateSignature({
+            x: savedRoi.x,
+            y: savedRoi.y,
+            width: savedRoi.width,
+            height: savedRoi.height,
+            rotation: savedRoi.rotation || 0,
+          })
+        : undefined
+    );
   }, [
     currentProject?.steps,
     resetTemplatePointHistory,
@@ -2372,6 +2492,9 @@ export function useStep4Geometry2DController() {
     handleSelectReading,
     templatePerBoss,
     handleSaveTemplatePoints,
+    nodesStale,
+    matchingStale,
+    reconstructStale,
     handleResetTemplatePoints,
     handleRunTemplateMatching,
     handleLoadTemplateMatchCsv,
