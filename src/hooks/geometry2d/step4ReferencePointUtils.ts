@@ -49,7 +49,18 @@ export function cloneAndSortTemplatePoints(points: Geometry2DTemplateBossPoint[]
 // centre) so manually added boss points continue the same letter sequence
 // used by the segmentation labels. After Y the sequence falls through to
 // AA, AB, ..., BA, ... (Excel-style on a 23-letter alphabet).
-const BOSS_UPPER_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXY";
+export const BOSS_UPPER_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXY";
+
+// Shared with NodePreparationCard's rename input so the alphabet lives in one
+// place. The alphabet contains no regex-special characters, so embedding it in
+// a character class is safe.
+export function isValidBossLetter(value: string): boolean {
+  return new RegExp(`^[${BOSS_UPPER_LETTERS}]{1,3}$`, "i").test(value.trim());
+}
+
+export function isPartialBossLetter(value: string): boolean {
+  return new RegExp(`^[${BOSS_UPPER_LETTERS}]{0,3}$`, "i").test(value);
+}
 // Legacy lowercase alphabet still recognised when reading old labels.
 const BOSS_LOWER_LETTERS_LEGACY = "abcdefghjklmnpqrstuvwxyz";
 
