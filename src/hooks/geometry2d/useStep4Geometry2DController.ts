@@ -79,6 +79,7 @@ interface Step4NodesState {
   points?: Geometry2DTemplateBossPoint[];
   detectedPoints?: Geometry2DTemplateBossPoint[];
   lastStateLoadedAt?: string;
+  labelsStaleWarning?: boolean;
 }
 
 interface Step4MatchingState {
@@ -458,6 +459,18 @@ export function useStep4Geometry2DController() {
       },
     });
   }, [getLatestStep4Geometry2D, updateStep4Geometry2D]);
+
+  // Persist the stale-labels nudge alongside the points slice so it survives
+  // navigating away from Step 4B and back (the warning is purely advisory).
+  const updateLabelsStaleWarning = useCallback(
+    (next: boolean) => {
+      setLabelsStaleWarning(next);
+      persistNodesPatch({ labelsStaleWarning: next });
+    },
+    [persistNodesPatch]
+  );
+
+  const dismissLabelsStaleWarning = () => updateLabelsStaleWarning(false);
 
   const persistMatchingPatch = useCallback((patch: Partial<Step4MatchingState>) => {
     const geometry2d = getLatestStep4Geometry2D().geometry2d;
@@ -995,7 +1008,7 @@ export function useStep4Geometry2DController() {
     setTemplateMatchCsvColumns([]);
     setTemplateMatchCsvRows([]);
     setTemplateLastRunAt(undefined);
-    setLabelsStaleWarning(false);
+    updateLabelsStaleWarning(false);
     setTemplatePointFilter("all");
     setSelectedTemplatePointId(resetPoints[0]?.id);
     setTemplateSavedPointsSignature(pointSignature(resetPoints));
@@ -1094,8 +1107,6 @@ export function useStep4Geometry2DController() {
     persistNodesPatch({ points: next });
     pushTemplatePointHistory(next);
   };
-
-  const dismissLabelsStaleWarning = () => setLabelsStaleWarning(false);
 
   const handleTemplatePointMove = (pointId: number, x: number, y: number) => {
     setTemplatePoints((prev) =>
@@ -1348,9 +1359,9 @@ export function useStep4Geometry2DController() {
         (p) => prevLabelMap.get(p.id) !== p.label
       );
       if (anyLabelChanged && (templateLastRunAt || reconstructLastRunAt)) {
-        setLabelsStaleWarning(true);
+        updateLabelsStaleWarning(true);
       } else if (!anyLabelChanged) {
-        setLabelsStaleWarning(false);
+        updateLabelsStaleWarning(false);
       }
       toast({
         title: "Ready nodes updated",
@@ -1725,7 +1736,7 @@ export function useStep4Geometry2DController() {
       setTemplateBestVariantLabel(nextBestVariantLabel);
       setTemplateOutputDir(payload.outputDir);
       setTemplateMatchCsvPath(payload.matchCsvPath);
-      setLabelsStaleWarning(false);
+      updateLabelsStaleWarning(false);
       setTemplateLastRunAt(payload.ranAt);
 
       const nextPerBoss = payload.perBoss || [];
@@ -1958,6 +1969,7 @@ export function useStep4Geometry2DController() {
           pointSignature(prev) === pointSignature(nextDetectedPoints) ? prev : nextDetectedPoints
         );
       }
+      setLabelsStaleWarning(nodeData?.labelsStaleWarning ?? false);
       if (matchingData?.params) {
         setTemplateParams(sanitizeTemplateParams(matchingData.params));
       }
