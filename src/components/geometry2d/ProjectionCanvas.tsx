@@ -356,7 +356,11 @@ export function ProjectionCanvas({
       return;
     }
     if (enableViewportTools) {
-      setInteractionMode("pan");
+      // The only stage reaching here is 4D Bay Plan (4A/4B/4C are caught
+      // above). Default it to Inspect so reviewing nodes and selecting ribs
+      // is immediate; pan is still available via the Pan button or holding
+      // space.
+      setInteractionMode("select");
     }
   }, [bossHoverInfoMode, bossPointInteractive, enableViewportTools, roiInteractive]);
 
