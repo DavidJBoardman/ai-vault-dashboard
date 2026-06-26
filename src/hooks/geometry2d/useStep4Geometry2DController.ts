@@ -653,9 +653,12 @@ export function useStep4Geometry2DController() {
     [templateBestVariantLabel, templatePerBoss]
   );
 
-  // A stage is stale only when its captured upstream signature differs from the
-  // current upstream content. A missing captured signature (legacy result) is
-  // treated as not stale, so we never nag on first load.
+  // A stage with a result is stale when its captured upstream signature differs
+  // from the current upstream content. A result with NO captured signature
+  // (e.g. produced before staleness tracking) is also treated as stale: we
+  // cannot prove it is current, so we flag it for re-run or Dismiss rather than
+  // silently trusting it — which also avoids a confusing asymmetry where one
+  // stage flags and a sibling does not.
   //
   // There is deliberately no ROI -> 4B staleness edge: boss reference points are
   // absolute pixel positions (an ROI change does not invalidate them) and ROI
@@ -663,13 +666,13 @@ export function useStep4Geometry2DController() {
   // directly by 4C/4D below, whose fingerprints include the ROI signature.
   const matchingStale =
     !!templateLastRunAt &&
-    matchingUpstreamSig !== undefined &&
-    matchingUpstreamSig !== composeSignature([savedRoiSignature, currentPointsSignature]);
+    (matchingUpstreamSig === undefined ||
+      matchingUpstreamSig !== composeSignature([savedRoiSignature, currentPointsSignature]));
 
   const reconstructStale =
     !!reconstructLastRunAt &&
-    reconstructUpstreamSig !== undefined &&
-    reconstructUpstreamSig !== composeSignature([savedRoiSignature, currentPointsSignature, currentMatchingResultSignature]);
+    (reconstructUpstreamSig === undefined ||
+      reconstructUpstreamSig !== composeSignature([savedRoiSignature, currentPointsSignature, currentMatchingResultSignature]));
 
   // Dismissing a stale flag re-baselines the stage to the current upstream
   // content (without re-running it): the flag clears now and only reappears if
@@ -1873,9 +1876,9 @@ export function useStep4Geometry2DController() {
       const newMatchingResultSig = matchingResultSignature(nextBestVariantLabel, nextPerBoss);
       const bayPlanWouldBeStale =
         !!reconstructLastRunAt &&
-        reconstructUpstreamSig !== undefined &&
-        reconstructUpstreamSig !==
-          composeSignature([savedRoiSignature, pointSignature(nextPointsWithMatches), newMatchingResultSig]);
+        (reconstructUpstreamSig === undefined ||
+          reconstructUpstreamSig !==
+            composeSignature([savedRoiSignature, pointSignature(nextPointsWithMatches), newMatchingResultSig]));
       if (bayPlanWouldBeStale) {
         announceDownstreamStale("Cut-Typology", [{ label: "Bay Plan", exists: true }]);
       }
