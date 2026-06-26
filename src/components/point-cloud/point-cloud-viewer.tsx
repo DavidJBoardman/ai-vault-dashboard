@@ -733,7 +733,7 @@ function CameraController({ center, distance, resetKey, viewPreset = "default" }
         camera.position.set(center.x + distance * 0.001, center.y + distance, center.z);
         if ((camera as any).isOrthographicCamera) {
           // Fit the full scene into view on mount; user can scroll to zoom from here
-          camera.zoom = Math.min(size.width, size.height) / (distance * 2);
+          camera.zoom = Math.min(size.width, size.height) / (distance * 1.4);
           (camera as THREE.OrthographicCamera).updateProjectionMatrix();
         }
       } else {
@@ -767,6 +767,8 @@ function CameraController({ center, distance, resetKey, viewPreset = "default" }
       enablePan={true}
       enableZoom={true}
       enableRotate={true}
+      minPolarAngle={viewPreset === "top" ? 0.001 : 0}
+      maxPolarAngle={viewPreset === "top" ? 0.001 : Math.PI}
     />
   );
 }
@@ -897,7 +899,7 @@ export function PointCloudViewer({
   }, []);
 
   const handleTopDownView = useCallback(() => {
-    setViewPreset("top");
+    setViewPreset(prev => prev === "top" ? "default" : "top");
     setResetKey(k => k + 1);
   }, []);
 
@@ -1022,7 +1024,7 @@ export function PointCloudViewer({
           <Button
             variant="secondary"
             size="icon"
-            className="h-7 w-7 bg-background/80 backdrop-blur-sm"
+            className={`h-7 w-7 backdrop-blur-sm ${viewPreset === "top" ? "bg-primary text-primary-foreground hover:bg-primary/90" : "bg-background/80"}`}
             onClick={handleTopDownView}
             title="Top down view"
           >
