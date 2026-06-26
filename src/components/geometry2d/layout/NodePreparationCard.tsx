@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MapPin, Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
 import { getNodePointTag } from "@/components/geometry2d/projectionCanvasUtils";
+import { isPartialBossLetter, isValidBossLetter } from "@/hooks/geometry2d/step4ReferencePointUtils";
 
 export type NodePointFilter = "all" | "inside" | "outside";
 
@@ -66,36 +67,39 @@ export function NodePreparationCard({
   const [draftNames, setDraftNames] = useState<Record<number, string>>({});
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  const BOSS_LETTER_RE = /^[ABCDEFGHJKLMNPQRSTUVWXY]{1,3}$/;
-
   const getEffectiveName = (point: Geometry2DNodePoint): string =>
     draftNames[point.id] !== undefined
       ? draftNames[point.id]
       : getNodePointTag(point);
 
-  const duplicatePointIds = useMemo<Set<number>>(() => {
+  const { duplicatePointIds, duplicateNames } = useMemo<{
+    duplicatePointIds: Set<number>;
+    duplicateNames: string[];
+  }>(() => {
     const seen = new Map<string, number>();
-    const dupes = new Set<number>();
+    const ids = new Set<number>();
+    const names = new Set<string>();
     allPoints.forEach((p) => {
       const name = (
         draftNames[p.id] !== undefined ? draftNames[p.id] : getNodePointTag(p)
       ).toUpperCase();
       if (!name) return;
       if (seen.has(name)) {
-        dupes.add(p.id);
-        dupes.add(seen.get(name)!);
+        ids.add(p.id);
+        ids.add(seen.get(name)!);
+        names.add(name);
       } else {
         seen.set(name, p.id);
       }
     });
-    return dupes;
+    return { duplicatePointIds: ids, duplicateNames: Array.from(names).sort() };
   }, [allPoints, draftNames]);
 
   const commitDraftName = (point: Geometry2DNodePoint) => {
     const draft = draftNames[point.id];
     if (draft === undefined) return;
     const letter = draft.trim().toUpperCase();
-    if (letter && BOSS_LETTER_RE.test(letter)) {
+    if (isValidBossLetter(letter)) {
       onPointRename(point.id, letter);
     }
     setDraftNames((prev) => {
@@ -257,13 +261,15 @@ export function NodePreparationCard({
                   <Input
                     type="text"
                     className={`h-6 w-full px-1 text-xs font-mono uppercase ${
-                      duplicatePointIds.has(point.id) ? "border-red-500/60" : ""
+                      duplicatePointIds.has(point.id) || draftNames[point.id] === ""
+                        ? "border-red-500/60"
+                        : ""
                     }`}
                     maxLength={3}
                     value={getEffectiveName(point)}
                     onChange={(e) => {
                       const val = e.target.value.toUpperCase();
-                      if (/^[ABCDEFGHJKLMNPQRSTUVWXY]{0,3}$/.test(val)) {
+                      if (isPartialBossLetter(val)) {
                         setDraftNames((prev) => ({ ...prev, [point.id]: val }));
                       }
                     }}
@@ -366,9 +372,9 @@ export function NodePreparationCard({
           </div>
         </ScrollArea>
 
-        {duplicatePointIds.size > 0 && (
+        {duplicateNames.length > 0 && (
           <p className="text-xs text-red-400">
-            Duplicate names — fix highlighted rows before saving
+            Duplicate name{duplicateNames.length === 1 ? "" : "s"}: {duplicateNames.join(", ")} — each reference point needs a unique name before saving.
           </p>
         )}
         <Button
