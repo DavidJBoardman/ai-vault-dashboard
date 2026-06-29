@@ -41,7 +41,7 @@ import { MANUAL_TRACE_COLOR, normalizeImportedCurves } from "@/lib/traces";
 
 export default function Step6TracesPage() {
   const router = useRouter();
-  const { currentProject, addTrace3D, completeStep } = useProjectStore();
+  const { currentProject, addTrace3D, completeStep, saveProject } = useProjectStore();
   const isTracesOnlyMode = currentProject?.workflowMode === "traces-only";
 
   // Trace source selection
@@ -149,6 +149,18 @@ export default function Step6TracesPage() {
     loadManualTraces();
   }, [currentProject?.id]);
   
+  // Restore confirmed state when returning to this step
+  useEffect(() => {
+    const stepData = currentProject?.steps[6]?.data;
+    if (stepData?.isConfirmed && !isConfirmed) {
+      setIsConfirmed(true);
+      if (stepData.traceSource) {
+        setSelectedTraceType(stepData.traceSource as "auto" | "manual" | "both");
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProject?.steps[6]?.data?.isConfirmed]);
+
   // Convert IntradosLine to Line3D format for viewer
   const intradosToLine3D = (line: IntradosLine): Line3D => ({
     id: line.id,
@@ -231,6 +243,8 @@ export default function Step6TracesPage() {
         setTraceSource("manual");
         setSelectedTraceType("manual");
         setLoadingMessage(`Imported ${response.data?.curveCount ?? curves.length} curves`);
+        // Persist project so the imported traces survive navigation
+        saveProject().catch(console.error);
       } else {
         setError(response.error || "Failed to import 3DM file");
       }
@@ -288,22 +302,24 @@ export default function Step6TracesPage() {
   
   // Handle confirming trace selection
   const handleConfirm = () => {
+    const traceData = {
+      traceSource: selectedTraceType,
+      autoLinesCount: autoIntradosLines.length,
+      manualLinesCount: manualTraces.length,
+      isConfirmed: true,
+    };
     setIsConfirmed(true);
     addTrace3D({
       id: `trace-${Date.now()}`,
       path: selectedTraceType === "manual" ? (manualSource || "manual") : "auto",
       aligned: true,
     });
+    completeStep(6, traceData);
+    saveProject().catch(console.error);
   };
-  
+
   // Handle continue to next step
   const handleContinue = () => {
-    completeStep(6, { 
-      traceSource: selectedTraceType,
-      autoLinesCount: autoIntradosLines.length,
-      manualLinesCount: manualTraces.length,
-      isConfirmed 
-    });
     router.push("/workflow/step-7-measurements");
   };
 
