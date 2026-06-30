@@ -19,6 +19,31 @@ Medieval vault plans were conceived as intersecting patterns of ribs, laid out t
 | **4C** | [Cut-Typology Matching](cut-typology-matching.md) | Score each boss against starcut and circlecut templates to identify the best-fit design typology |
 | **4D** | [Bay-Plan Reconstruction](bay-plan-reconstruction.md) | Infer the rib network as a graph of nodes and edges |
 
+## Sub-stage dependencies and staleness
+
+The sub-stages run in sequence and feed one another, so each one works from the **saved** output of the stages before it:
+
+- **4C** matches against the saved ROI (4A) and the saved reference points (4B).
+- **4D** reconstructs from the saved ROI, the saved reference points, and the saved 4C matching result.
+
+Because each stage reads its *saved* inputs, work in progress does not disturb the later stages until you save it. For example, dragging or editing reference points in 4B has no effect on 4C or 4D until you click **Save Reference Points**.
+
+If you change an earlier stage after a later one has already run, the later stage is marked as out of date. Its chip in the workflow stepper shows an amber dot and an **"Update needed"** note with a **Dismiss** link. You then have two choices:
+
+- **Run the stage again** so that it picks up the new inputs, or
+- **Dismiss** the note, which marks the stage as up to date without running it again. Use this when you know the change does not affect the result.
+
+A result that was produced before this tracking existed is also marked, so you can run it once to set a baseline. There is deliberately no link from the ROI back to 4B: reference points are fixed pixel positions that a change to the ROI does not invalidate, and the ROI corner anchors are refreshed by the 4A analysis instead.
+
+### Stepper dot colours
+
+| Dot | Meaning |
+|-----|---------|
+| Amber dot | **Update needed**: an earlier step changed, so run this stage again or dismiss the note |
+| Emerald | Stage complete and up to date |
+| Amber (current) | The stage you are working on |
+| Grey | Locked: an earlier stage must be completed first |
+
 ## Interface layout
 
 ![Step 4 Interface Layout](../../images/step-4/step4_interface_layout.png){ width="700" .center }
