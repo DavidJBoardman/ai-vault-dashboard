@@ -25,6 +25,7 @@ dependencies = [
     "torch>=2.10.0",
     "torchvision>=0.25.0",
     "transformers",
+    "rhino3dm>=8.0.0",
     "triangle>=20250106",
     "uvicorn[standard]==0.30.6",
     "websockets==12.0",
