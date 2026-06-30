@@ -12,10 +12,21 @@ import { useProjectStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import {
   getStep7bSummary,
+  getIntradosLines,
+  getImportedTraces,
+  calculateMeasurements,
   type Step7bBossSummaryRow,
   type Step7bRibSummaryRow,
   type Step7bSummarySnapshot,
 } from "@/lib/api";
+import { normalizeImportedCurves } from "@/lib/traces";
+import {
+  buildArcLinesFromFit,
+  safeObjName,
+  sampleArcLinePoints,
+  buildArcObjText,
+  downloadObj,
+} from "@/lib/arc-obj-export";
 import {
   Box,
   CheckCircle,
@@ -112,6 +123,7 @@ export default function Step8AnalysisPage() {
   const [summarySnapshot, setSummarySnapshot] = useState<Step7bSummarySnapshot | null>(null);
   const [exportingRibs, setExportingRibs] = useState(false);
   const [exportingBosses, setExportingBosses] = useState(false);
+  const [exportingArcs, setExportingArcs] = useState(false);
   const [isRibSummaryExpanded, setIsRibSummaryExpanded] = useState(false);
   const [isBossSummaryExpanded, setIsBossSummaryExpanded] = useState(false);
 
@@ -274,6 +286,73 @@ export default function Step8AnalysisPage() {
     }
   };
 
+  const handleExportArcs = async () => {
+    if (!currentProject?.id) return;
+    setExportingArcs(true);
+    try {
+      const source = summarySnapshot?.activeTraceSource ?? "auto";
+      const useManual = source === "manual" || source === "both";
+      const useAuto = source === "auto" || source === "both";
+
+      const traces: Array<{ id: string; name: string; points3d: Array<[number, number, number]> }> = [];
+
+      if (useAuto) {
+        const res = await getIntradosLines(currentProject.id);
+        if (res.success && res.data?.lines) {
+          res.data.lines.forEach((l) => traces.push({ id: l.id, name: l.label, points3d: l.points3d as [number, number, number][] }));
+        }
+      }
+
+      if (useManual) {
+        const res = await getImportedTraces(currentProject.id);
+        if (res.success && res.data?.curves) {
+          const curves = normalizeImportedCurves(res.data.curves, res.data.source ?? null);
+          curves.forEach((c) => traces.push({ id: c.id, name: c.name, points3d: c.points as Array<[number, number, number]> }));
+        }
+      }
+
+      if (traces.length === 0) return;
+
+      const objects: Array<{ name: string; points: { x: number; y: number; z: number }[] }> = [];
+
+      await Promise.all(traces.map(async (trace) => {
+        const res = await calculateMeasurements({
+          traceId: trace.id,
+          segmentStart: 0,
+          segmentEnd: 1,
+          tracePoints: trace.points3d,
+        });
+        if (!res.success || !res.data) return;
+
+        const arcLines = buildArcLinesFromFit(trace.id, {
+          segmentPoints: res.data.segmentPoints,
+          arcCenter: res.data.arcCenter,
+          arcRadius: res.data.arcRadius,
+          ribLength: res.data.ribLength,
+          arcBasisU: res.data.arcBasisU,
+          arcBasisV: res.data.arcBasisV,
+          arcStartAngle: res.data.arcStartAngle,
+          arcEndAngle: res.data.arcEndAngle,
+        });
+
+        const baseName = safeObjName(trace.name);
+        arcLines.forEach((arcLine, index) => {
+          const points = sampleArcLinePoints(arcLine);
+          if (points.length < 2) return;
+          objects.push({
+            name: arcLines.length > 1 ? `${baseName}_${index + 1}` : baseName,
+            points,
+          });
+        });
+      }));
+
+      if (objects.length === 0) return;
+      downloadObj(`best_fit_arcs_${Date.now()}.obj`, buildArcObjText(objects));
+    } finally {
+      setExportingArcs(false);
+    }
+  };
+
   const handleFinish = () => {
     completeStep(8, {
       viewedAt: new Date().toISOString(),
@@ -363,6 +442,16 @@ export default function Step8AnalysisPage() {
                 >
                   {exportingBosses ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   Download Boss CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleExportArcs}
+                  disabled={exportingArcs || !currentProject?.id || ribRows.length === 0}
+                  className="gap-2"
+                  title="Export the best-fit arc curves as a Wavefront .obj file"
+                >
+                  {exportingArcs ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  Export Arcs (OBJ)
                 </Button>
               </div>
             </CardHeader>

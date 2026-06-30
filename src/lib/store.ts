@@ -448,7 +448,22 @@ export const useProjectStore = create<ProjectStore>()(
             project.steps[3] = { completed: true, data: { hasSegmentations: true } };
           }
         }
-        
+
+        // Restore workflowMode from step 1 data (saved since the fix was applied).
+        // Fall back to inference for projects saved before this fix.
+        const step1SavedMode = (project.steps[1]?.data as { workflowMode?: string } | undefined)?.workflowMode;
+        if (step1SavedMode === "traces-only" || step1SavedMode === "full") {
+          project.workflowMode = step1SavedMode;
+        } else {
+          // Infer: no projections + steps 2–5 untouched + reached step 6 → traces-only
+          const noProjections = project.projections.length === 0;
+          const steps25Untouched = !project.steps[2]?.completed && !project.steps[3]?.completed;
+          const reachedStep6 = project.currentStep >= 6 || !!project.steps[6];
+          if (noProjections && steps25Untouched && reachedStep6) {
+            project.workflowMode = "traces-only";
+          }
+        }
+
         // Store ROI fallback if available (for step 4).
         // `data.roi` from backend load is sourced from segmentations/index.json and
         // can be in pixel units. Do not override an existing step-4 ROI snapshot.

@@ -275,13 +275,13 @@ export default function Step1UploadPage() {
   
   const handleContinue = () => {
     setWorkflowMode("full");
-    completeStep(1, { hasPointCloud: true });
+    completeStep(1, { hasPointCloud: true, workflowMode: "full" });
     router.push("/workflow/step-2-projection");
   };
 
   const handleSkipToTraces = () => {
     setWorkflowMode("traces-only");
-    completeStep(1, { hasPointCloud: true });
+    completeStep(1, { hasPointCloud: true, workflowMode: "traces-only" });
     router.push("/workflow/step-6-traces");
   };
 

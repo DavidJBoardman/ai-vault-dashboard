@@ -82,6 +82,12 @@ import {
   type TraceSourceSelection,
   type WorkflowTraceLine,
 } from "@/lib/traces";
+import {
+  safeObjName,
+  sampleArcLinePoints as sampleArcLinePointsFromLib,
+  buildArcObjText,
+  downloadObj,
+} from "@/lib/arc-obj-export";
 
 interface Point3D {
   x: number;
@@ -688,69 +694,6 @@ function createBestFitArcLines(
   });
 
   return lines;
-}
-
-/** Number of segments used when sampling a best-fit arc into an OBJ polyline. */
-const ARC_OBJ_SAMPLES = 128;
-
-/** Sanitize a rib name into a Wavefront-safe object name (mirrors backend `_safe_obj_name`). */
-function safeObjName(name: string): string {
-  return name.trim().replace(/[^\w.-]+/g, "_") || "arc";
-}
-
-/**
- * Sample a best-fit `Line3D` into dense 3D points in real-world coordinates.
- * Arc lines use the same parametric formula as the viewer's `ArcCurve` but
- * WITHOUT the Y/Z swap (that swap is viewer-only). Straight "Ideal Line"
- * results have no `arc` and are returned as their two endpoints.
- */
-function sampleArcLinePoints(line: Line3D): Point3D[] {
-  if (!line.arc) return line.points;
-
-  const { center, radius, startAngle, endAngle, u, v } = line.arc;
-  let sweep = endAngle - startAngle;
-  const twoPi = Math.PI * 2;
-  if (!Number.isFinite(sweep)) {
-    sweep = 0;
-  } else if (Math.abs(sweep) > twoPi) {
-    sweep = sweep % twoPi;
-  }
-
-  const points: Point3D[] = [];
-  for (let i = 0; i <= ARC_OBJ_SAMPLES; i++) {
-    const angle = startAngle + (i / ARC_OBJ_SAMPLES) * sweep;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    points.push({
-      x: center.x + radius * (cos * u.x + sin * v.x),
-      y: center.y + radius * (cos * u.y + sin * v.y),
-      z: center.z + radius * (cos * u.z + sin * v.z),
-    });
-  }
-  return points;
-}
-
-/**
- * Serialize named polylines into Wavefront OBJ text. Matches the convention in
- * `backend/services/intrados_export.py`: a header comment, one `o <name>` block
- * per curve, `v x y z` vertices (meters), and a single `l i1 i2 …` polyline
- * element using running 1-based vertex indices.
- */
-function buildArcObjText(objects: Array<{ name: string; points: Point3D[] }>): string {
-  const out: string[] = ["# Best-fit arc curves — Vault Analyser", "# Units: meters", ""];
-  let vertexBase = 0;
-  for (const obj of objects) {
-    if (obj.points.length < 2) continue;
-    out.push(`o ${obj.name}`);
-    for (const p of obj.points) {
-      out.push(`v ${p.x.toFixed(6)} ${p.y.toFixed(6)} ${p.z.toFixed(6)}`);
-    }
-    const indices = obj.points.map((_, i) => vertexBase + i + 1);
-    out.push(`l ${indices.join(" ")}`);
-    out.push("");
-    vertexBase += obj.points.length;
-  }
-  return out.join("\n");
 }
 
 export default function Step7MeasurementsPage() {
@@ -2631,6 +2574,21 @@ export default function Step7MeasurementsPage() {
     });
   }, [selectedRib]);
 
+  // Rib IDs whose group is determined to be a straight rib (N/A radius in the
+  // panel). Used in computeAllTraces to force straight-line rendering so the
+  // viewer stays consistent with the panel, even when the individual
+  // calculateMeasurements call uses a slightly different ribLength.
+  const straightRibIds = useMemo(() => {
+    const result = new Set<string>();
+    for (const group of displayGroups) {
+      const { arc_radius, rib_length } = group.combinedMeasurements;
+      const hasInputs = arc_radius > 0 && rib_length > 0;
+      const isStraight = hasInputs && !hasDisplayableRadius(arc_radius, rib_length);
+      if (isStraight) group.ribIds.forEach(id => result.add(id));
+    }
+    return result;
+  }, [displayGroups]);
+
   // Compute colored traces for all intrados lines
   useEffect(() => {
     const computeAllTraces = async () => {
@@ -2680,17 +2638,29 @@ export default function Step7MeasurementsPage() {
 
           let lineTraces: Line3D[] = [];
           if (viewMode === "bestFitArc") {
-            lineTraces = createBestFitArcLines(
-              result.value.data.segmentPoints,
-              result.value.data.arcCenter,
-              result.value.data.arcRadius,
-              result.value.data.ribLength,
-              result.value.traceId,
-              result.value.data.arcBasisU,
-              result.value.data.arcBasisV,
-              result.value.data.arcStartAngle,
-              result.value.data.arcEndAngle,
-            );
+            if (straightRibIds.has(result.value.traceId)) {
+              // Group panel shows N/A — render as a true straight line regardless
+              // of what the individual arc fit returned.
+              const pts = result.value.data.segmentPoints;
+              lineTraces = pts.length >= 2 ? [{
+                id: `${result.value.traceId}-ideal-line`,
+                label: "Ideal Line",
+                color: "rgb(100, 150, 255)",
+                points: [pts[0], pts[pts.length - 1]],
+              }] : [];
+            } else {
+              lineTraces = createBestFitArcLines(
+                result.value.data.segmentPoints,
+                result.value.data.arcCenter,
+                result.value.data.arcRadius,
+                result.value.data.ribLength,
+                result.value.traceId,
+                result.value.data.arcBasisU,
+                result.value.data.arcBasisV,
+                result.value.data.arcStartAngle,
+                result.value.data.arcEndAngle,
+              );
+            }
           } else {
             const decimated = decimateSegmentsForDisplay(
               result.value.data.segmentPoints,
@@ -2717,7 +2687,7 @@ export default function Step7MeasurementsPage() {
     };
     
     void computeAllTraces();
-  }, [intradosLines, viewMode]); // selectedRib removed â€” highlight is applied by useMemo
+  }, [intradosLines, viewMode, straightRibIds]); // selectedRib removed — highlight is applied by useMemo
   
   // Load measurement data when rib is selected (for details panel)
   useEffect(() => {
@@ -2967,7 +2937,7 @@ export default function Step7MeasurementsPage() {
 
         const baseName = safeObjName(getRibDisplayName(line.id));
         arcLines.forEach((arcLine, index) => {
-          const points = sampleArcLinePoints(arcLine);
+          const points = sampleArcLinePointsFromLib(arcLine);
           if (points.length < 2) return;
           objects.push({
             name: arcLines.length > 1 ? `${baseName}_${index + 1}` : baseName,
@@ -2978,14 +2948,7 @@ export default function Step7MeasurementsPage() {
 
       if (objects.length === 0) return;
 
-      const objContent = buildArcObjText(objects);
-      const blob = new Blob([objContent], { type: "model/obj" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `best_fit_arcs_${Date.now()}.obj`;
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadObj(`best_fit_arcs_${Date.now()}.obj`, buildArcObjText(objects));
     } finally {
       setExportingArcs(false);
     }
