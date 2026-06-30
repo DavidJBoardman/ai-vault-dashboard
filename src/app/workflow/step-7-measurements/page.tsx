@@ -690,6 +690,69 @@ function createBestFitArcLines(
   return lines;
 }
 
+/** Number of segments used when sampling a best-fit arc into an OBJ polyline. */
+const ARC_OBJ_SAMPLES = 128;
+
+/** Sanitize a rib name into a Wavefront-safe object name (mirrors backend `_safe_obj_name`). */
+function safeObjName(name: string): string {
+  return name.trim().replace(/[^\w.-]+/g, "_") || "arc";
+}
+
+/**
+ * Sample a best-fit `Line3D` into dense 3D points in real-world coordinates.
+ * Arc lines use the same parametric formula as the viewer's `ArcCurve` but
+ * WITHOUT the Y/Z swap (that swap is viewer-only). Straight "Ideal Line"
+ * results have no `arc` and are returned as their two endpoints.
+ */
+function sampleArcLinePoints(line: Line3D): Point3D[] {
+  if (!line.arc) return line.points;
+
+  const { center, radius, startAngle, endAngle, u, v } = line.arc;
+  let sweep = endAngle - startAngle;
+  const twoPi = Math.PI * 2;
+  if (!Number.isFinite(sweep)) {
+    sweep = 0;
+  } else if (Math.abs(sweep) > twoPi) {
+    sweep = sweep % twoPi;
+  }
+
+  const points: Point3D[] = [];
+  for (let i = 0; i <= ARC_OBJ_SAMPLES; i++) {
+    const angle = startAngle + (i / ARC_OBJ_SAMPLES) * sweep;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    points.push({
+      x: center.x + radius * (cos * u.x + sin * v.x),
+      y: center.y + radius * (cos * u.y + sin * v.y),
+      z: center.z + radius * (cos * u.z + sin * v.z),
+    });
+  }
+  return points;
+}
+
+/**
+ * Serialize named polylines into Wavefront OBJ text. Matches the convention in
+ * `backend/services/intrados_export.py`: a header comment, one `o <name>` block
+ * per curve, `v x y z` vertices (meters), and a single `l i1 i2 …` polyline
+ * element using running 1-based vertex indices.
+ */
+function buildArcObjText(objects: Array<{ name: string; points: Point3D[] }>): string {
+  const out: string[] = ["# Best-fit arc curves — Vault Analyser", "# Units: meters", ""];
+  let vertexBase = 0;
+  for (const obj of objects) {
+    if (obj.points.length < 2) continue;
+    out.push(`o ${obj.name}`);
+    for (const p of obj.points) {
+      out.push(`v ${p.x.toFixed(6)} ${p.y.toFixed(6)} ${p.z.toFixed(6)}`);
+    }
+    const indices = obj.points.map((_, i) => vertexBase + i + 1);
+    out.push(`l ${indices.join(" ")}`);
+    out.push("");
+    vertexBase += obj.points.length;
+  }
+  return out.join("\n");
+}
+
 export default function Step7MeasurementsPage() {
   const router = useRouter();
   const { currentProject, addMeasurement, completeStep } = useProjectStore();
@@ -699,6 +762,7 @@ export default function Step7MeasurementsPage() {
   const [selectedRib, setSelectedRib] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [exportingRibs, setExportingRibs] = useState(false);
+  const [exportingArcs, setExportingArcs] = useState(false);
   const [exportingBossStones, setExportingBossStones] = useState(false);
   
   // Data loading states
@@ -2875,6 +2939,58 @@ export default function Step7MeasurementsPage() {
     }
   };
 
+  // Export the best-fit arc curves as a Wavefront OBJ file. Arc parameters are
+  // already cached per trace in measurementCacheRef (populated by computeAllTraces),
+  // so this is a pure client-side build — no backend round-trip.
+  const handleExportArcs = () => {
+    if (intradosLines.length === 0) return;
+    setExportingArcs(true);
+
+    try {
+      const objects: Array<{ name: string; points: Point3D[] }> = [];
+
+      for (const line of intradosLines) {
+        const data = measurementCacheRef.current.get(line.id);
+        if (!data) continue;
+
+        const arcLines = createBestFitArcLines(
+          data.segmentPoints,
+          data.arcCenter,
+          data.arcRadius,
+          data.ribLength,
+          line.id,
+          data.arcBasisU,
+          data.arcBasisV,
+          data.arcStartAngle,
+          data.arcEndAngle,
+        );
+
+        const baseName = safeObjName(getRibDisplayName(line.id));
+        arcLines.forEach((arcLine, index) => {
+          const points = sampleArcLinePoints(arcLine);
+          if (points.length < 2) return;
+          objects.push({
+            name: arcLines.length > 1 ? `${baseName}_${index + 1}` : baseName,
+            points,
+          });
+        });
+      }
+
+      if (objects.length === 0) return;
+
+      const objContent = buildArcObjText(objects);
+      const blob = new Blob([objContent], { type: "model/obj" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `best_fit_arcs_${Date.now()}.obj`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExportingArcs(false);
+    }
+  };
+
   // Export boss stone heights as CSV
   const handleExportBossStones = async () => {
     if (!bossStoneMarkers || bossStoneMarkers.length === 0) return;
@@ -3999,19 +4115,36 @@ export default function Step7MeasurementsPage() {
                 {/* Read-only rib list with export */}
                 <Card>
                   <CardHeader className="pb-2 shrink-0">
-                    <div className="flex items-center justify-between">
-                      <div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
                         <CardTitle className="text-lg font-display">Rib Measurements</CardTitle>
                         <CardDescription>Click a rib or boss to view details</CardDescription>
                       </div>
-                      <Button size="sm" onClick={handleExportRibs} disabled={exportingRibs} className="gap-2">
-                        {exportingRibs ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Download className="w-4 h-4" />
-                        )}
-                        Export Ribs
-                      </Button>
+                      <div className="flex flex-col gap-1.5 shrink-0">
+                        <Button size="sm" variant="outline" onClick={handleExportRibs} disabled={exportingRibs} className="gap-2 w-full">
+                          {exportingRibs ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          Export Ribs
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleExportArcs}
+                          disabled={exportingArcs || intradosLines.length === 0}
+                          className="gap-2 w-full"
+                          title="Export the best-fit arc curves as a Wavefront .obj file"
+                        >
+                          {exportingArcs ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          Export Arcs (OBJ)
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="pt-0 px-4 pb-4">
