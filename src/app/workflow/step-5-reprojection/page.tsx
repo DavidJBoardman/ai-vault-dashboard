@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
 import { PointCloudViewer, ExclusionBoxProps } from "@/components/point-cloud/point-cloud-viewer";
@@ -25,6 +25,9 @@ import {
   AlertTriangle,
   Scissors,
   Check,
+  GripVertical,
+  X,
+  MousePointerClick,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -77,6 +80,10 @@ export default function Step5ReprojectionPage() {
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [lineTrimState, setLineTrimState] = useState<Record<string, { startTrim: number; endTrim: number }>>({});
   const [isSavingTrim, setIsSavingTrim] = useState(false);
+
+  // Floating trim panel position (fixed px from top-left of viewport)
+  const [trimPanelPos, setTrimPanelPos] = useState({ x: 420, y: 180 });
+  const panelDragState = useRef<{ startMouseX: number; startMouseY: number; startPanelX: number; startPanelY: number } | null>(null);
   
   // Preview settings collapsed state
   const [showPreviewSettings, setShowPreviewSettings] = useState(false);
@@ -314,6 +321,31 @@ export default function Step5ReprojectionPage() {
       setIsSavingTrim(false);
     }
   }, [selectedLineId, lineTrimState, intradosLines, currentProject?.id]);
+
+  // Drag the floating trim panel
+  const handlePanelMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    panelDragState.current = {
+      startMouseX: e.clientX,
+      startMouseY: e.clientY,
+      startPanelX: trimPanelPos.x,
+      startPanelY: trimPanelPos.y,
+    };
+    const onMove = (ev: MouseEvent) => {
+      if (!panelDragState.current) return;
+      setTrimPanelPos({
+        x: Math.max(0, panelDragState.current.startPanelX + ev.clientX - panelDragState.current.startMouseX),
+        y: Math.max(0, panelDragState.current.startPanelY + ev.clientY - panelDragState.current.startMouseY),
+      });
+    };
+    const onUp = () => {
+      panelDragState.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [trimPanelPos.x, trimPanelPos.y]);
 
   // Initialize floor plane from point cloud bounds
   const initializeExclusionControls = useCallback(() => {
@@ -1024,101 +1056,43 @@ export default function Step5ReprojectionPage() {
                   </p>
                 )}
 
-                {intradosLines.length > 0 && !selectedLineId && (
-                  <p className="text-xs text-muted-foreground text-center mt-1">
-                    Click a rib in the 3D view to trim its endpoints
-                  </p>
+
+                {/* Trim Rib Endpoints — discoverable call-to-action */}
+                {intradosLines.length > 0 && (
+                  <div className={cn(
+                    "rounded-lg border p-3 space-y-2 transition-colors",
+                    selectedLineId
+                      ? "border-yellow-400/70 bg-yellow-400/10"
+                      : "border-dashed border-muted-foreground/40 bg-muted/20"
+                  )}>
+                    <div className="flex items-center gap-2">
+                      <Scissors className={cn("w-4 h-4", selectedLineId ? "text-yellow-500" : "text-muted-foreground")} />
+                      <span className="text-sm font-medium">Trim Rib Endpoints</span>
+                      {selectedLineId && (
+                        <Badge className="ml-auto text-xs bg-yellow-500/20 text-yellow-700 border-yellow-400/50">
+                          Editing
+                        </Badge>
+                      )}
+                    </div>
+                    {selectedLineId ? (
+                      <p className="text-xs text-muted-foreground">
+                        Use the floating panel to adjust the start and end of the selected rib. Click the rib again to deselect.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          Click any rib line in the 3D view to open the trim editor. Drag the sliders to shorten either end of the line.
+                        </p>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70 pt-0.5">
+                          <MousePointerClick className="w-3.5 h-3.5" />
+                          <span>Click a rib in the 3D view to begin</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>
-
-            {/* Endpoint Trim Panel */}
-            {selectedLineId && (() => {
-              const line = intradosLines.find(l => l.id === selectedLineId);
-              if (!line) return null;
-              const trim = lineTrimState[selectedLineId] ?? { startTrim: 0, endTrim: 1 };
-              const n = line.points3d.length;
-              const startIdx = Math.round(trim.startTrim * (n - 1));
-              const endIdx = Math.round(trim.endTrim * (n - 1));
-              const remaining = Math.max(0, endIdx - startIdx + 1);
-              return (
-                <Card className="border-yellow-400/60 bg-yellow-50/5">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-display flex items-center gap-2">
-                      <Scissors className="w-4 h-4 text-yellow-500" />
-                      Trim Endpoints
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      {line.label} — {remaining} / {n} pts
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Trim start</Label>
-                      <input
-                        type="range"
-                        min={0}
-                        max={trim.endTrim - 1 / Math.max(n - 1, 1)}
-                        step={1 / Math.max(n - 1, 1)}
-                        value={trim.startTrim}
-                        onChange={e => setLineTrimState(ts => ({
-                          ...ts,
-                          [selectedLineId]: { ...trim, startTrim: parseFloat(e.target.value) },
-                        }))}
-                        className="w-full accent-yellow-500"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Trim end</Label>
-                      <input
-                        type="range"
-                        min={trim.startTrim + 1 / Math.max(n - 1, 1)}
-                        max={1}
-                        step={1 / Math.max(n - 1, 1)}
-                        value={trim.endTrim}
-                        onChange={e => setLineTrimState(ts => ({
-                          ...ts,
-                          [selectedLineId]: { ...trim, endTrim: parseFloat(e.target.value) },
-                        }))}
-                        className="w-full accent-yellow-500"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => {
-                          setSelectedLineId(null);
-                          setLineTrimState(ts => {
-                            const next = { ...ts };
-                            delete next[selectedLineId];
-                            return next;
-                          });
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="flex-1"
-                        onClick={handleApplyTrim}
-                        disabled={isSavingTrim || remaining < 2}
-                      >
-                        {isSavingTrim ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Check className="w-4 h-4" />
-                            Apply
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })()}
 
           </div>
 
@@ -1136,22 +1110,40 @@ export default function Step5ReprojectionPage() {
               </CardHeader>
               <CardContent>
                 {pointCloudData && pointCloudData.length > 0 ? (
-                  <PointCloudViewer
-                    points={pointCloudData}
-                    lines={lines3D}
-                    showLines={showIntradosLines}
-                    lineWidth={intradosLineWidth}
-                    className="h-[500px] rounded-lg overflow-hidden"
-                    colorMode="rgb"
-                    showGrid={true}
-                    showBoundingBox={true}
-                    floorPlaneZ={impostLineZ}
-                    showFloorPlane={showImpostLine}
-                    exclusionBox={exclusionBox}
-                    showExclusionBox={showExclusionBox}
-                    ribPaths={lines3D.length > 0 ? lines3D.map(l => ({ id: l.id, points: l.points })) : undefined}
-                    onLineClick={lines3D.length > 0 ? handleLineClick : undefined}
-                  />
+                  <div className="relative">
+                    <PointCloudViewer
+                      points={pointCloudData}
+                      lines={lines3D}
+                      showLines={showIntradosLines}
+                      lineWidth={intradosLineWidth}
+                      className="h-[500px] rounded-lg overflow-hidden"
+                      colorMode="rgb"
+                      showGrid={true}
+                      showBoundingBox={true}
+                      floorPlaneZ={impostLineZ}
+                      showFloorPlane={showImpostLine}
+                      exclusionBox={exclusionBox}
+                      showExclusionBox={showExclusionBox}
+                      ribPaths={lines3D.length > 0 ? lines3D.map(l => ({ id: l.id, points: l.points })) : undefined}
+                      onLineClick={lines3D.length > 0 ? handleLineClick : undefined}
+                    />
+                    {/* Trim mode overlay badge */}
+                    {lines3D.length > 0 && (
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none">
+                        {selectedLineId ? (
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-500/90 text-yellow-950 text-xs font-medium shadow-lg backdrop-blur-sm">
+                            <Scissors className="w-3.5 h-3.5" />
+                            Editing: {intradosLines.find(l => l.id === selectedLineId)?.label ?? selectedLineId}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 text-white/80 text-xs shadow-lg backdrop-blur-sm">
+                            <MousePointerClick className="w-3.5 h-3.5" />
+                            Click a rib to trim its endpoints
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="h-[500px] flex items-center justify-center bg-muted/30 rounded-lg">
                     <div className="text-center space-y-4">
@@ -1297,6 +1289,133 @@ export default function Step5ReprojectionPage() {
           <ChevronRight className="w-4 h-4" />
         </Button>
       </StepActions>
+
+      {/* ── Floating draggable trim panel ─────────────────────────────────── */}
+      {selectedLineId && (() => {
+        const line = intradosLines.find(l => l.id === selectedLineId);
+        if (!line) return null;
+        const trim = lineTrimState[selectedLineId] ?? { startTrim: 0, endTrim: 1 };
+        const n = line.points3d.length;
+        const startIdx = Math.round(trim.startTrim * (n - 1));
+        const endIdx = Math.round(trim.endTrim * (n - 1));
+        const remaining = Math.max(0, endIdx - startIdx + 1);
+        const startPct = Math.round(trim.startTrim * 100);
+        const endPct = Math.round(trim.endTrim * 100);
+
+        return (
+          <div
+            style={{ position: 'fixed', left: trimPanelPos.x, top: trimPanelPos.y, zIndex: 50, width: 300 }}
+            className="rounded-xl border border-yellow-400/60 bg-background shadow-2xl overflow-hidden select-none"
+          >
+            {/* Drag handle header */}
+            <div
+              className="flex items-center gap-2 px-3 py-2.5 bg-yellow-500/15 border-b border-yellow-400/40 cursor-grab active:cursor-grabbing"
+              onMouseDown={handlePanelMouseDown}
+            >
+              <GripVertical className="w-4 h-4 text-yellow-600/70 flex-shrink-0" />
+              <Scissors className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+              <span className="text-sm font-semibold flex-1 truncate">{line.label}</span>
+              <span className="text-xs text-muted-foreground font-mono flex-shrink-0">{remaining}/{n} pts</span>
+              <button
+                className="ml-1 p-0.5 rounded hover:bg-yellow-400/20 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                onClick={() => {
+                  setSelectedLineId(null);
+                  setLineTrimState(ts => { const next = { ...ts }; delete next[selectedLineId]; return next; });
+                }}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Sliders */}
+            <div className="p-4 space-y-5">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium">Start — trim from beginning</Label>
+                  <span className="text-xs font-mono text-muted-foreground">{startPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={trim.endTrim - 1 / Math.max(n - 1, 1)}
+                  step={1 / Math.max(n - 1, 1)}
+                  value={trim.startTrim}
+                  onChange={e => setLineTrimState(ts => ({
+                    ...ts,
+                    [selectedLineId]: { ...trim, startTrim: parseFloat(e.target.value) },
+                  }))}
+                  className="w-full h-2 accent-yellow-500 cursor-pointer"
+                />
+                <p className="text-xs text-muted-foreground">Removes {startIdx} point{startIdx !== 1 ? 's' : ''} from the start</p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium">End — trim from finish</Label>
+                  <span className="text-xs font-mono text-muted-foreground">{endPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={trim.startTrim + 1 / Math.max(n - 1, 1)}
+                  max={1}
+                  step={1 / Math.max(n - 1, 1)}
+                  value={trim.endTrim}
+                  onChange={e => setLineTrimState(ts => ({
+                    ...ts,
+                    [selectedLineId]: { ...trim, endTrim: parseFloat(e.target.value) },
+                  }))}
+                  className="w-full h-2 accent-yellow-500 cursor-pointer"
+                />
+                <p className="text-xs text-muted-foreground">Removes {n - 1 - endIdx} point{(n - 1 - endIdx) !== 1 ? 's' : ''} from the end</p>
+              </div>
+
+              {/* Progress bar showing kept range */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>0%</span>
+                  <span className="font-medium text-foreground">{remaining} points kept</span>
+                  <span>100%</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-yellow-500 transition-all"
+                    style={{ marginLeft: `${startPct}%`, width: `${endPct - startPct}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => {
+                    setSelectedLineId(null);
+                    setLineTrimState(ts => { const next = { ...ts }; delete next[selectedLineId]; return next; });
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-yellow-950"
+                  onClick={handleApplyTrim}
+                  disabled={isSavingTrim || remaining < 2}
+                >
+                  {isSavingTrim ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4 mr-1" />
+                      Apply Trim
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
