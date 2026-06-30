@@ -273,7 +273,12 @@ export default function Step6TracesPage() {
         setManualTraces(curves);
         setManualSource(response.data?.source ?? filePath);
         setTraceSource("manual");
-        setSelectedTraceType("manual");
+        // Show both auto and manual together so the user can immediately see
+        // the uploaded traces overlaid on the point cloud.
+        const newType = autoIntradosLines.length > 0 ? "both" : "manual";
+        setSelectedTraceType(newType);
+        setShowManualLines(true);
+        persistConfig({ traceSource: "manual", selectedTraceType: newType, showManualLines: true });
         setLoadingMessage(`Imported ${response.data?.curveCount ?? curves.length} curves`);
       } else {
         setError(response.error || "Failed to import 3DM file");

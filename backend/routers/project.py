@@ -2855,18 +2855,26 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
                 "error": f"File not found: {request.filePath}"
             }
         
-        # Import curves
+        # Try importing from the dedicated "Trace" layer first; fall back to
+        # all curves if that layer is absent or empty in the file.
         result = import_3dm_curves(
             file_path=request.filePath,
             layer_filter=TRACE_IMPORT_LAYER_NAME
         )
-        
+
+        if result["success"] and result.get("curveCount", 0) == 0:
+            print(f"  No curves on '{TRACE_IMPORT_LAYER_NAME}' layer — importing all curves")
+            result = import_3dm_curves(
+                file_path=request.filePath,
+                layer_filter=None
+            )
+
         if result["success"]:
             # Save imported traces
             project_dir = get_project_dir(project_id)
             traces_dir = project_dir / "traces"
             traces_dir.mkdir(parents=True, exist_ok=True)
-            
+
             imported_traces_path = traces_dir / "imported_traces.json"
             with open(imported_traces_path, "w", encoding="utf-8") as f:
                 json.dump({
@@ -2874,14 +2882,19 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
                     "curves": result["curves"],
                     "importedAt": datetime.now().isoformat()
                 }, f, indent=2)
-            
+
+            curve_count = result.get("curveCount", 0)
+            layers = result.get("layers", [])
+            layer_desc = f"layer '{TRACE_IMPORT_LAYER_NAME}'" if any(
+                l.strip().lower() == TRACE_IMPORT_LAYER_NAME.lower() for l in layers
+            ) else "all layers"
             return {
                 "success": True,
                 "data": {
                     "curves": result["curves"],
-                    "curveCount": result.get("curveCount", 0),
-                    "layers": result.get("layers", []),
-                    "message": f"Imported {result.get('curveCount', 0)} curves from the {TRACE_IMPORT_LAYER_NAME} layer",
+                    "curveCount": curve_count,
+                    "layers": layers,
+                    "message": f"Imported {curve_count} curves from {layer_desc}",
                     "source": request.filePath,
                     "importedAt": datetime.now().isoformat(),
                 }
