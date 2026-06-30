@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { StepHeader, StepActions } from "@/components/workflow/step-navigation";
 import { PointCloudViewer, Line3D } from "@/components/point-cloud/point-cloud-viewer";
@@ -12,16 +12,18 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { useProjectStore } from "@/lib/store";
-import { 
-  getReprojectionPreview, 
-  ReprojectionPoint, 
-  getIntradosLines, 
+import {
+  getReprojectionPreview,
+  ReprojectionPoint,
+  getIntradosLines,
   IntradosLine,
   exportIntradosVectors,
   type IntradosExportFormat,
   import3dmTraces,
   getImportedTraces,
-  ImportedCurve
+  ImportedCurve,
+  getStep6Config,
+  saveStep6Config,
 } from "@/lib/api";
 import {
   ChevronLeft,
@@ -45,6 +47,13 @@ export default function Step6TracesPage() {
   const { currentProject, addTrace3D, completeStep, saveProject, setStepData } = useProjectStore();
   const isTracesOnlyMode = currentProject?.workflowMode === "traces-only";
 
+  // Read step-5 settings so the reprojection preview request matches the cached key
+  const savedStep5 = currentProject?.stepData?.[5] as {
+    selectedGroups?: string[];
+    showUnmaskedPoints?: boolean;
+    pointCount?: number;
+  } | undefined;
+
   // Impost line — only editable in traces-only mode (step 5 is skipped)
   const savedImpostZ = currentProject?.stepData?.[5]?.impostLineZ as number | undefined;
   const [impostLineZ, setImpostLineZ] = useState<number | undefined>(savedImpostZ);
@@ -57,50 +66,100 @@ export default function Step6TracesPage() {
 
   // Final selection
   const [selectedTraceType, setSelectedTraceType] = useState<"auto" | "manual" | "both">(isTracesOnlyMode ? "manual" : "auto");
-  
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
-  
+
   // 3D Preview data
   const [pointCloudData, setPointCloudData] = useState<ReprojectionPoint[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  
+
   // Intrados lines (auto-detected)
   const [autoIntradosLines, setAutoIntradosLines] = useState<IntradosLine[]>([]);
-  const [showAutoLines, setShowAutoLines] = useState(true);
-  
+
   // Manual traces (imported from 3DM)
   const [manualTraces, setManualTraces] = useState<ImportedCurve[]>([]);
-  const [showManualLines, setShowManualLines] = useState(true);
   const [manualSource, setManualSource] = useState<string | null>(null);
-  
-  // Display settings
-  const [lineWidth, setLineWidth] = useState(0.03);
-  const [pointCount] = useState(500000);
-  
+
   // Export state
   const [isExporting, setIsExporting] = useState(false);
   const [exportedFile, setExportedFile] = useState<string | null>(null);
+
+  // ── Persisted UI state — overridden by backend config on mount so settings survive app restarts
+  const [showAutoLines, setShowAutoLines] = useState(true);
+  const [showManualLines, setShowManualLines] = useState(true);
+  const [lineWidth, setLineWidth] = useState(0.03);
   const [exportFormat, setExportFormat] = useState<IntradosExportFormat>("3dm");
-  
   const [isConfirmed, setIsConfirmed] = useState(false);
-  
-  // Load 3D preview on mount
+  const [configLoaded, setConfigLoaded] = useState(false);
+
+  // Load persisted config from backend (survives app restart)
+  useEffect(() => {
+    const loadConfig = async () => {
+      if (!currentProject?.id) return;
+      try {
+        const resp = await getStep6Config(currentProject.id);
+        if (resp.success && resp.data) {
+          const c = resp.data;
+          setTraceSource(c.traceSource ?? "auto");
+          setSelectedTraceType(c.selectedTraceType ?? "auto");
+          setIsConfirmed(c.isConfirmed ?? false);
+          setShowAutoLines(c.showAutoLines ?? true);
+          setShowManualLines(c.showManualLines ?? true);
+          setLineWidth(c.lineWidth ?? 0.03);
+          setExportFormat(c.exportFormat ?? "3dm");
+        }
+      } catch (err) {
+        console.error("Error loading step6 config:", err);
+      } finally {
+        setConfigLoaded(true);
+      }
+    };
+    loadConfig();
+  }, [currentProject?.id]);
+
+  // Helper: persist current UI state to backend
+  const persistConfig = useCallback((overrides?: Partial<{
+    traceSource: "auto" | "manual";
+    selectedTraceType: "auto" | "manual" | "both";
+    isConfirmed: boolean;
+    showAutoLines: boolean;
+    showManualLines: boolean;
+    lineWidth: number;
+    exportFormat: IntradosExportFormat;
+  }>) => {
+    if (!currentProject?.id) return;
+    saveStep6Config(currentProject.id, {
+      traceSource,
+      selectedTraceType,
+      isConfirmed,
+      showAutoLines,
+      showManualLines,
+      lineWidth,
+      exportFormat,
+      ...overrides,
+    }).catch(err => console.error("Failed to save step6 config:", err));
+  }, [currentProject?.id, traceSource, selectedTraceType, isConfirmed, showAutoLines, showManualLines, lineWidth, exportFormat]);
+
+  // Load 3D preview — uses same params as step-5 to guarantee a cache hit
   useEffect(() => {
     const loadPreview = async () => {
       if (!currentProject?.id || pointCloudData) return;
-      
       setPreviewLoading(true);
       try {
+        const groupIds = savedStep5?.selectedGroups?.length
+          ? savedStep5.selectedGroups
+          : undefined;
+        const ptCount = savedStep5?.pointCount ?? 500000;
+        const showUnmasked = savedStep5?.showUnmaskedPoints ?? true;
+
         const response = await getReprojectionPreview(
           currentProject.id,
-          undefined, // All groups
-          pointCount,
-          true // showUnmaskedPoints
+          groupIds,
+          ptCount,
+          showUnmasked
         );
-        
         if (response.success && response.data?.points) {
           setPointCloudData(response.data.points);
         }
@@ -110,15 +169,14 @@ export default function Step6TracesPage() {
         setPreviewLoading(false);
       }
     };
-    
     loadPreview();
-  }, [currentProject?.id, pointCloudData, pointCount]);
-  
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProject?.id]);
+
   // Load auto intrados lines on mount
   useEffect(() => {
     const loadAutoLines = async () => {
       if (!currentProject?.id) return;
-      
       try {
         const response = await getIntradosLines(currentProject.id);
         if (response.success && response.data?.lines) {
@@ -128,15 +186,13 @@ export default function Step6TracesPage() {
         console.error("Error loading intrados lines:", err);
       }
     };
-    
     loadAutoLines();
   }, [currentProject?.id]);
-  
-  // Load previously imported manual traces
+
+  // Load previously imported manual traces on mount
   useEffect(() => {
     const loadManualTraces = async () => {
       if (!currentProject?.id) return;
-      
       try {
         const response = await getImportedTraces(currentProject.id);
         if (response.success) {
@@ -153,7 +209,6 @@ export default function Step6TracesPage() {
         setManualSource(null);
       }
     };
-    
     loadManualTraces();
   }, [currentProject?.id]);
   
@@ -358,12 +413,24 @@ export default function Step6TracesPage() {
       path: selectedTraceType === "manual" ? (manualSource || "manual") : "auto",
       aligned: true,
     });
-    completeStep(6, traceData);
+    persistConfig({ isConfirmed: true });
+    completeStep(6, {
+      traceSource,
+      selectedTraceType,
+      isConfirmed: true,
+      showAutoLines,
+      showManualLines,
+      lineWidth,
+      exportFormat,
+      autoLinesCount: autoIntradosLines.length,
+      manualLinesCount: manualTraces.length,
+    });
     saveProject().catch(console.error);
   };
 
   // Handle continue to next step
   const handleContinue = () => {
+    persistConfig();
     router.push("/workflow/step-7-measurements");
   };
 
@@ -490,7 +557,7 @@ export default function Step6TracesPage() {
                     <Label className="text-sm flex items-center gap-2">
                       <Checkbox
                         checked={showAutoLines}
-                        onCheckedChange={(checked) => setShowAutoLines(!!checked)}
+                        onCheckedChange={(checked) => { setShowAutoLines(!!checked); persistConfig({ showAutoLines: !!checked }); }}
                       />
                       Show in viewer
                     </Label>
@@ -512,7 +579,7 @@ export default function Step6TracesPage() {
                           variant={exportFormat === id ? "default" : "outline"}
                           size="sm"
                           className="h-8 text-xs px-2"
-                          onClick={() => setExportFormat(id)}
+                          onClick={() => { setExportFormat(id); persistConfig({ exportFormat: id }); }}
                         >
                           {label}
                         </Button>
@@ -592,7 +659,7 @@ export default function Step6TracesPage() {
                     <Label className="text-sm flex items-center gap-2">
                       <Checkbox
                         checked={showManualLines}
-                        onCheckedChange={(checked) => setShowManualLines(!!checked)}
+                        onCheckedChange={(checked) => { setShowManualLines(!!checked); persistConfig({ showManualLines: !!checked }); }}
                       />
                       Show in viewer
                     </Label>
@@ -693,7 +760,7 @@ export default function Step6TracesPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Tabs value={selectedTraceType} onValueChange={(v) => setSelectedTraceType(v as any)}>
+              <Tabs value={selectedTraceType} onValueChange={(v) => { const t = v as "auto" | "manual" | "both"; setSelectedTraceType(t); persistConfig({ selectedTraceType: t }); }}>
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="auto" disabled={autoIntradosLines.length === 0}>
                     Auto
@@ -712,7 +779,7 @@ export default function Step6TracesPage() {
               
               <Button
                 onClick={handleConfirm}
-                disabled={isConfirmed || (autoIntradosLines.length === 0 && manualTraces.length === 0)}
+                disabled={!configLoaded || isConfirmed || (autoIntradosLines.length === 0 && manualTraces.length === 0)}
                 className="w-full gap-2"
               >
                 {isConfirmed ? (

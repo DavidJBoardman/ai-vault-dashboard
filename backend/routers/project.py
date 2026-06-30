@@ -2949,6 +2949,60 @@ async def get_3dm_info_endpoint(project_id: str, file_path: str):
             }
         
         return get_3dm_info(file_path)
-        
+
     except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ── Step 6 UI config persistence ─────────────────────────────────────────────
+
+class Step6ConfigRequest(BaseModel):
+    traceSource: str = "auto"
+    selectedTraceType: str = "auto"
+    isConfirmed: bool = False
+    showAutoLines: bool = True
+    showManualLines: bool = True
+    lineWidth: float = 0.03
+    exportFormat: str = "3dm"
+
+
+@router.get("/{project_id}/step6-config")
+async def get_step6_config(project_id: str):
+    """Return persisted step-6 UI state for the project, or defaults if none saved."""
+    project_dir = get_project_dir(project_id)
+    config_path = project_dir / "segmentations" / "step6_config.json"
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return {"success": True, "data": data}
+        except Exception as e:
+            print(f"Error reading step6 config: {e}")
+    return {
+        "success": True,
+        "data": {
+            "traceSource": "auto",
+            "selectedTraceType": "auto",
+            "isConfirmed": False,
+            "showAutoLines": True,
+            "showManualLines": True,
+            "lineWidth": 0.03,
+            "exportFormat": "3dm",
+        }
+    }
+
+
+@router.post("/{project_id}/step6-config")
+async def save_step6_config(project_id: str, request: Step6ConfigRequest):
+    """Persist step-6 UI state to disk so the page restores correctly after app restart."""
+    project_dir = get_project_dir(project_id)
+    seg_dir = project_dir / "segmentations"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    config_path = seg_dir / "step6_config.json"
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(request.model_dump(), f, indent=2)
+        return {"success": True}
+    except Exception as e:
+        print(f"Error saving step6 config: {e}")
         return {"success": False, "error": str(e)}

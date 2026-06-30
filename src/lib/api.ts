@@ -1135,3 +1135,31 @@ export async function get3dmFileInfo(
     method: "GET",
   });
 }
+
+// ── Step 6 config persistence ─────────────────────────────────────────────
+
+export interface Step6Config {
+  traceSource: "auto" | "manual";
+  selectedTraceType: "auto" | "manual" | "both";
+  isConfirmed: boolean;
+  showAutoLines: boolean;
+  showManualLines: boolean;
+  lineWidth: number;
+  exportFormat: IntradosExportFormat;
+}
+
+export async function getStep6Config(
+  projectId: string
+): Promise<ApiResponse<Step6Config>> {
+  return apiRequest(`/api/project/${projectId}/step6-config`, { method: "GET" });
+}
+
+export async function saveStep6Config(
+  projectId: string,
+  config: Partial<Step6Config>
+): Promise<ApiResponse<void>> {
+  return apiRequest(`/api/project/${projectId}/step6-config`, {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+}
