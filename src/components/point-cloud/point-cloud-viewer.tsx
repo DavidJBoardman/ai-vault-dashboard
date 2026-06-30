@@ -598,6 +598,9 @@ function BossStoneMarkers3D({
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
+  const { camera } = useThree();
+  const isOrtho = (camera as any).isOrthographicCamera;
+
   return (
     <>
       {markers.map((marker) => {
@@ -623,7 +626,7 @@ function BossStoneMarkers3D({
             {showLabels && <Html
               position={labelPos}
               center
-              distanceFactor={8}
+              distanceFactor={isOrtho ? undefined : 8}
               zIndexRange={[90, 0]}
             >
               <div
