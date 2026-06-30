@@ -340,7 +340,12 @@ export default function Step6TracesPage() {
         setManualTraces(curves);
         setManualSource(response.data?.source ?? filePath);
         setTraceSource("manual");
-        setSelectedTraceType("manual");
+        // Show both auto and manual together so the user can immediately see
+        // the uploaded traces overlaid on the point cloud.
+        const newType = autoIntradosLines.length > 0 ? "both" : "manual";
+        setSelectedTraceType(newType);
+        setShowManualLines(true);
+        persistConfig({ traceSource: "manual", selectedTraceType: newType, showManualLines: true });
         setLoadingMessage(`Imported ${response.data?.curveCount ?? curves.length} curves`);
         // Persist project so the imported traces survive navigation
         saveProject().catch(console.error);
