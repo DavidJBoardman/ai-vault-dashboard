@@ -180,7 +180,7 @@ export default function Step6TracesPage() {
       }
     }
     if (zVals.length > 0) {
-      return { min: Math.min(...zVals), max: Math.max(...zVals) };
+      return { min: zVals.reduce((a, b) => a < b ? a : b), max: zVals.reduce((a, b) => a > b ? a : b) };
     }
     const bbox = currentProject?.pointCloudStats?.boundingBox;
     return bbox ? { min: bbox.min.z, max: bbox.max.z } : null;
