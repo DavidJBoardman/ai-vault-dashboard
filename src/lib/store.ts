@@ -212,6 +212,7 @@ interface ProjectStore {
   // Step navigation
   setCurrentStep: (step: number) => void;
   completeStep: (step: number, data?: any) => void;
+  setStepData: (step: number, data: Record<string, unknown>) => void;
   canAccessStep: (step: number) => boolean;
   setWorkflowMode: (mode: "full" | "traces-only") => void;
   
@@ -401,6 +402,10 @@ export const useProjectStore = create<ProjectStore>()(
         if (extendedData.steps && Object.keys(extendedData.steps).length > 0) {
           // Restore saved step states
           project.steps = extendedData.steps;
+          // Mirror step data into stepData so step pages can read it via stepData[N]
+          Object.entries(project.steps).forEach(([k, v]) => {
+            if (v.data) project.stepData[Number(k)] = { ...project.stepData[Number(k)], ...v.data };
+          });
 
           // One-time migration: move legacy Step-4 flat keys under data.geometry2d.
           const step4 = project.steps[4];
@@ -590,6 +595,35 @@ export const useProjectStore = create<ProjectStore>()(
               stepData: {
                 ...state.currentProject.stepData,
                 [step]: data || {},
+              },
+            },
+          };
+        });
+      },
+
+      setStepData: (step: number, data: Record<string, unknown>) => {
+        set((state) => {
+          if (!state.currentProject) return state;
+          const existing = state.currentProject.steps[step];
+          const newSteps = {
+            ...state.currentProject.steps,
+            [step]: { completed: existing?.completed ?? false, data: { ...existing?.data, ...data } },
+          };
+          // Async persist (same pattern as completeStep)
+          import("@/lib/api").then(({ saveProgress }) => {
+            const stepsForApi: Record<string, { completed: boolean; data?: Record<string, unknown> }> = {};
+            Object.entries(newSteps).forEach(([k, v]) => {
+              stepsForApi[k] = { completed: v.completed, data: v.data };
+            });
+            saveProgress(state.currentProject!.id, step, stepsForApi).catch(console.error);
+          });
+          return {
+            currentProject: {
+              ...state.currentProject,
+              steps: newSteps,
+              stepData: {
+                ...state.currentProject.stepData,
+                [step]: { ...state.currentProject.stepData[step], ...data },
               },
             },
           };
