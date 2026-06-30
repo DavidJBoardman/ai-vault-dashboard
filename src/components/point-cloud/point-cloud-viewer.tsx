@@ -103,6 +103,8 @@ interface PointCloudViewerProps {
   showBossStoneLabels?: boolean;
   selectedBossStoneId?: string | null;
   onBossStoneClick?: (id: string) => void;
+  /** When false, hides the color-mode toggle and point-size slider (traces-only mode) */
+  showPointCloudControls?: boolean;
 }
 
 function PointCloud({ 
@@ -799,6 +801,7 @@ export function PointCloudViewer({
   showBossStoneLabels = true,
   selectedBossStoneId,
   onBossStoneClick,
+  showPointCloudControls = true,
 }: PointCloudViewerProps) {
   const [localColorMode, setLocalColorMode] = useState(colorMode);
   const [localPointSize, setLocalPointSize] = useState(pointSize);
@@ -1053,35 +1056,37 @@ export function PointCloudViewer({
         </div>
         
         {/* Controls row */}
-        <div className="flex items-center justify-between gap-2 pointer-events-auto">
-          {/* Color mode buttons */}
-          <div className="flex gap-0.5 bg-background/80 backdrop-blur-sm rounded-lg p-0.5">
-            {(["height", "rgb", "intensity"] as const).map((mode) => (
-              <Button
-                key={mode}
-                variant={localColorMode === mode ? "default" : "ghost"}
-                size="sm"
-                className="h-6 px-2 text-[10px] capitalize"
-                onClick={() => setLocalColorMode(mode)}
-              >
-                {mode === "intensity" ? "int" : mode}
-              </Button>
-            ))}
+        {showPointCloudControls && (
+          <div className="flex items-center justify-between gap-2 pointer-events-auto">
+            {/* Color mode buttons */}
+            <div className="flex gap-0.5 bg-background/80 backdrop-blur-sm rounded-lg p-0.5">
+              {(["height", "rgb", "intensity"] as const).map((mode) => (
+                <Button
+                  key={mode}
+                  variant={localColorMode === mode ? "default" : "ghost"}
+                  size="sm"
+                  className="h-6 px-2 text-[10px] capitalize"
+                  onClick={() => setLocalColorMode(mode)}
+                >
+                  {mode === "intensity" ? "int" : mode}
+                </Button>
+              ))}
+            </div>
+
+            {/* Point size slider */}
+            <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg px-2 py-1">
+              <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Size</Label>
+              <Slider
+                value={[localPointSize * 100]}
+                onValueChange={([v]) => setLocalPointSize(v / 100)}
+                min={1}
+                max={15}
+                step={0.5}
+                className="w-16"
+              />
+            </div>
           </div>
-          
-          {/* Point size slider */}
-          <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg px-2 py-1">
-            <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Size</Label>
-            <Slider
-              value={[localPointSize * 100]}
-              onValueChange={([v]) => setLocalPointSize(v / 100)}
-              min={1}
-              max={15}
-              step={0.5}
-              className="w-16"
-            />
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
