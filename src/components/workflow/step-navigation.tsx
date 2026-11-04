@@ -14,7 +14,8 @@ import {
   Ruler,
   Circle,
   Check,
-  Lock
+  Lock,
+  Minus
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -32,6 +33,7 @@ const steps = [
 export function StepNavigation() {
   const pathname = usePathname();
   const { currentProject, canAccessStep } = useProjectStore();
+  const isTracesOnlyMode = currentProject?.workflowMode === "traces-only";
   
   const getCurrentStepIndex = () => {
     const index = steps.findIndex(step => pathname.startsWith(step.path));
@@ -47,6 +49,7 @@ export function StepNavigation() {
           const isActive = pathname.startsWith(step.path);
           const isCompleted = currentProject?.steps[step.id]?.completed || false;
           const isAccessible = canAccessStep(step.id);
+          const isSkipped = isTracesOnlyMode && step.id >= 2 && step.id <= 5;
           const Icon = step.icon;
           
           return (
@@ -61,7 +64,9 @@ export function StepNavigation() {
                       ? "bg-primary/10 text-primary" 
                       : isAccessible
                         ? "hover:bg-muted text-muted-foreground hover:text-foreground"
-                        : "text-muted-foreground/50 cursor-not-allowed",
+                        : isSkipped
+                          ? "text-muted-foreground/40 cursor-default"
+                          : "text-muted-foreground/50 cursor-not-allowed",
                     isCompleted && !isActive && "text-green-500"
                   )}
                   onClick={(e) => !isAccessible && e.preventDefault()}
@@ -73,12 +78,16 @@ export function StepNavigation() {
                       ? "bg-primary text-primary-foreground" 
                       : isCompleted 
                         ? "bg-green-500/20 text-green-500"
-                        : isAccessible
-                          ? "bg-muted-foreground/20"
-                          : "bg-muted/50"
+                        : isSkipped
+                          ? "bg-muted/30 text-muted-foreground/40"
+                          : isAccessible
+                            ? "bg-muted-foreground/20"
+                            : "bg-muted/50"
                   )}>
                     {isCompleted ? (
                       <Check className="w-3.5 h-3.5" />
+                    ) : isSkipped ? (
+                      <Minus className="w-3 h-3" />
                     ) : !isAccessible ? (
                       <Lock className="w-3 h-3" />
                     ) : (
@@ -104,7 +113,9 @@ export function StepNavigation() {
               </TooltipTrigger>
               <TooltipContent side="right">
                 <p className="font-medium">{step.name}</p>
-                <p className="text-xs text-muted-foreground">{step.description}</p>
+                <p className="text-xs text-muted-foreground">
+                  {isSkipped ? "Skipped — not required in this workflow mode" : step.description}
+                </p>
               </TooltipContent>
             </Tooltip>
           );

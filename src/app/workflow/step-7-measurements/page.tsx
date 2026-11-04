@@ -82,6 +82,12 @@ import {
   type TraceSourceSelection,
   type WorkflowTraceLine,
 } from "@/lib/traces";
+import {
+  safeObjName,
+  sampleArcLinePoints as sampleArcLinePointsFromLib,
+  buildArcObjText,
+  downloadObj,
+} from "@/lib/arc-obj-export";
 
 interface Point3D {
   x: number;
@@ -699,6 +705,7 @@ export default function Step7MeasurementsPage() {
   const [selectedRib, setSelectedRib] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [exportingRibs, setExportingRibs] = useState(false);
+  const [exportingArcs, setExportingArcs] = useState(false);
   const [exportingBossStones, setExportingBossStones] = useState(false);
   
   // Data loading states
@@ -910,6 +917,21 @@ export default function Step7MeasurementsPage() {
     
     loadData();
   }, [currentProject?.id]);
+
+  // When data finishes loading and there are no boss stones, auto-number ribs sequentially
+  useEffect(() => {
+    if (previewLoading) return;
+    if (bossStoneMarkers.length > 0) return;
+    if (intradosLines.length === 0) return;
+    if (Object.keys(measurementConfig.ribNameById).length > 0) return;
+
+    const autoNames: Record<string, string> = {};
+    intradosLines.forEach((line, index) => {
+      autoNames[line.id] = `Rib ${index + 1}`;
+    });
+    setMeasurementConfig(prev => ({ ...prev, ribNameById: autoNames }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewLoading, intradosLines.length, bossStoneMarkers.length]);
 
   useEffect(() => {
     if (intradosLines.length === 0) {
@@ -2552,6 +2574,21 @@ export default function Step7MeasurementsPage() {
     });
   }, [selectedRib]);
 
+  // Rib IDs whose group is determined to be a straight rib (N/A radius in the
+  // panel). Used in computeAllTraces to force straight-line rendering so the
+  // viewer stays consistent with the panel, even when the individual
+  // calculateMeasurements call uses a slightly different ribLength.
+  const straightRibIds = useMemo(() => {
+    const result = new Set<string>();
+    for (const group of displayGroups) {
+      const { arc_radius, rib_length } = group.combinedMeasurements;
+      const hasInputs = arc_radius > 0 && rib_length > 0;
+      const isStraight = hasInputs && !hasDisplayableRadius(arc_radius, rib_length);
+      if (isStraight) group.ribIds.forEach(id => result.add(id));
+    }
+    return result;
+  }, [displayGroups]);
+
   // Compute colored traces for all intrados lines
   useEffect(() => {
     const computeAllTraces = async () => {
@@ -2601,17 +2638,29 @@ export default function Step7MeasurementsPage() {
 
           let lineTraces: Line3D[] = [];
           if (viewMode === "bestFitArc") {
-            lineTraces = createBestFitArcLines(
-              result.value.data.segmentPoints,
-              result.value.data.arcCenter,
-              result.value.data.arcRadius,
-              result.value.data.ribLength,
-              result.value.traceId,
-              result.value.data.arcBasisU,
-              result.value.data.arcBasisV,
-              result.value.data.arcStartAngle,
-              result.value.data.arcEndAngle,
-            );
+            if (straightRibIds.has(result.value.traceId)) {
+              // Group panel shows N/A — render as a true straight line regardless
+              // of what the individual arc fit returned.
+              const pts = result.value.data.segmentPoints;
+              lineTraces = pts.length >= 2 ? [{
+                id: `${result.value.traceId}-ideal-line`,
+                label: "Ideal Line",
+                color: "rgb(100, 150, 255)",
+                points: [pts[0], pts[pts.length - 1]],
+              }] : [];
+            } else {
+              lineTraces = createBestFitArcLines(
+                result.value.data.segmentPoints,
+                result.value.data.arcCenter,
+                result.value.data.arcRadius,
+                result.value.data.ribLength,
+                result.value.traceId,
+                result.value.data.arcBasisU,
+                result.value.data.arcBasisV,
+                result.value.data.arcStartAngle,
+                result.value.data.arcEndAngle,
+              );
+            }
           } else {
             const decimated = decimateSegmentsForDisplay(
               result.value.data.segmentPoints,
@@ -2638,7 +2687,7 @@ export default function Step7MeasurementsPage() {
     };
     
     void computeAllTraces();
-  }, [intradosLines, viewMode]); // selectedRib removed â€” highlight is applied by useMemo
+  }, [intradosLines, viewMode, straightRibIds]); // selectedRib removed — highlight is applied by useMemo
   
   // Load measurement data when rib is selected (for details panel)
   useEffect(() => {
@@ -2857,6 +2906,51 @@ export default function Step7MeasurementsPage() {
       URL.revokeObjectURL(ribUrl);
     } finally {
       setExportingRibs(false);
+    }
+  };
+
+  // Export the best-fit arc curves as a Wavefront OBJ file. Arc parameters are
+  // already cached per trace in measurementCacheRef (populated by computeAllTraces),
+  // so this is a pure client-side build — no backend round-trip.
+  const handleExportArcs = () => {
+    if (intradosLines.length === 0) return;
+    setExportingArcs(true);
+
+    try {
+      const objects: Array<{ name: string; points: Point3D[] }> = [];
+
+      for (const line of intradosLines) {
+        const data = measurementCacheRef.current.get(line.id);
+        if (!data) continue;
+
+        const arcLines = createBestFitArcLines(
+          data.segmentPoints,
+          data.arcCenter,
+          data.arcRadius,
+          data.ribLength,
+          line.id,
+          data.arcBasisU,
+          data.arcBasisV,
+          data.arcStartAngle,
+          data.arcEndAngle,
+        );
+
+        const baseName = safeObjName(getRibDisplayName(line.id));
+        arcLines.forEach((arcLine, index) => {
+          const points = sampleArcLinePointsFromLib(arcLine);
+          if (points.length < 2) return;
+          objects.push({
+            name: arcLines.length > 1 ? `${baseName}_${index + 1}` : baseName,
+            points,
+          });
+        });
+      }
+
+      if (objects.length === 0) return;
+
+      downloadObj(`best_fit_arcs_${Date.now()}.obj`, buildArcObjText(objects));
+    } finally {
+      setExportingArcs(false);
     }
   };
 
@@ -3124,9 +3218,9 @@ export default function Step7MeasurementsPage() {
                             <p className="text-sm text-muted-foreground">Loading preview...</p>
                           </div>
                         </div>
-                      ) : pointCloudData ? (
+                      ) : (pointCloudData || traceLines.length > 0) ? (
                         <PointCloudViewer
-                          points={pointCloudData}
+                          points={pointCloudData ?? []}
                           className="h-full rounded-lg overflow-hidden"
                           colorMode="height"
                           showGrid={true}
@@ -3900,9 +3994,9 @@ export default function Step7MeasurementsPage() {
                             <p className="text-sm text-muted-foreground">Loading preview...</p>
                           </div>
                         </div>
-                      ) : pointCloudData ? (
+                      ) : (pointCloudData || traceLines.length > 0) ? (
                         <PointCloudViewer
-                          points={pointCloudData}
+                          points={pointCloudData ?? []}
                           className="h-full rounded-lg overflow-hidden"
                           colorMode="height"
                           showGrid={true}
@@ -3984,19 +4078,36 @@ export default function Step7MeasurementsPage() {
                 {/* Read-only rib list with export */}
                 <Card>
                   <CardHeader className="pb-2 shrink-0">
-                    <div className="flex items-center justify-between">
-                      <div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
                         <CardTitle className="text-lg font-display">Rib Measurements</CardTitle>
                         <CardDescription>Click a rib or boss to view details</CardDescription>
                       </div>
-                      <Button size="sm" onClick={handleExportRibs} disabled={exportingRibs} className="gap-2">
-                        {exportingRibs ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Download className="w-4 h-4" />
-                        )}
-                        Export Ribs
-                      </Button>
+                      <div className="flex flex-col gap-1.5 shrink-0">
+                        <Button size="sm" variant="outline" onClick={handleExportRibs} disabled={exportingRibs} className="gap-2 w-full">
+                          {exportingRibs ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          Export Ribs
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleExportArcs}
+                          disabled={exportingArcs || intradosLines.length === 0}
+                          className="gap-2 w-full"
+                          title="Export the best-fit arc curves as a Wavefront .obj file"
+                        >
+                          {exportingArcs ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          Export Arcs (OBJ)
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="pt-0 px-4 pb-4">

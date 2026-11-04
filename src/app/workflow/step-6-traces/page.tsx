@@ -23,8 +23,8 @@ import {
   getImportedTraces,
   ImportedCurve
 } from "@/lib/api";
-import { 
-  ChevronLeft, 
+import {
+  ChevronLeft,
   ChevronRight,
   Upload,
   Download,
@@ -34,17 +34,29 @@ import {
   Layers,
   Loader2,
   FileBox,
-  AlertCircle
+  AlertCircle,
+  Ruler
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MANUAL_TRACE_COLOR, normalizeImportedCurves } from "@/lib/traces";
 
 export default function Step6TracesPage() {
   const router = useRouter();
-  const { currentProject, addTrace3D, completeStep } = useProjectStore();
-  
+  const { currentProject, addTrace3D, completeStep, saveProject, setStepData } = useProjectStore();
+  const isTracesOnlyMode = currentProject?.workflowMode === "traces-only";
+
+  // Impost line — only editable in traces-only mode (step 5 is skipped)
+  const savedImpostZ = currentProject?.stepData?.[5]?.impostLineZ as number | undefined;
+  const [impostLineZ, setImpostLineZ] = useState<number | undefined>(savedImpostZ);
+  const [showImpostLine, setShowImpostLine] = useState<boolean>(
+    () => (currentProject?.stepData?.[5]?.showImpostLine as boolean | undefined) ?? false
+  );
+
   // Trace source selection
-  const [traceSource, setTraceSource] = useState<"auto" | "manual">("auto");
+  const [traceSource, setTraceSource] = useState<"auto" | "manual">(isTracesOnlyMode ? "manual" : "auto");
+
+  // Final selection
+  const [selectedTraceType, setSelectedTraceType] = useState<"auto" | "manual" | "both">(isTracesOnlyMode ? "manual" : "auto");
   
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
@@ -73,8 +85,6 @@ export default function Step6TracesPage() {
   const [exportedFile, setExportedFile] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<IntradosExportFormat>("3dm");
   
-  // Final selection
-  const [selectedTraceType, setSelectedTraceType] = useState<"auto" | "manual" | "both">("auto");
   const [isConfirmed, setIsConfirmed] = useState(false);
   
   // Load 3D preview on mount
@@ -147,6 +157,54 @@ export default function Step6TracesPage() {
     loadManualTraces();
   }, [currentProject?.id]);
   
+  // Derive Z bounds from whatever the viewer actually displays. In traces-only
+  // mode there is no E57 (no bounding box) and getReprojectionPreview returns no
+  // points, so the imported traces are the only geometry — and the viewer itself
+  // centres on those trace points. Use the same source so the impost plane and
+  // slider line up with what's on screen. Priority: reprojection points → trace
+  // points → E57 bounding box.
+  const impostZBounds = useMemo(() => {
+    const zVals: number[] = [];
+    if (pointCloudData && pointCloudData.length > 0) {
+      for (const p of pointCloudData) zVals.push(p.z);
+    } else {
+      for (const curve of manualTraces) {
+        for (const pt of curve.points ?? []) {
+          if (typeof pt[2] === "number" && Number.isFinite(pt[2])) zVals.push(pt[2]);
+        }
+      }
+      for (const line of autoIntradosLines) {
+        for (const pt of line.points3d ?? []) {
+          if (typeof pt[2] === "number" && Number.isFinite(pt[2])) zVals.push(pt[2]);
+        }
+      }
+    }
+    if (zVals.length > 0) {
+      return { min: Math.min(...zVals), max: Math.max(...zVals) };
+    }
+    const bbox = currentProject?.pointCloudStats?.boundingBox;
+    return bbox ? { min: bbox.min.z, max: bbox.max.z } : null;
+  }, [pointCloudData, manualTraces, autoIntradosLines, currentProject?.pointCloudStats]);
+
+  // Auto-set impost line Z as soon as bounds are known (same heuristic as step 5:
+  // 10% above the lowest point of the displayed geometry).
+  useEffect(() => {
+    if (!isTracesOnlyMode || impostLineZ !== undefined || !impostZBounds) return;
+    setImpostLineZ(impostZBounds.min + (impostZBounds.max - impostZBounds.min) * 0.1);
+  }, [isTracesOnlyMode, impostLineZ, impostZBounds]);
+
+  // Restore confirmed state when returning to this step
+  useEffect(() => {
+    const stepData = currentProject?.steps[6]?.data;
+    if (stepData?.isConfirmed && !isConfirmed) {
+      setIsConfirmed(true);
+      if (stepData.traceSource) {
+        setSelectedTraceType(stepData.traceSource as "auto" | "manual" | "both");
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProject?.steps[6]?.data?.isConfirmed]);
+
   // Convert IntradosLine to Line3D format for viewer
   const intradosToLine3D = (line: IntradosLine): Line3D => ({
     id: line.id,
@@ -182,6 +240,14 @@ export default function Step6TracesPage() {
     return lines;
   }, [autoIntradosLines, manualLinesForViewer, showAutoLines, showManualLines, selectedTraceType]);
   
+  // If manual traces are loaded but no auto traces exist, ensure manual is selected
+  // (guards against Zustand hydration timing where isTracesOnlyMode is false at mount)
+  useEffect(() => {
+    if (manualTraces.length > 0 && autoIntradosLines.length === 0) {
+      setSelectedTraceType("manual");
+    }
+  }, [manualTraces.length, autoIntradosLines.length]);
+
   // Handle uploading a 3DM file
   const handleUpload3dm = async () => {
     if (!currentProject?.id) return;
@@ -221,6 +287,8 @@ export default function Step6TracesPage() {
         setTraceSource("manual");
         setSelectedTraceType("manual");
         setLoadingMessage(`Imported ${response.data?.curveCount ?? curves.length} curves`);
+        // Persist project so the imported traces survive navigation
+        saveProject().catch(console.error);
       } else {
         setError(response.error || "Failed to import 3DM file");
       }
@@ -278,30 +346,42 @@ export default function Step6TracesPage() {
   
   // Handle confirming trace selection
   const handleConfirm = () => {
+    const traceData = {
+      traceSource: selectedTraceType,
+      autoLinesCount: autoIntradosLines.length,
+      manualLinesCount: manualTraces.length,
+      isConfirmed: true,
+    };
     setIsConfirmed(true);
     addTrace3D({
       id: `trace-${Date.now()}`,
       path: selectedTraceType === "manual" ? (manualSource || "manual") : "auto",
       aligned: true,
     });
+    completeStep(6, traceData);
+    saveProject().catch(console.error);
   };
-  
+
   // Handle continue to next step
   const handleContinue = () => {
-    completeStep(6, { 
-      traceSource: selectedTraceType,
-      autoLinesCount: autoIntradosLines.length,
-      manualLinesCount: manualTraces.length,
-      isConfirmed 
-    });
     router.push("/workflow/step-7-measurements");
+  };
+
+  const handleImpostChange = (z: number, show: boolean) => {
+    setImpostLineZ(z);
+    setShowImpostLine(show);
+    // Match step 5's semantics: only expose the Z to step 7 while it's enabled.
+    setStepData(5, { impostLineZ: show ? z : undefined, showImpostLine: show });
   };
 
   return (
     <div className="space-y-6">
       <StepHeader 
         title="3D Geometry Traces"
-        description="Export auto-detected traces or import manual traces from Rhino"
+        description={isTracesOnlyMode
+          ? "Import your hand-drawn traces from Rhino to use for measurements"
+          : "Export auto-detected traces or import manual traces from Rhino"
+        }
       />
       
       <div className="grid lg:grid-cols-3 gap-6">
@@ -317,19 +397,29 @@ export default function Step6TracesPage() {
                       <p className="text-sm text-muted-foreground">Loading 3D preview...</p>
                     </div>
                   </div>
-                ) : pointCloudData ? (
+                ) : (pointCloudData || visibleLines.length > 0) ? (
                   <PointCloudViewer
-                    points={pointCloudData}
+                    points={pointCloudData ?? []}
                     className="h-[500px] rounded-lg overflow-hidden"
                     colorMode="height"
                     showGrid={true}
                     showBoundingBox={true}
                     lines={visibleLines}
                     lineWidth={lineWidth}
+                    floorPlaneZ={showImpostLine ? impostLineZ : undefined}
+                    showFloorPlane={showImpostLine && impostLineZ !== undefined}
                   />
                 ) : (
-                  <div className="h-[500px] rounded-lg bg-muted flex items-center justify-center">
-                    <p className="text-sm text-muted-foreground">No point cloud data available</p>
+                  <div className="h-[500px] rounded-lg bg-muted/50 border-2 border-dashed border-border flex flex-col items-center justify-center gap-3">
+                    <div className="p-4 rounded-full bg-muted">
+                      <FileBox className="w-8 h-8 text-muted-foreground" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-foreground">No traces loaded</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Upload a .3dm file to preview your traces here
+                      </p>
+                    </div>
                   </div>
                 )}
                 
@@ -374,7 +464,7 @@ export default function Step6TracesPage() {
           )}
           
           {/* Auto-Detected Traces */}
-          <Card>
+          <Card className={isTracesOnlyMode ? "opacity-50" : ""}>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base font-display flex items-center gap-2">
@@ -390,7 +480,11 @@ export default function Step6TracesPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {autoIntradosLines.length > 0 ? (
+              {isTracesOnlyMode ? (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  Not available — projection &amp; reprojection steps were skipped.
+                </p>
+              ) : autoIntradosLines.length > 0 ? (
                 <>
                   <div className="flex items-center justify-between">
                     <Label className="text-sm flex items-center gap-2">
@@ -539,6 +633,55 @@ export default function Step6TracesPage() {
             </CardContent>
           </Card>
           
+          {/* Impost Line — only shown in traces-only mode (step 5 skipped) */}
+          {isTracesOnlyMode && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-display flex items-center gap-2">
+                  <Ruler className="w-4 h-4 text-orange-400" />
+                  Impost Line
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Springing line height used for arc measurements in Step 7
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Label className="text-sm flex items-center gap-2">
+                  <Checkbox
+                    checked={showImpostLine}
+                    onCheckedChange={(checked) => {
+                      const z = impostLineZ ?? (impostZBounds
+                        ? impostZBounds.min + (impostZBounds.max - impostZBounds.min) * 0.1
+                        : 0);
+                      handleImpostChange(z, checked === true);
+                    }}
+                  />
+                  Set impost line height
+                </Label>
+                {showImpostLine && impostLineZ !== undefined && impostZBounds && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Z height</span>
+                      <span className="text-xs font-mono bg-muted px-2 py-0.5 rounded">
+                        {impostLineZ.toFixed(3)} m
+                      </span>
+                    </div>
+                    <Slider
+                      value={[impostLineZ]}
+                      onValueChange={([v]) => handleImpostChange(v, true)}
+                      min={impostZBounds.min}
+                      max={impostZBounds.max}
+                      step={0.01}
+                    />
+                    <p className="text-[10px] text-muted-foreground leading-tight">
+                      Points below this height will be excluded from measurements.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Trace Selection */}
           <Card className={cn(
             (autoIntradosLines.length === 0 && manualTraces.length === 0) && "opacity-50 pointer-events-none"
@@ -590,9 +733,13 @@ export default function Step6TracesPage() {
       </div>
       
       <StepActions>
-        <Button variant="outline" onClick={() => router.push("/workflow/step-5-reprojection")} className="gap-2">
+        <Button
+          variant="outline"
+          onClick={() => router.push(isTracesOnlyMode ? "/workflow/step-1-upload" : "/workflow/step-5-reprojection")}
+          className="gap-2"
+        >
           <ChevronLeft className="w-4 h-4" />
-          Back to Reprojection
+          {isTracesOnlyMode ? "Back to Upload" : "Back to Reprojection"}
         </Button>
         <Button 
           onClick={handleContinue}

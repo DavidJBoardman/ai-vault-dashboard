@@ -136,6 +136,9 @@ export interface Project {
     predictedMethod: string;
     calculations: Record<string, number>;
   } | null;
+
+  // Workflow mode
+  workflowMode: "full" | "traces-only";
 }
 
 export interface RecentProject {
@@ -209,7 +212,9 @@ interface ProjectStore {
   // Step navigation
   setCurrentStep: (step: number) => void;
   completeStep: (step: number, data?: any) => void;
+  setStepData: (step: number, data: Record<string, unknown>) => void;
   canAccessStep: (step: number) => boolean;
+  setWorkflowMode: (mode: "full" | "traces-only") => void;
   
   // Step-specific updates
   setE57Path: (path: string) => void;
@@ -246,6 +251,7 @@ const initialProject = (): Project => ({
   measurements: [],
   hypotheses: [],
   chordMethodResult: null,
+  workflowMode: "full",
 });
 
 export const useProjectStore = create<ProjectStore>()(
@@ -396,6 +402,10 @@ export const useProjectStore = create<ProjectStore>()(
         if (extendedData.steps && Object.keys(extendedData.steps).length > 0) {
           // Restore saved step states
           project.steps = extendedData.steps;
+          // Mirror step data into stepData so step pages can read it via stepData[N]
+          Object.entries(project.steps).forEach(([k, v]) => {
+            if (v.data) project.stepData[Number(k)] = { ...project.stepData[Number(k)], ...v.data };
+          });
 
           // One-time migration: move legacy Step-4 flat keys under data.geometry2d.
           const step4 = project.steps[4];
@@ -438,7 +448,22 @@ export const useProjectStore = create<ProjectStore>()(
             project.steps[3] = { completed: true, data: { hasSegmentations: true } };
           }
         }
-        
+
+        // Restore workflowMode from step 1 data (saved since the fix was applied).
+        // Fall back to inference for projects saved before this fix.
+        const step1SavedMode = (project.steps[1]?.data as { workflowMode?: string } | undefined)?.workflowMode;
+        if (step1SavedMode === "traces-only" || step1SavedMode === "full") {
+          project.workflowMode = step1SavedMode;
+        } else {
+          // Infer: no projections + steps 2–5 untouched + reached step 6 → traces-only
+          const noProjections = project.projections.length === 0;
+          const steps25Untouched = !project.steps[2]?.completed && !project.steps[3]?.completed;
+          const reachedStep6 = project.currentStep >= 6 || !!project.steps[6];
+          if (noProjections && steps25Untouched && reachedStep6) {
+            project.workflowMode = "traces-only";
+          }
+        }
+
         // Store ROI fallback if available (for step 4).
         // `data.roi` from backend load is sourced from segmentations/index.json and
         // can be in pixel units. Do not override an existing step-4 ROI snapshot.
@@ -591,16 +616,63 @@ export const useProjectStore = create<ProjectStore>()(
         });
       },
 
+      setStepData: (step: number, data: Record<string, unknown>) => {
+        set((state) => {
+          if (!state.currentProject) return state;
+          const existing = state.currentProject.steps[step];
+          const newSteps = {
+            ...state.currentProject.steps,
+            [step]: { completed: existing?.completed ?? false, data: { ...existing?.data, ...data } },
+          };
+          // Async persist (same pattern as completeStep)
+          import("@/lib/api").then(({ saveProgress }) => {
+            const stepsForApi: Record<string, { completed: boolean; data?: Record<string, unknown> }> = {};
+            Object.entries(newSteps).forEach(([k, v]) => {
+              stepsForApi[k] = { completed: v.completed, data: v.data };
+            });
+            saveProgress(state.currentProject!.id, step, stepsForApi).catch(console.error);
+          });
+          return {
+            currentProject: {
+              ...state.currentProject,
+              steps: newSteps,
+              stepData: {
+                ...state.currentProject.stepData,
+                [step]: { ...state.currentProject.stepData[step], ...data },
+              },
+            },
+          };
+        });
+      },
+
       canAccessStep: (step: number) => {
         const { currentProject } = get();
         if (!currentProject) return false;
         if (step === 1) return true;
+
+        // In traces-only mode, skip steps 2–5; step 6+ follows its own chain
+        if (currentProject.workflowMode === "traces-only") {
+          if (step >= 2 && step <= 5) return false;
+          if (step === 6) return currentProject.steps[1]?.completed || false;
+          if (step >= 7) {
+            const prevStep = currentProject.steps[step - 1];
+            return prevStep?.completed || false;
+          }
+        }
 
         // Step 5 (reprojection) only needs the segmentation masks from step 3,
         // not the 2D-geometry analysis in step 4. Gate it on step 3 so it
         // unlocks in parallel with step 4. All other steps stay linear.
         const prerequisite = step === 5 ? 3 : step - 1;
         return currentProject.steps[prerequisite]?.completed || false;
+      },
+
+      setWorkflowMode: (mode: "full" | "traces-only") => {
+        set((state) => ({
+          currentProject: state.currentProject
+            ? { ...state.currentProject, workflowMode: mode }
+            : null,
+        }));
       },
 
       setE57Path: (path: string) => {

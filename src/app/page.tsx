@@ -14,7 +14,8 @@ import {
   Upload,
   Loader2,
   Trash2,
-  CheckCircle
+  CheckCircle,
+  Spline
 } from "lucide-react";
 import { useProjectStore } from "@/lib/store";
 import { version as APP_VERSION } from "../../package.json";
@@ -35,7 +36,7 @@ interface SavedProjectInfo {
 
 export default function HomePage() {
   const router = useRouter();
-  const { createProject, loadProjectFromData } = useProjectStore();
+  const { createProject, loadProjectFromData, setWorkflowMode, completeStep } = useProjectStore();
   const [newProjectName, setNewProjectName] = useState("");
   const [showNewProject, setShowNewProject] = useState(false);
   
@@ -121,7 +122,16 @@ export default function HomePage() {
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
     await createProject(newProjectName.trim());
+    setWorkflowMode("full");
     router.push("/workflow/step-1-upload");
+  };
+
+  const handleCreateTracesOnlyProject = async () => {
+    if (!newProjectName.trim()) return;
+    await createProject(newProjectName.trim());
+    setWorkflowMode("traces-only");
+    completeStep(1, { skipped: true });
+    router.push("/workflow/step-6-traces");
   };
 
   // Load a saved project
@@ -373,7 +383,7 @@ export default function HomePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex gap-4">
+                <div className="flex gap-3 flex-wrap">
                   <div className="flex-1">
                     <Label htmlFor="project-name" className="sr-only">
                       Project Name
@@ -389,9 +399,17 @@ export default function HomePage() {
                   </div>
                   <Button onClick={handleCreateProject} disabled={!newProjectName.trim()}>
                     <Upload className="w-4 h-4 mr-2" />
-                    Create Project
+                    Start with E57 Scan
                   </Button>
-                  <Button variant="outline" onClick={() => setShowNewProject(false)}>
+                  <Button
+                    variant="outline"
+                    onClick={handleCreateTracesOnlyProject}
+                    disabled={!newProjectName.trim()}
+                  >
+                    <Spline className="w-4 h-4 mr-2" />
+                    Import Rhino Traces
+                  </Button>
+                  <Button variant="ghost" onClick={() => setShowNewProject(false)}>
                     Cancel
                   </Button>
                 </div>

@@ -2,19 +2,20 @@
 
 import React, { useRef, useMemo, useEffect, useState, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera, Grid, Stats, Html } from "@react-three/drei";
+import { OrbitControls, PerspectiveCamera, OrthographicCamera, Grid, Stats, Html } from "@react-three/drei";
 import * as THREE from "three";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { 
-  RotateCcw, 
-  ZoomIn, 
-  ZoomOut, 
+import {
+  RotateCcw,
+  ZoomIn,
+  ZoomOut,
   Home,
   Box,
   Maximize,
-  Move3D
+  Move3D,
+  ArrowDown
 } from "lucide-react";
 
 interface Point {
@@ -709,36 +710,49 @@ interface CameraControllerProps {
   center: { x: number; y: number; z: number };
   distance: number;
   resetKey: number;
+  viewPreset?: "default" | "top";
 }
 
-function CameraController({ center, distance, resetKey }: CameraControllerProps) {
-  const { camera } = useThree();
+function CameraController({ center, distance, resetKey, viewPreset = "default" }: CameraControllerProps) {
+  const { camera, size } = useThree();
   const controlsRef = useRef<any>(null);
   const initializedRef = useRef(false);
-  
-  // Only reset camera on explicit reset (resetKey change) or initial mount
+  const prevViewPresetRef = useRef<string>("default");
+
   useEffect(() => {
-    if (!initializedRef.current || resetKey > 0) {
+    const presetChanged = prevViewPresetRef.current !== viewPreset;
+    prevViewPresetRef.current = viewPreset;
+
+    if (!initializedRef.current || resetKey > 0 || presetChanged) {
       if (controlsRef.current) {
         controlsRef.current.target.set(center.x, center.y, center.z);
       }
-      
-      // Reset camera position
-      camera.position.set(
-        center.x + distance * 0.7,
-        center.y + distance * 0.5,
-        center.z + distance * 0.7
-      );
+
+      if (viewPreset === "top") {
+        // Tiny X offset avoids gimbal lock when looking straight down
+        camera.position.set(center.x + distance * 0.001, center.y + distance, center.z);
+        if ((camera as any).isOrthographicCamera) {
+          // Fit the full scene into view on mount; user can scroll to zoom from here
+          camera.zoom = Math.min(size.width, size.height) / (distance * 1.4);
+          (camera as THREE.OrthographicCamera).updateProjectionMatrix();
+        }
+      } else {
+        camera.position.set(
+          center.x + distance * 0.7,
+          center.y + distance * 0.5,
+          center.z + distance * 0.7
+        );
+      }
       camera.lookAt(center.x, center.y, center.z);
-      
+
       if (controlsRef.current) {
         controlsRef.current.update();
       }
-      
+
       initializedRef.current = true;
     }
-  }, [camera, center.x, center.y, center.z, distance, resetKey]);
-  
+  }, [camera, center.x, center.y, center.z, distance, resetKey, viewPreset, size.width, size.height]);
+
   return (
     <OrbitControls
       ref={controlsRef}
@@ -753,6 +767,8 @@ function CameraController({ center, distance, resetKey }: CameraControllerProps)
       enablePan={true}
       enableZoom={true}
       enableRotate={true}
+      minPolarAngle={viewPreset === "top" ? 0.001 : 0}
+      maxPolarAngle={viewPreset === "top" ? 0.001 : Math.PI}
     />
   );
 }
@@ -787,6 +803,7 @@ export function PointCloudViewer({
   const [localColorMode, setLocalColorMode] = useState(colorMode);
   const [localPointSize, setLocalPointSize] = useState(pointSize);
   const [resetKey, setResetKey] = useState(0);
+  const [viewPreset, setViewPreset] = useState<"default" | "top">("default");
   const resolvedSelectedLabelIds = useMemo(() => {
     const ids = new Set<string>();
     if (selectedLabelId) {
@@ -803,6 +820,35 @@ export function PointCloudViewer({
   // Calculate center for camera target
   const { center, cameraDistance, gridPos, minZ, bossStoneRadius } = useMemo(() => {
     if (points.length === 0) {
+      // Try to compute bounds from lines when no point cloud is loaded
+      const allLinePoints = lines?.flatMap(l => l.points) ?? [];
+      if (allLinePoints.length > 0) {
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        let lMinZ = Infinity, lMaxZ = -Infinity;
+        for (const p of allLinePoints) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+          if (p.z < lMinZ) lMinZ = p.z;
+          if (p.z > lMaxZ) lMaxZ = p.z;
+        }
+        const lCenter = {
+          x: (minX + maxX) / 2,
+          y: (lMinZ + lMaxZ) / 2,
+          z: (minY + maxY) / 2,
+        };
+        const maxRange = Math.max(maxX - minX, maxY - minY, lMaxZ - lMinZ);
+        const diagonal = Math.sqrt((maxX - minX) ** 2 + (maxY - minY) ** 2 + (lMaxZ - lMinZ) ** 2);
+        return {
+          center: lCenter,
+          cameraDistance: Math.max(maxRange * 1.5, 1),
+          gridPos: { x: lCenter.x, y: lMinZ - 0.1, z: lCenter.z },
+          minZ: lMinZ,
+          bossStoneRadius: Math.max(diagonal / 60, 0.05),
+        };
+      }
       return { 
         center: { x: 0, y: 0, z: 0 }, 
         cameraDistance: 10,
@@ -848,10 +894,16 @@ export function PointCloudViewer({
   }, [points]);
 
   const handleReset = useCallback(() => {
+    setViewPreset("default");
     setResetKey(k => k + 1);
   }, []);
 
-  if (points.length === 0) {
+  const handleTopDownView = useCallback(() => {
+    setViewPreset(prev => prev === "top" ? "default" : "top");
+    setResetKey(k => k + 1);
+  }, []);
+
+  if (points.length === 0 && (!lines || lines.length === 0)) {
     return (
       <div className={`bg-muted/30 rounded-lg flex items-center justify-center ${className}`}>
         <p className="text-muted-foreground">No point cloud data</p>
@@ -871,17 +923,26 @@ export function PointCloudViewer({
         <ambientLight intensity={0.6} />
         <directionalLight position={[10, 20, 10]} intensity={0.4} />
         
-        <PerspectiveCamera
-          makeDefault
-          position={[
-            center.x + cameraDistance * 0.7,
-            center.y + cameraDistance * 0.5,
-            center.z + cameraDistance * 0.7
-          ]}
-          fov={50}
-          near={0.1}
-          far={cameraDistance * 20}
-        />
+        {viewPreset === "top" ? (
+          <OrthographicCamera
+            makeDefault
+            position={[center.x + cameraDistance * 0.001, center.y + cameraDistance, center.z]}
+            near={0.01}
+            far={cameraDistance * 40}
+          />
+        ) : (
+          <PerspectiveCamera
+            makeDefault
+            position={[
+              center.x + cameraDistance * 0.7,
+              center.y + cameraDistance * 0.5,
+              center.z + cameraDistance * 0.7
+            ]}
+            fov={50}
+            near={0.1}
+            far={cameraDistance * 20}
+          />
+        )}
         
         <PointCloud 
           points={points} 
@@ -942,24 +1003,35 @@ export function PointCloudViewer({
           />
         )}
         
-        <CameraController center={center} distance={cameraDistance} resetKey={resetKey} />
+        <CameraController center={center} distance={cameraDistance} resetKey={resetKey} viewPreset={viewPreset} />
         
         {showStats && <Stats />}
       </Canvas>
       
       {/* Top bar */}
       <div className="absolute top-2 left-2 right-2 flex justify-between items-center">
-        {/* Reset button */}
-        <Button
-          variant="secondary"
-          size="icon"
-          className="h-7 w-7 bg-background/80 backdrop-blur-sm"
-          onClick={handleReset}
-          title="Reset camera"
-        >
-          <Home className="w-3.5 h-3.5" />
-        </Button>
-        
+        {/* Camera controls */}
+        <div className="flex items-center gap-1">
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-7 w-7 bg-background/80 backdrop-blur-sm"
+            onClick={handleReset}
+            title="Reset camera"
+          >
+            <Home className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            className={`h-7 w-7 backdrop-blur-sm ${viewPreset === "top" ? "bg-primary text-primary-foreground hover:bg-primary/90" : "bg-background/80"}`}
+            onClick={handleTopDownView}
+            title="Top down view"
+          >
+            <ArrowDown className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+
         {/* Stats overlay */}
         <div className="bg-background/80 backdrop-blur-sm rounded px-2 py-1">
           <p className="text-[10px] text-muted-foreground">
