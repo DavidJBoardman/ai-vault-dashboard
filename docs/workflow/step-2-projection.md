@@ -6,9 +6,20 @@ Convert the loaded 3D scan into a 2D orthographic **top-down plan view** of the 
 
 ## How projection works
 
-Points are accumulated onto the image plane using a **1D Gaussian splat**: each 3D point contributes intensity to its projected pixel weighted by a Gaussian function of its distance from the projection focal plane along the view axis.[^1] Summing these weighted contributions across all points produces a smooth density image that fills small gaps between neighbouring points and reduces aliasing, giving clearer rib definition than a simple point-drop or max-depth render.
+The projection uses a simple form of **Gaussian splatting**, carried out as a normalised convolution:[^1]
 
-[^1]: Gaussian splatting accumulates point contributions via a kernel function rather than hard per-pixel binning; the foundational formulation is given in Westover, L.A., "Footprint Evaluation for Volume Rendering", *ACM SIGGRAPH Computer Graphics* 24(4), 1990, 245–252.
+1. Each point is dropped into the pixel directly above it in the chosen view. Every pixel keeps a running total of the colour, depth and 3D coordinates of the points that land in it, plus a count of those points.
+2. The totals and the counts are both blurred with a 2D Gaussian filter. Its width in pixels is 1.5 × the **Gaussian σ** setting, clamped to 0.5–4 pixels.
+3. Each pixel's blurred total is divided by its blurred count, giving a Gaussian-weighted average of the nearby points.
+
+The result is a smooth image that fills small gaps between neighbouring scan points and gives clearer rib definition than plotting each point as a single dot. A per-pixel 3D coordinate image is saved alongside it. Step 4 uses it for aspect-ratio correction, and Step 5 uses it to place boss markers in 3D.
+
+!!! note
+    Every point in the column above a pixel contributes to its value, not just the nearest surface. This is why Step 1 expects a scan clipped to a single bay.
+
+Large scans are downsampled to a fixed point budget before projection, so that generation time stays practical.
+
+[^1]: Knutsson, H. and Westin, C.-F., "Normalized and Differential Convolution", *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)*, 1993, 515–523. This is not 3D Gaussian Splatting (Kerbl et al., 2023), which is a different, learned rendering method.
 
 ## What happens automatically
 

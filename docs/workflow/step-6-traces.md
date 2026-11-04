@@ -8,7 +8,7 @@ Establish the **intrados lines** that Step 7 will measure. Traces can come from 
 
 ### Automatic traces
 
-The application derives candidate rib lines automatically from processed imagery using edge detection and skeletonisation, then splits the result into individual line candidates.[^1] This gives you a fast starting point rather than a finished scholarly interpretation.
+The automatic traces are the intrados lines produced in **Step 5**. Each one is traced from the rib's reprojected 3D points: the rib is cut into slices along its PCA direction, and the lowest central points in each slice are taken as the intrados (see [Step 5](step-5-reprojection.md#intrados-tracing)). They give you a fast starting point, not a finished scholarly interpretation.
 
 Automatic traces work best where ribs are clearly separated and well captured in the scan.
 
@@ -16,7 +16,19 @@ Automatic traces work best where ribs are clearly separated and well captured in
 
 If you have manually traced the rib geometry in Rhino or another tool that exports `3DM`, you can import those curves directly. Manual traces are preferable when automatic extraction is unreliable.
 
-The importer reads **all curves** from the file regardless of layer name. There is no requirement for a specific layer structure in the `3DM` file.
+The importer reads curves from a layer named `Trace` if the file has one. Otherwise it reads **all curves** from every layer, so no particular layer structure is required.
+
+### Traces-only mode (manual traces without Steps 2–5)
+
+If you already have traced intrados lines, you can skip projection, segmentation and reprojection. There are two ways in:
+
+- **From the home screen:** create a project with **Import Rhino Traces** instead of **Create Project**. No E57 file is needed.
+- **From Step 1:** after loading an E57, click **I have my own traces**.
+
+Either route takes you straight to Step 6, and Steps 2–5 are marked *Skipped* in the step navigation. In this mode:
+
+- the trace source defaults to **manual**
+- an **Impost Line** panel appears in Step 6 (normally set in Step 5). Use **Set impost line height** and the **Z height** control to place it. It starts 10% of the way up the height range of the displayed data, and Step 7 uses it for apex and impost calculations.
 
 ---
 
@@ -93,5 +105,3 @@ Click **Export** in the sidebar, select a format, and choose a save location.
 ## Expected result
 
 A confirmed set of traces ready for measurement in Step 7.
-
-[^1]: Related reference: Zhang, T.Y. and Suen, C.Y., "A Fast Parallel Algorithm for Thinning Digital Patterns", *Communications of the ACM* 27(3), 1984, 236–239.

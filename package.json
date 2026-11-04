@@ -3,7 +3,7 @@
   "version": "0.1.2",
   "description": "Medieval Vault Architecture Analysis Platform",
   "main": "electron-dist/main.js",
-  "author": "Your Name",
+  "author": "David Boardman, Wiktoria Ploch, Yang Zhang",
   "license": "MIT",
   "scripts": {
     "clean": "rm -rf .next out dist electron-dist backend/build backend/dist backend/__pycache__",

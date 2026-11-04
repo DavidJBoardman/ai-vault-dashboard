@@ -394,4 +394,6 @@ This keeps documentation deployment separate from the main desktop release workf
 
 ## License
 
-MIT
+Vault Analyser is released under the [MIT License](LICENSE). Copyright (c) 2025-2026 University of Liverpool.
+
+The SAM 3 model weights are not part of this repository. They are downloaded from Hugging Face (`facebook/sam3`) on first use and are covered by Meta's own SAM licence.

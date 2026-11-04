@@ -12,7 +12,7 @@ Each rib or rib group is summarised through the following metrics:
 |-------------|-------------|
 | **Arc radius** | Radius of the best-fit circular arc, when the rib is not effectively straight |
 | **Length** | Measured length of the rib trace or grouped rib system |
-| **Impost distance** | Height difference between the rib's fitted arc centre and the chosen impost line |
+| **Impost distance** | Height of the rib's springing point (its lowest traced point) above the chosen impost line |
 | **Span** | Horizontal measure derived primarily from boss/apex logic and rib pairings; an experimental semicircular mode is also available |
 | **Apex height** | Height above impost line derived primarily from rib pairings; an experimental semicircular mode can also supply it for flagged groups |
 | **Fit error** | Residual error of the arc fit, used as a quality check |

@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "Vault Analyser"
+type: software
+abstract: >-
+  Vault Analyser is a cross-platform desktop application for documenting and
+  analysing medieval vaulted ceilings from 3D point cloud scans. It combines
+  AI-driven segmentation of vault ribs and boss stones (SAM 3) with automated
+  2D plan analysis (bay proportions, starcut and circlecut matching, bay-plan
+  reconstruction) and 3D intrados tracing and best-fit arc measurement.
+authors:
+  - family-names: Boardman
+    given-names: David J.
+    affiliation: "Virtual Engineering Centre, University of Liverpool"
+  - family-names: Ploch
+    given-names: Wiktoria
+    affiliation: "Virtual Engineering Centre, University of Liverpool"
+  - family-names: Zhang
+    given-names: Yang
+    affiliation: "Virtual Engineering Centre, University of Liverpool"
+version: 0.1.2
+date-released: 2026-06-30
+license: MIT
+repository-code: "https://github.com/DavidJBoardman/ai-vault-dashboard"
+url: "https://davidjboardman.github.io/ai-vault-dashboard/"
+keywords:
+  - medieval vaults
+  - point cloud
+  - E57
+  - segmentation
+  - SAM 3
+  - architectural history
+  - heritage documentation

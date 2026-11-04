@@ -10,6 +10,10 @@ Before you reach the 8-step workflow, you need to either create a new project or
 
 The application creates the project and takes you directly to Step 1 (Upload E57 Scan).
 
+### Starting from your own traces
+
+If you already have intrados lines traced in Rhino and only want the measurement and analysis steps, click **Import Rhino Traces** instead of **Create Project**. This creates a *traces-only* project that needs no E57 file and opens directly at Step 6. See [Traces-only mode](step-6-traces.md#traces-only-mode-manual-traces-without-steps-25).
+
 !!! tip
     Use a name that identifies the site, bay, and date so projects are easy to tell apart in the project list later.
 

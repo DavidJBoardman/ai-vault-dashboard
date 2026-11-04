@@ -2,11 +2,29 @@
 
 ## Purpose
 
-Map the 2D segmentation masks and rib geometry back onto the original 3D point cloud so that trace and measurement work in later steps is grounded in the actual scan.
+Map the Step 3 segmentation masks back onto the original 3D point cloud, then trace the **intrados line** of each rib so that the trace and measurement work in later steps is grounded in the actual scan.
+
+!!! note
+    Step 5 needs only the Step 3 masks, not the Step 4 bay plan. It unlocks as soon as Step 3 is complete.
 
 ## What the application does
 
-The backend uses the projection metadata recorded in Step 2 to reverse the orthographic projection: each pixel in the 2D mask is cast back into 3D space and matched to the nearest scan points. The result is a colour-coded point cloud where every rib and feature group is labelled in three dimensions and can be inspected before committing to the trace stage.
+### Reprojection
+
+The backend uses the projection settings recorded in Step 2 to project each **original E57 point** onto the 2D image. A point that lands inside a mask takes that mask's label. The result is a colour-coded point cloud in which every rib and feature group is labelled in three dimensions, ready to inspect before tracing.
+
+### Intrados tracing
+
+Clicking **Trace Intrados Lines** traces one line per rib mask:
+
+1. **Collect the rib's points.** Take all scan points labelled with that rib. Drop any below the impost line or inside the exclusion box (see below).
+2. **Find the rib's direction.** Principal component analysis (PCA) gives the direction the rib runs in.
+3. **Slice.** Cut the rib into 50 slices across that direction.
+4. **Pick the intrados.** In each slice, keep the points near the rib's horizontal centre and take the lower quartile (25th percentile) of their heights. That point is the intrados.
+5. **Smooth.** Apply a moving average along the line.
+6. **Trim boss turns automatically.** Where a boss stone makes the line bend sharply (more than 40°) within the last 30% at either end, cut the line back at that bend.
+
+Heavy reprojection results are cached to disk. Revisiting the page with the same settings loads almost instantly.
 
 Heavy reprojection results are cached to disk. Revisiting the page with the same settings loads almost instantly.
 
@@ -20,9 +38,19 @@ Heavy reprojection results are cached to disk. Revisiting the page with the same
 
 3. **Check masked and unmasked points.** Toggle visibility to make sure the selected features are not drifting onto unrelated masonry.
 
-4. **Trim rib endpoint turns (optional).** If any automatically extracted intrados lines curve sharply at their ends, open the **Trim Rib Endpoints** panel to cut them back.
+4. **Set the tracing exclusions (optional).** Use these to keep points that do not belong to the rib out of the traces:
+    - **Impost Line (exclude below):** points below this height are ignored. By default it sits 10% of the way up the scan's height range.
+    - **Exclusion Box (exclude inside):** points inside the red box are ignored.
 
-5. **Confirm the reprojection** before moving to Step 6.
+    Use them to remove walls, capitals or stray points that the reprojection has picked up.
+
+5. **Bridge ribs through boss stones (optional).** Tick this to join pairs of ribs that meet in line at a boss into one continuous arc, traced through the boss's own points. This is useful for reconstructing whole arches.
+
+6. **Trace the intrados lines.** Click **Trace Intrados Lines** (or **Re-trace Intrados** after changing a setting).
+
+7. **Trim rib endpoint turns (optional).** If a traced line still curves sharply at an end, open the **Trim Rib Endpoints** panel to cut it back.
+
+8. **Continue to Traces.** If the impost line was changed after tracing, a warning asks you to re-trace, because Step 7 uses the same impost line.
 
 ---
 
@@ -36,7 +64,7 @@ If the 3D preview looks inverted or offset, go back to Step 2 and re-run the pro
 
 ## Trim Rib Endpoints
 
-Automatically traced intrados lines occasionally turn sharply at their ends when the extracted skeleton follows minor scan noise near the rib terminus. The **Trim Rib Endpoints** tool lets you cut back each end independently without discarding the whole trace.
+Traced intrados lines can still turn at their ends, usually where a rib runs into a boss stone or picks up scan noise near its end. The automatic trim catches sharp turns only. The **Trim Rib Endpoints** tool lets you cut back each end independently without discarding the whole trace.
 
 ### Opening the panel
 
@@ -65,7 +93,7 @@ The panel can be dragged anywhere on screen by its title bar — useful when wor
     Start with small adjustments — 5–10% is usually enough to remove a sharp endpoint turn. The retained amber segment in the range bar gives a quick visual read of how much of the line you are keeping.
 
 !!! note
-    Applied trims are saved to the project immediately. To reset a line to its original extent, re-run the intrados extraction from Step 4 for that rib.
+    Applied trims are saved to the project immediately. To reset a line to its original extent, click **Re-trace Intrados**. This re-traces every rib and discards all manual trims.
 
 ### Closing the panel
 
@@ -80,8 +108,12 @@ Click **Cancel** or click elsewhere in the 3D canvas to deselect the current lin
 | Segmentation group toggles | Include or exclude each feature class in the reprojection |
 | Masked / unmasked point visibility | Isolate one group for inspection |
 | 3D preview canvas | Interactive point-cloud view with reprojected colour labels; click any rib line to select it |
+| Impost Line (exclude below) | Ignores points below the chosen height when tracing; Step 7 also uses it |
+| Exclusion Box (exclude inside) | Ignores points inside an adjustable X/Y/Z box when tracing |
+| Bridge ribs through boss stones | Joins rib pairs that meet in line at a boss into one continuous arc |
+| Trace Intrados Lines / Re-trace Intrados | Runs the intrados tracing described above |
 | Trim Rib Endpoints callout | Shows selection status; click a line to open the trim panel |
-| Confirm button | Persists the reprojection state for Step 6 |
+| Continue to Traces | Saves the reprojection and traces for Step 6 |
 
 ---
 

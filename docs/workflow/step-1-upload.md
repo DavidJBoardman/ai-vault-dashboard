@@ -30,6 +30,10 @@ Load the point-cloud dataset into the application and confirm it is ready for th
 !!! note "File size"
     `E57` files from terrestrial laser scans are often large. The initial load can take time, especially on the first pass through a new project.
 
+## Using your own traces
+
+If you already have manually traced intrados lines, click **I have my own traces** once the scan has loaded, instead of **Continue to Projection**. This skips Steps 2–5 and opens Step 6, where you import the Rhino `3DM` file over the loaded scan. See [Traces-only mode](step-6-traces.md#traces-only-mode-manual-traces-without-steps-25).
+
 ## Expected result
 
 A successfully loaded scan with a visible 3D preview and no errors. You can now continue to Step 2.
