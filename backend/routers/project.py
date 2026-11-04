@@ -2855,18 +2855,26 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
                 "error": f"File not found: {request.filePath}"
             }
         
-        # Import curves
+        # Try importing from the dedicated "Trace" layer first; fall back to
+        # all curves if that layer is absent or empty in the file.
         result = import_3dm_curves(
             file_path=request.filePath,
             layer_filter=TRACE_IMPORT_LAYER_NAME
         )
-        
+
+        if result["success"] and result.get("curveCount", 0) == 0:
+            print(f"  No curves on '{TRACE_IMPORT_LAYER_NAME}' layer — importing all curves")
+            result = import_3dm_curves(
+                file_path=request.filePath,
+                layer_filter=None
+            )
+
         if result["success"]:
             # Save imported traces
             project_dir = get_project_dir(project_id)
             traces_dir = project_dir / "traces"
             traces_dir.mkdir(parents=True, exist_ok=True)
-            
+
             imported_traces_path = traces_dir / "imported_traces.json"
             with open(imported_traces_path, "w", encoding="utf-8") as f:
                 json.dump({
@@ -2874,14 +2882,19 @@ async def import_3dm_traces(project_id: str, request: Import3dmRequest):
                     "curves": result["curves"],
                     "importedAt": datetime.now().isoformat()
                 }, f, indent=2)
-            
+
+            curve_count = result.get("curveCount", 0)
+            layers = result.get("layers", [])
+            layer_desc = f"layer '{TRACE_IMPORT_LAYER_NAME}'" if any(
+                l.strip().lower() == TRACE_IMPORT_LAYER_NAME.lower() for l in layers
+            ) else "all layers"
             return {
                 "success": True,
                 "data": {
                     "curves": result["curves"],
-                    "curveCount": result.get("curveCount", 0),
-                    "layers": result.get("layers", []),
-                    "message": f"Imported {result.get('curveCount', 0)} curves from the {TRACE_IMPORT_LAYER_NAME} layer",
+                    "curveCount": curve_count,
+                    "layers": layers,
+                    "message": f"Imported {curve_count} curves from {layer_desc}",
                     "source": request.filePath,
                     "importedAt": datetime.now().isoformat(),
                 }
@@ -2949,6 +2962,60 @@ async def get_3dm_info_endpoint(project_id: str, file_path: str):
             }
         
         return get_3dm_info(file_path)
-        
+
     except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ── Step 6 UI config persistence ─────────────────────────────────────────────
+
+class Step6ConfigRequest(BaseModel):
+    traceSource: str = "auto"
+    selectedTraceType: str = "auto"
+    isConfirmed: bool = False
+    showAutoLines: bool = True
+    showManualLines: bool = True
+    lineWidth: float = 0.03
+    exportFormat: str = "3dm"
+
+
+@router.get("/{project_id}/step6-config")
+async def get_step6_config(project_id: str):
+    """Return persisted step-6 UI state for the project, or defaults if none saved."""
+    project_dir = get_project_dir(project_id)
+    config_path = project_dir / "segmentations" / "step6_config.json"
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return {"success": True, "data": data}
+        except Exception as e:
+            print(f"Error reading step6 config: {e}")
+    return {
+        "success": True,
+        "data": {
+            "traceSource": "auto",
+            "selectedTraceType": "auto",
+            "isConfirmed": False,
+            "showAutoLines": True,
+            "showManualLines": True,
+            "lineWidth": 0.03,
+            "exportFormat": "3dm",
+        }
+    }
+
+
+@router.post("/{project_id}/step6-config")
+async def save_step6_config(project_id: str, request: Step6ConfigRequest):
+    """Persist step-6 UI state to disk so the page restores correctly after app restart."""
+    project_dir = get_project_dir(project_id)
+    seg_dir = project_dir / "segmentations"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    config_path = seg_dir / "step6_config.json"
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(request.model_dump(), f, indent=2)
+        return {"success": True}
+    except Exception as e:
+        print(f"Error saving step6 config: {e}")
         return {"success": False, "error": str(e)}

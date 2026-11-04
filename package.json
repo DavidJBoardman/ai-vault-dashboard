@@ -1,6 +1,6 @@
 {
   "name": "ai-vault-interface",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Medieval Vault Architecture Analysis Platform",
   "main": "electron-dist/main.js",
   "author": "Your Name",

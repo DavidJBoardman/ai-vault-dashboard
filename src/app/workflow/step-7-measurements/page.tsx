@@ -699,6 +699,7 @@ function createBestFitArcLines(
 export default function Step7MeasurementsPage() {
   const router = useRouter();
   const { currentProject, addMeasurement, completeStep } = useProjectStore();
+  const isTracesOnlyMode = currentProject?.workflowMode === "traces-only";
   const requestedTraceSource = coerceTraceSourceSelection(currentProject?.stepData?.[6]?.traceSource);
   
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
@@ -3237,6 +3238,7 @@ export default function Step7MeasurementsPage() {
                           showBossStoneLabels={showBossStones}
                           selectedBossStoneId={selectedBossStone}
                           onBossStoneClick={setSelectedBossStone}
+                          showPointCloudControls={!isTracesOnlyMode}
                         />
                       ) : (
                         <div className="h-full rounded-lg bg-muted flex items-center justify-center">
@@ -4013,6 +4015,7 @@ export default function Step7MeasurementsPage() {
                           showBossStoneLabels={showBossStones}
                           selectedBossStoneId={selectedBossStone}
                           onBossStoneClick={setSelectedBossStone}
+                          showPointCloudControls={!isTracesOnlyMode}
                         />
                       ) : (
                         <div className="h-full rounded-lg bg-muted flex items-center justify-center">

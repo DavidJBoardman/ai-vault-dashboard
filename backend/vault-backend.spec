@@ -1,9 +1,13 @@
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_all
 
 
 project_dir = Path(SPECPATH)
+
+# Collect rhino3dm including its native extensions and data files
+rhino3dm_datas, rhino3dm_binaries, rhino3dm_hiddenimports = collect_all("rhino3dm")
+
 hiddenimports = [
     "pye57",
     "open3d",
@@ -25,7 +29,9 @@ hiddenimports = [
     "torchvision.ops",
     "torchvision.ops.boxes",
     "torchvision.transforms",
+    "rhino3dm",
 ]
+hiddenimports += rhino3dm_hiddenimports
 hiddenimports += collect_submodules("transformers.models.sam3")
 excludes = [
     # Optional visualisation/data-science stacks pulled in around open3d are not
@@ -42,8 +48,8 @@ excludes = [
 a = Analysis(
     ["main.py"],
     pathex=[str(project_dir)],
-    binaries=[],
-    datas=[],
+    binaries=[] + rhino3dm_binaries,
+    datas=[] + rhino3dm_datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
