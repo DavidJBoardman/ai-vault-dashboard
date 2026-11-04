@@ -33,7 +33,7 @@ Vault Analyser is organised as an 8-step workflow. Each page in this section exp
 For most projects, a good first pass looks like this:
 
 1. Load the scan and confirm it is oriented correctly.
-2. Create a bottom-up projection with enough detail to see ribs and bosses.
+2. Check the automatically generated top-down plan view shows ribs and bosses clearly.
 3. Segment ribs and bosses cleanly.
 4. Place the ROI carefully and review the automatically prepared nodes.
 5. Reconstruct the bay plan and correct any wrong edges.
